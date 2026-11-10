@@ -166,23 +166,32 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .file-open { flex: 1; display: flex; gap: 8px; align-items: center; background: none; border: none; text-align: left; padding: 6px 0; cursor: pointer; min-width: 0; }
 .f-name { overflow-wrap: anywhere; }
 
-/* ---------- Ferestre proprii ---------- */
-.m-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(20,18,12,.38); display: flex; align-items: center; justify-content: center; padding: 16px; opacity: 0; transition: opacity .14s; }
-.m-overlay.open { opacity: 1; }
-.m-overlay.closing { opacity: 0; }
-.m-box { background: var(--bg); border-radius: 18px; width: 100%; max-width: 440px; max-height: 92vh; display: flex; flex-direction: column; box-shadow: 0 18px 50px rgba(0,0,0,.25); overflow: hidden; }
+/* ---------- Ferestre proprii ----------
+   Opacitatea NU se pune pe overlay-ul întreg (în WebView-ul Android animația rămâne pe drum
+   și ecranul de dedesubt se vede printre ferestre). Fundalul e un ::before; cutia e mereu opacă. */
+.m-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); background: transparent; overflow: hidden; }
+.m-overlay::before { content: ''; position: absolute; inset: 0; background: rgba(20,18,12,.62); opacity: 0; transition: opacity .14s ease; pointer-events: none; }
+.m-overlay.open::before { opacity: 1; }
+.m-overlay.closing::before { opacity: 0; }
+.m-overlay.buried { visibility: hidden; pointer-events: none; }
+.m-box { position: relative; z-index: 1; background: var(--bg); color: var(--text); border-radius: 18px; width: min(440px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: min(92vh, calc(100dvh - 24px)); display: flex; flex-direction: column; box-shadow: 0 18px 50px rgba(0,0,0,.28); overflow: hidden; opacity: 1; }
 .m-ov-sheet { align-items: flex-end; padding: 0; }
-.m-sheet { max-width: 560px; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); }
+.m-sheet { width: 100%; max-width: min(560px, 100vw); border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); }
 .m-ov-page { padding: 0; background: var(--bg); }
-.m-page { max-width: none; max-height: none; height: 100%; border-radius: 0; box-shadow: none; }
+.m-ov-page::before { display: none; }
+.m-page { width: 100%; max-width: none; max-height: none; height: 100%; border-radius: 0; box-shadow: none; }
 .m-page .m-body { max-width: 760px; width: 100%; margin: 0 auto; }
 .m-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; padding-top: calc(12px + env(safe-area-inset-top)); }
 .m-sheet .m-head, .m-dialog .m-head { padding-top: 14px; }
 .m-title { font-size: 19px; letter-spacing: .03em; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .m-back { font-size: 24px; }
 .m-body { padding: 8px 16px 14px; overflow-y: auto; flex: 1 1 auto; -webkit-overflow-scrolling: touch; }
-.m-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--bg); }
+.m-actions { display: flex; flex-wrap: nowrap; gap: 8px; justify-content: flex-end; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--bg); }
+.m-actions .btn { flex: 0 0 auto; }
 .m-actions .more { margin-right: auto; min-width: 46px; font-size: 20px; }
+@media (prefers-reduced-motion: reduce) {
+  .m-overlay::before, .m-overlay, .toast { transition: none !important; }
+}
 .m-msg { font-size: 16.5px; margin: 6px 0 8px; white-space: pre-wrap; }
 .sheet-list { display: flex; flex-direction: column; }
 .sheet-opt { display: flex; align-items: center; gap: 12px; padding: 14px 6px; border: none; border-bottom: 1px solid var(--line); background: none; text-align: left; font-size: 17px; cursor: pointer; min-height: 50px; }
@@ -356,3 +365,13 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .fp-item { width: 100%; text-align: left; border: 0; padding: 0; background: transparent; cursor: pointer; }
 .fp-acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 4px; position: sticky; bottom: 0; background: var(--card); }
 .folder-pick-page .m-body { overflow: auto; }
+
+/* Selectoare interne (fără <select>/<datalist> native, care eșuează în WebView) */
+.pick-btn { text-align: left; cursor: pointer; background: var(--card); display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
+.pick-btn::after { content: '▾'; color: var(--muted); font-size: 12px; margin-left: 8px; }
+.pick-btn.placeholder { color: var(--muted); }
+.picker-sheet { display: flex; flex-direction: column; gap: 10px; min-height: 30vh; max-height: 70vh; }
+.picker-list { display: flex; flex-direction: column; gap: 0; overflow: auto; flex: 1; min-height: 80px; }
+.picker-list .sheet-opt { justify-content: space-between; }
+.picker-list .sheet-opt.on { box-shadow: 0 0 0 2px var(--gold-line); }
+.picker-acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0 4px; position: sticky; bottom: 0; background: var(--card); }

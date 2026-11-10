@@ -67,7 +67,7 @@ export const KINDS = {
     fields: [
       { k: 'title', type: 'text', label: () => t('fCaseTitle'), main1: true },
       { k: 'number', type: 'text', label: () => t('fCaseNumber') },
-      { k: 'client', type: 'text', label: () => t('fClient'), list: 'clients' },
+      { k: 'client', type: 'text', label: () => t('fClientOrFirm'), list: 'clients' },
       { k: 'court', type: 'text', label: () => t('fCourt') },
       { k: 'date', type: 'date', label: () => t('fTermen'), half: true },
       { k: 'time', type: 'time', label: () => t('fTime'), half: true },
@@ -87,10 +87,11 @@ export const KINDS = {
   },
   client: {
     label: () => t('kindClient'),
-    newData: () => ({ name: '', represents: '', phone: '', email: '', address: '', caseTitle: '', date: '', time: '', stage: 'nou', notes: '', files: [] }),
+    newData: () => ({ name: '', clientType: 'person', represents: '', phone: '', email: '', address: '', caseTitle: '', date: '', time: '', stage: 'nou', notes: '', files: [] }),
     title: d => [d.name || t('untitled'), d.represents].filter(Boolean).join(' – '),
     fields: [
-      { k: 'name', type: 'text', label: () => t('fNameSurname') },
+      { k: 'name', type: 'text', label: () => t('fNameOrFirm') },
+      { k: 'clientType', type: 'enum', def: 'person', label: () => t('clientType'), options: () => [{ value: 'person', label: t('clientPerson') }, { value: 'firm', label: t('clientFirm') }] },
       { k: 'represents', type: 'text', label: () => t('fRepresents') },
       { k: 'caseTitle', type: 'text', label: () => t('fCase'), list: 'cases' },
       { k: 'date', type: 'date', label: () => t('fTermen'), half: true },
@@ -104,10 +105,10 @@ export const KINDS = {
     ],
     row2: (it, d) => h('div', { class: 'r2-split' },
       h('div', { class: 'r2-col' }, h('div', { class: 'r2-when' }, d.date ? t('termenAt', { w: when(d) }) : t('noTermen')),
-        d.caseTitle ? h('div', { class: 'r2-meta' }, d.caseTitle) : null),
+        h('div', { class: 'r2-meta' }, d.clientType === 'firm' ? t('clientFirm') : t('clientPerson'), d.caseTitle ? ' • ' + d.caseTitle : ''),),
       stagePill(d.stage)),
     sort: (a, b) => byTermen(a, b),
-    search: d => [d.name, d.represents, d.caseTitle, d.phone, d.email, d.address, stageLabel(d.stage), d.notes].join(' \n '),
+    search: d => [d.name, d.clientType === 'firm' ? t('clientFirm') : t('clientPerson'), d.represents, d.caseTitle, d.phone, d.email, d.address, stageLabel(d.stage), d.notes].join(' \n '),
   },
   deadline: {
     label: () => t('kindDeadline'),

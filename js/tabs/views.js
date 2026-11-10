@@ -176,7 +176,7 @@ export async function newFolder(tab, parent) {
   const f = await createFolder(tab, parent);
   if (f) app.render();
 }
-async function folderMenu(tab, f) {
+export async function folderMenu(tab, f) {
   if (!canView(f)) return;
   const v = await sheet(folderName(f), [
     { label: t('rename'), value: 'ren', icon: '✎' },

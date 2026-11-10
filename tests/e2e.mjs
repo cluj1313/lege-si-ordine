@@ -22,7 +22,10 @@ const assert = (c, m) => { if (!c) throw new Error(m || 'assert'); };
 
 async function run(vp, label, full) {
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
-  const ctx = await browser.newContext({ viewport: vp, hasTouch: true, isMobile: true, deviceScaleFactor: 2, locale: 'ro-RO', acceptDownloads: true, permissions: ['microphone'] });
+  const ctx = await browser.newContext({
+    viewport: vp, hasTouch: true, isMobile: true, deviceScaleFactor: 2, locale: 'ro-RO', acceptDownloads: true, permissions: ['microphone'],
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
+  });
   const p = await ctx.newPage(); curPage = p;
   p.setDefaultTimeout(10000);
   const cdp = await ctx.newCDPSession(p);
@@ -47,6 +50,35 @@ async function run(vp, label, full) {
   const save = async () => { await tap('[data-test=editor] .m-actions .btn.primary'); await gone('[data-test=editor]'); };
   const noOverflow = async () => { const o = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth); assert(o <= 1, 'depășire orizontală ' + o + 'px'); };
   const idbItems = () => p.evaluate(() => new Promise(res => { const r = indexedDB.open('lso_db'); r.onsuccess = () => { const q = r.result.transaction('lso_items').objectStore('lso_items').getAll(); q.onsuccess = () => res(q.result); }; }));
+  const assertModalFit = async (sel) => {
+    const r = await p.locator(sel).evaluate(el => {
+      const ov = el.closest('.m-overlay');
+      const box = el.classList.contains('m-box') ? el : (el.closest('.m-box') || el);
+      const br = box.getBoundingClientRect();
+      const btns = [...box.querySelectorAll('.m-actions .btn')].map(b => {
+        const x = b.getBoundingClientRect();
+        return { t: (b.textContent || '').trim(), l: x.left, r: x.right, top: x.top, b: x.bottom };
+      });
+      const titles = [...box.querySelectorAll('.m-title')].map(t => t.textContent.trim());
+      return {
+        ovOp: getComputedStyle(ov).opacity, open: ov.classList.contains('open'), boxOp: getComputedStyle(box).opacity,
+        br: { l: br.left, r: br.right, t: br.top, b: br.bottom },
+        vw: window.innerWidth, vh: window.innerHeight, btns, titles,
+        buried: [...document.querySelectorAll('.m-overlay')].filter(o => o !== ov).map(o => getComputedStyle(o).visibility),
+      };
+    });
+    assert(r.ovOp === '1' && r.open && r.boxOp === '1', 'fereastra nu e opacă: ' + JSON.stringify(r));
+    assert(r.br.l >= -1 && r.br.r <= r.vw + 1 && r.br.t >= -1 && r.br.b <= r.vh + 1, 'dialog în afara ecranului: ' + JSON.stringify(r.br) + ' vw=' + r.vw);
+    if (r.btns.length) assert(r.btns.every(b => b.l >= -1 && b.r <= r.vw + 1 && b.top >= -1 && b.b <= r.vh + 1), 'butoane tăiate: ' + JSON.stringify(r.btns));
+    assert(r.titles.length <= 1, 'titlu dublat: ' + r.titles.join('|'));
+    assert(r.buried.every(v => v === 'hidden'), 'modala de dedesubt încă se vede');
+  };
+  const pickFromSheet = async (field, sheet, name) => {
+    await p.locator(`[data-test=${field}]`).tap();
+    await p.locator(`[data-test=${sheet}]`).waitFor();
+    await p.locator(`[data-test=${sheet}] .sheet-opt`, { hasText: name }).first().tap();
+    await gone(`[data-test=${sheet}]`);
+  };
 
   await step(`[${label}] pornire fără erori`, async () => {
     await p.goto(BASE);
@@ -516,8 +548,8 @@ async function run(vp, label, full) {
     await p.locator('#view .card[data-kind=rec] button', { hasText: 'Redenumește' }).tap();
     await p.locator('[data-test=rec-edit]').waitFor();
     await p.locator('[data-test=rec-edit-name]').fill('Audiere martor');
-    await p.locator('[data-test=rec-edit-client]').fill('Ion Popescu (exemplu)');
-    await p.locator('[data-test=rec-edit-case]').fill('1234/299/2026 (exemplu)');
+    await pickFromSheet('rec-edit-client', 'client-pick-sheet', 'Ion Popescu (exemplu)');
+    await pickFromSheet('rec-edit-case', 'case-pick-sheet', '1234/299/2026 (exemplu)');
     await p.locator('[data-test=rec-edit] .m-actions .btn.primary').tap();
     await gone('[data-test=rec-edit]');
     await p.locator('#view .card[data-kind=rec] .r1t', { hasText: 'Ion Popescu (exemplu)' }).waitFor();
@@ -538,14 +570,17 @@ async function run(vp, label, full) {
     if (await c.locator('.r2').count() === 0) await c.locator('.r1').tap();
     await c.locator('[data-test=rec-archive]').tap();
     await p.locator('[data-test=folder-pick]').waitFor();
+    await assertModalFit('[data-test=folder-pick]');
     assert(await p.locator('[data-test=fp-new]', { hasText: 'Creează Folder' }).count() === 1, 'Creează Folder la rădăcină');
     assert(await p.locator('[data-test=folder-pick] .fp-item', { hasText: 'Folder 1' }).count() === 1, 'arborele de foldere');
     await p.screenshot({ path: `${SHOTS}${label}-recordings-folder-pick.png` });
     // Creează Folder întreabă întotdeauna; Nu anulează
     await p.locator('[data-test=fp-new]').tap();
     await p.locator('[data-test=create-folder]').waitFor();
+    await assertModalFit('[data-test=create-folder]');
     await p.locator('[data-test=folder-name]').fill('Nu acesta');
     await p.screenshot({ path: `${SHOTS}${label}-recordings-create-folder.png` });
+    assert(await p.locator('[data-test=toast]').count() <= 1, 'un singur toast, avem ' + await p.locator('[data-test=toast]').count());
     await p.locator('[data-test=create-folder] .m-actions .btn.ghost').tap();
     await gone('[data-test=create-folder]');
     assert(await p.locator('[data-test=folder-pick]').count() === 1, 'picker-ul rămâne deschis');
@@ -616,6 +651,78 @@ async function run(vp, label, full) {
     assert(await p.locator('#view .day-group.open').count() === 0, 'ziua nu s-a închis');
     assert(await p.locator('#view .day-row .chip', { hasText: 'Ion Popescu (exemplu)' }).count() === 1, 'cip după arhivare');
     await p.screenshot({ path: `${SHOTS}${label}-NOU-recordings.png` });
+  });
+
+  await step(`[${label}] [NOU] RECORDINGS: rând de pastile (Toate + folderele din Foldere), filtru, + la capăt`, async () => {
+    await goTab('RECORDINGS');
+    const row = p.locator('[data-test=rec-folder-row]');
+    await row.waitFor();
+    const labels = await row.locator('.folder-tile .ft-label').evaluateAll(els => els.map(e => e.textContent.trim()));
+    assert(labels[0] === 'Toate', 'prima pastilă trebuie să fie Toate: ' + labels.join('|'));
+    assert(labels.includes('Folder 2') && labels.includes('Folder 3'), 'folderele din Foldere lipsesc: ' + labels.join('|'));
+    assert(await row.locator(':scope > :last-child').evaluate(e => e.textContent.trim() === '+'), '„+” la capăt');
+    assert(await row.locator('.pr-manage').count() === 1, '⋯ vizibilitate');
+    await p.screenshot({ path: `${SHOTS}${label}-recordings-pastile.png` });
+    // filtru: un folder fără înregistrări
+    await row.locator('.folder-tile', { hasText: 'Folder 2' }).tap();
+    await p.waitForTimeout(200);
+    assert(await p.locator('#view .day-group .card[data-kind=rec]').count() === 0, 'Folder 2 ar trebui să fie gol');
+    await row.locator('.folder-tile', { hasText: 'Toate' }).tap();
+    await p.waitForTimeout(200);
+    assert(await p.locator('#view .day-row, #view .card[data-kind=rec]').count() >= 1, 'Toate trebuie să arate înregistrările');
+  });
+
+  await step(`[${label}] [NOU] Selector Client sau Firmă: căutare, + Client nou / + Firmă nouă, dialog Da/Nu`, async () => {
+    await goTab('Dosare');
+    await tap('[data-test=fab-add]');
+    await p.locator('[data-test=client-pick]').waitFor();
+    await p.locator('[data-test=client-pick]').tap();
+    await p.locator('[data-test=client-pick-sheet]').waitFor();
+    await assertModalFit('[data-test=client-pick-sheet]');
+    assert(await p.locator('[data-test=client-pick-sheet] .sheet-opt', { hasText: 'Ion Popescu (exemplu)' }).count() === 1, 'clienții existenți');
+    assert(await p.locator('[data-test=client-new]').count() === 1, '+ Client nou');
+    assert(await p.locator('[data-test=client-new-firm]').count() === 1, '+ Firmă nouă');
+    await p.locator('[data-test=client-pick-search]').fill('maria');
+    await p.waitForTimeout(150);
+    assert(await p.locator('[data-test=client-pick-sheet] .sheet-opt', { hasText: 'Maria Ionescu' }).count() === 1, 'căutare');
+    assert(await p.locator('[data-test=client-pick-sheet] .sheet-opt', { hasText: 'Ion Popescu' }).count() === 0, 'filtru căutare');
+    await p.screenshot({ path: `${SHOTS}${label}-client-picker.png` });
+    await p.locator('[data-test=client-new]').tap();
+    await p.locator('[data-test=create-client]').waitFor();
+    await assertModalFit('[data-test=create-client]');
+    await p.locator('[data-test=client-name]').fill('Vasilescu Ana');
+    await p.screenshot({ path: `${SHOTS}${label}-client-nou.png` });
+    await p.locator('[data-test=create-client] .m-actions .btn.primary').tap();
+    await gone('[data-test=create-client]');
+    await gone('[data-test=client-pick-sheet]');
+    assert((await p.locator('[data-test=client-pick]').textContent()).includes('Vasilescu Ana'), 'clientul nou trebuie selectat');
+    await p.locator('[data-test=editor] [data-k=title]').fill('Dosar Vasilescu');
+    await save();
+    await p.locator('#view .card', { hasText: 'Dosar Vasilescu' }).waitFor();
+    await goTab('Clienți');
+    await p.locator('#view .card', { hasText: 'Vasilescu Ana' }).waitFor();
+  });
+
+  await step(`[${label}] [NOU] Citește: textul vorbit include titlul și Notele dosarului (mock)`, async () => {
+    await goTab('Dosare');
+    await tap('[data-test=fab-add]');
+    await p.locator('[data-test=editor] [data-k=title]').fill('Dosar citire test');
+    await p.locator('[data-test=editor] textarea[data-k=notes]').fill('Să pregătesc dosarul pentru instanță');
+    await save();
+    const citire = p.locator('#view .card', { hasText: 'Dosar citire test' });
+    await citire.waitFor();
+    if (!(await citire.evaluate(el => el.classList.contains('open')))) await citire.locator('.r1').tap();
+    await citire.locator('.r2').tap({ position: { x: 20, y: 12 } });
+    await p.locator('[data-test=editor]').waitFor();
+    await p.evaluate(() => { window.__spoken = []; window.addEventListener('lso-speak', e => window.__spoken.push(e.detail.text)); });
+    await tap('[data-test=editor] .m-actions .more');
+    await sheetOpt('Citește cu voce');
+    await p.waitForTimeout(400);
+    const spoken = await p.evaluate(() => [window.__lsoLastSpeak, ...(window.__spoken || [])].filter(Boolean).join('\n'));
+    assert(/Dosar citire test/.test(spoken) && /Să pregătesc dosarul pentru instanță/.test(spoken), 'text citit: ' + spoken);
+    if (await p.locator('[data-test=speak-stop]').count()) await p.locator('[data-test=speak-stop]').tap();
+    await tap('[data-test=editor] .m-actions .btn.ghost:not(.more)');
+    await gone('[data-test=editor]');
   });
 
   await step(`[${label}] selecție multiplă: selectare și mutare în Coș cu Da/Nu`, async () => {

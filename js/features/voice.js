@@ -1,16 +1,25 @@
-// Voce: citire (speechSynthesis), dictare (Web Speech API) inserată la cursor, alegere limbă/voce.
+// Voce: citire (TTS nativ pe Android, speechSynthesis pe web) și dictare
+// (recunoaștere nativă pe Android, Web Speech API pe web). Limba implicită: ro-RO.
 import { h } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { state, saveSettings } from '../core/store.js';
-import { toast, sheet, openModal } from '../ui/modal.js';
+import { toast, openModal, confirmDlg } from '../ui/modal.js';
+import { pickChoice } from '../ui/pickers.js';
 
 export const LANGS = [
   ['ro-RO', 'Română'], ['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['fr-FR', 'Français'], ['de-DE', 'Deutsch'],
   ['it-IT', 'Italiano'], ['es-ES', 'Español'], ['hu-HU', 'Magyar'], ['ru-RU', 'Русский'], ['uk-UA', 'Українська'],
 ];
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-export const canDictate = () => !!SR;
-export const canSpeak = () => 'speechSynthesis' in window;
+
+const cap = () => (typeof window !== 'undefined' ? window.Capacitor : null);
+export const isNative = () => !!(cap() && typeof cap().isNativePlatform === 'function' && cap().isNativePlatform());
+const ttsPlugin = () => cap()?.Plugins?.TextToSpeech || null;
+const srPlugin = () => cap()?.Plugins?.SpeechRecognition || null;
+
+const WebSR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+
+export const canDictate = () => !!(srPlugin() || WebSR);
+export const canSpeak = () => !!(ttsPlugin() || (typeof window !== 'undefined' && 'speechSynthesis' in window));
 
 // ---- câmpul țintă pentru dictare (ultimul câmp de text atins) ----
 let lastTarget = null;
@@ -22,43 +31,246 @@ export const getTarget = () => (lastTarget && document.contains(lastTarget) ? la
 export const setTarget = el => { lastTarget = el; };
 
 // ---- Citire ----
-export function voices() { return canSpeak() ? speechSynthesis.getVoices() : []; }
-export function isSpeaking() { return canSpeak() && (speechSynthesis.speaking || speechSynthesis.pending); }
-export function speak(text) {
-  if (!canSpeak()) { toast(t('ttsMissing'), 3500); return false; }
+const speakSt = { playing: false, paused: false, index: 0, chunks: [], lang: 'ro-RO', rate: 1, voiceName: '', bubble: null, engine: null };
+
+function chunksOf(text) {
+  return String(text).match(/[^.!?\n]{1,220}[.!?\n]*|\S+/g) || [text];
+}
+function emitSpeak(text) {
+  try { window.dispatchEvent(new CustomEvent('lso-speak', { detail: { text } })); } catch {}
+  window.__lsoLastSpeak = text;
+}
+
+function hideSpeakBubble() {
+  if (speakSt.bubble) { speakSt.bubble.remove(); speakSt.bubble = null; }
+}
+function showSpeakBubble() {
+  hideSpeakBubble();
+  const pauseBtn = h('button', { class: 'btn sm', type: 'button', 'data-test': 'speak-pause', onclick: () => { if (speakSt.paused) resumeSpeak(); else pauseSpeak(); } }, t('pause'));
+  const stopBtn = h('button', { class: 'btn sm', type: 'button', 'data-test': 'speak-stop', onclick: () => stopSpeak() }, t('stop'));
+  speakSt.bubble = h('div', { class: 'dict-bubble', role: 'status', 'data-test': 'speak-bubble' },
+    h('span', { class: 'dict-dot' }), h('span', { class: 'dict-txt', 'data-role': 'status' }, t('reading')), pauseBtn, stopBtn);
+  speakSt._pauseBtn = pauseBtn;
+  document.body.append(speakSt.bubble);
+}
+function setPauseLabel() {
+  if (speakSt._pauseBtn) speakSt._pauseBtn.textContent = speakSt.paused ? t('resume') : t('pause');
+  const st = speakSt.bubble && speakSt.bubble.querySelector('[data-role=status]');
+  if (st) st.textContent = speakSt.paused ? t('speakPaused') : t('reading');
+}
+
+export function webVoices() { return ('speechSynthesis' in window) ? speechSynthesis.getVoices() : []; }
+export async function nativeVoices() {
+  const P = ttsPlugin();
+  if (!P) return [];
+  try { const r = await P.getSupportedVoices(); return r.voices || []; } catch { return []; }
+}
+export async function voices() { return ttsPlugin() ? nativeVoices() : webVoices(); }
+export function isSpeaking() {
+  if (speakSt.playing && !speakSt.paused) return true;
+  if (!ttsPlugin() && 'speechSynthesis' in window) return speechSynthesis.speaking || speechSynthesis.pending;
+  return false;
+}
+
+async function showTtsHelp({ noEngine = false, noLang = false } = {}) {
+  const msg = noEngine ? t('ttsNeedEngine') : t('ttsNeedRo');
+  const P = ttsPlugin();
+  const actions = [
+    { label: t('ok'), cls: 'ghost', onClick: m => m.close() },
+  ];
+  if (P && P.openInstall) actions.unshift({ label: t('ttsOpenInstall'), cls: 'primary', onClick: async m => { try { await P.openInstall(); } catch {} m.close(); } });
+  openModal({ title: t('ttsHelpTitle'), body: h('p', { class: 'm-msg' }, msg), actions });
+}
+
+async function speakWeb(text, lang, rate, voiceName) {
+  if (!('speechSynthesis' in window)) { await showTtsHelp({ noEngine: true }); return false; }
   speechSynthesis.cancel();
-  text = String(text || '').trim();
-  if (!text) { toast(t('nothingToRead')); return false; }
-  const s = state.settings;
-  // fragmente scurte: unele motoare Android se opresc la texte lungi
-  const chunks = text.match(/[^.!?\n]{1,220}[.!?\n]*|\S+/g) || [text];
-  const v = voices().find(x => x.name === s.voiceName);
-  chunks.forEach(c => {
+  const v = webVoices().find(x => x.name === voiceName);
+  const chunks = chunksOf(text);
+  speakSt.playing = true; speakSt.paused = false; speakSt.chunks = chunks; speakSt.index = 0; speakSt.engine = 'web';
+  showSpeakBubble();
+  chunks.forEach((c, i) => {
     const u = new SpeechSynthesisUtterance(c);
-    u.lang = v ? v.lang : s.voiceLang; if (v) u.voice = v;
-    u.rate = s.voiceRate || 1;
+    u.lang = v ? v.lang : lang; if (v) u.voice = v;
+    u.rate = rate;
+    u.onend = () => { if (i === chunks.length - 1 && speakSt.engine === 'web') { speakSt.playing = false; hideSpeakBubble(); } };
+    u.onerror = () => { speakSt.playing = false; hideSpeakBubble(); };
     speechSynthesis.speak(u);
   });
-  toast(t('reading'));
   return true;
 }
-export function stopSpeak() { if (canSpeak()) speechSynthesis.cancel(); }
+
+async function speakNative(text, lang, rate, voiceName) {
+  const P = ttsPlugin();
+  let langOk = true, hasEngine = true;
+  try {
+    if (P.isLanguageSupported) {
+      const r = await P.isLanguageSupported({ lang });
+      langOk = !!(r && r.supported);
+    }
+  } catch { hasEngine = false; }
+  if (!hasEngine) { await showTtsHelp({ noEngine: true }); return false; }
+  if (!langOk) {
+    // mai verificăm vocile: unele motoare raportează altfel BCP-47
+    const vv = await nativeVoices();
+    const pre = lang.slice(0, 2);
+    langOk = vv.some(x => (x.lang || '').slice(0, 2) === pre);
+  }
+  if (!langOk) { await showTtsHelp({ noLang: true }); return false; }
+  const chunks = chunksOf(text);
+  speakSt.playing = true; speakSt.paused = false; speakSt.chunks = chunks; speakSt.index = 0;
+  speakSt.lang = lang; speakSt.rate = rate; speakSt.voiceName = voiceName; speakSt.engine = 'native';
+  showSpeakBubble();
+  await playNativeFrom(0);
+  return true;
+}
+
+async function playNativeFrom(i) {
+  const P = ttsPlugin();
+  for (let k = i; k < speakSt.chunks.length; k++) {
+    if (!speakSt.playing || speakSt.paused || speakSt.engine !== 'native') return;
+    speakSt.index = k;
+    try {
+      await P.speak({
+        text: speakSt.chunks[k],
+        lang: speakSt.lang,
+        rate: speakSt.rate,
+        pitch: 1,
+        volume: 1,
+        category: 'ambient',
+        queueStrategy: 1,
+        ...(speakSt.voiceName ? { voiceName: speakSt.voiceName } : {}),
+      });
+    } catch (e) {
+      speakSt.playing = false; hideSpeakBubble();
+      await showTtsHelp({ noEngine: true });
+      return;
+    }
+  }
+  if (speakSt.playing && !speakSt.paused) { speakSt.playing = false; hideSpeakBubble(); }
+}
+
+export async function speak(text) {
+  text = String(text || '').trim();
+  if (!text) { toast(t('nothingToRead')); return false; }
+  emitSpeak(text);
+  await stopSpeak();
+  const s = state.settings;
+  const lang = s.voiceLang || 'ro-RO';
+  const rate = s.voiceRate || 1;
+  const voiceName = s.voiceName || '';
+  const P = ttsPlugin();
+  const ok = P ? await speakNative(text, lang, rate, voiceName) : await speakWeb(text, lang, rate, voiceName);
+  return ok;
+}
+
+export async function pauseSpeak() {
+  if (!speakSt.playing || speakSt.paused) return;
+  speakSt.paused = true;
+  setPauseLabel();
+  if (speakSt.engine === 'native') {
+    try { await ttsPlugin()?.stop(); } catch {}
+  } else if ('speechSynthesis' in window) {
+    try { speechSynthesis.pause(); } catch { speechSynthesis.cancel(); }
+  }
+}
+
+export async function resumeSpeak() {
+  if (!speakSt.playing || !speakSt.paused) return;
+  speakSt.paused = false;
+  setPauseLabel();
+  if (speakSt.engine === 'native') await playNativeFrom(speakSt.index);
+  else if ('speechSynthesis' in window) {
+    try { speechSynthesis.resume(); } catch { /* re-speak remaining not practical */ }
+  }
+}
+
+export async function stopSpeak() {
+  speakSt.playing = false; speakSt.paused = false;
+  hideSpeakBubble();
+  if (ttsPlugin()) { try { await ttsPlugin().stop(); } catch {} }
+  if ('speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch {} }
+}
 
 // ---- Dictare ----
-let rec = null, bubble = null;
+let rec = null, bubble = null, nativeHandles = [];
 export const isDictating = () => !!rec;
-export function startDictation(target, { lang, onFinal, onEnd, quiet = false } = {}) {
-  if (!SR) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
-  if (rec) stopDictation();
-  const r = new SR();
+
+function showDictBubble() {
+  bubble = h('div', { class: 'dict-bubble', role: 'status' }, h('span', { class: 'dict-dot' }), h('span', { class: 'dict-txt' }, t('listening')),
+    h('button', { class: 'btn sm', type: 'button', onclick: () => stopDictation() }, t('stop')));
+  document.body.append(bubble);
+}
+function setDictTxt(s) { if (bubble) bubble.querySelector('.dict-txt').textContent = s || t('listening'); }
+
+export async function startDictation(target, { lang, onFinal, onEnd, quiet = false } = {}) {
+  if (rec) await stopDictation();
+  const P = srPlugin();
+  if (P) return startNativeDictation(P, target, { lang, onFinal, onEnd, quiet });
+  if (!WebSR) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
+  return startWebDictation(target, { lang, onFinal, onEnd, quiet });
+}
+
+async function startNativeDictation(P, target, { lang, onFinal, onEnd, quiet }) {
+  try {
+    const avail = await P.available();
+    if (!avail?.available) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
+  } catch { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
+  try {
+    let perm = await P.checkPermissions();
+    if (perm.speechRecognition !== 'granted') perm = await P.requestPermissions();
+    if (perm.speechRecognition !== 'granted') { if (!quiet) toast(t('micDenied'), 4000); return false; }
+  } catch { if (!quiet) toast(t('micDenied'), 4000); return false; }
+
+  if (!quiet) showDictBubble();
+  rec = { kind: 'native', _keep: true };
+  let last = '';
+  const applyPartial = txt => {
+    if (!txt) return;
+    last = txt;
+    if (target) {
+      const start = rec._start ?? (target.selectionStart ?? target.value.length);
+      rec._start = start;
+      const after = rec._after ?? target.value.slice(target.selectionEnd ?? start);
+      rec._after = after;
+      const before = target.value.slice(0, start);
+      const sep = before && !/\s$/.test(before) ? ' ' : '';
+      target.value = before + sep + txt + after;
+      const pos = (before + sep + txt).length;
+      try { target.setSelectionRange(pos, pos); } catch {}
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    setDictTxt(txt);
+  };
+  try {
+    if (P.removeAllListeners) await P.removeAllListeners();
+    const h1 = await P.addListener('partialResults', ev => {
+      const txt = (ev.accumulatedText || (ev.matches && ev.matches[0]) || '').trim();
+      applyPartial(txt);
+    });
+    const h2 = await P.addListener('listeningState', ev => {
+      if (ev.status === 'stopped' && rec && rec.kind === 'native' && rec._keep) {
+        // sesiunea s-a încheiat singură; păstrăm textul
+        rec._keep = false;
+      }
+    });
+    nativeHandles = [h1, h2].filter(Boolean);
+    await P.start({ language: lang || state.settings.voiceLang || 'ro-RO', maxResults: 1, partialResults: true, popup: false });
+  } catch (e) {
+    rec = null; if (bubble) { bubble.remove(); bubble = null; }
+    if (!quiet) toast(t('dictationError', { e: (e && e.message) || 'err' }), 3500);
+    return false;
+  }
+  rec._onFinal = onFinal; rec._onEnd = onEnd; rec._last = () => last;
+  return true;
+}
+
+function startWebDictation(target, { lang, onFinal, onEnd, quiet }) {
+  const r = new WebSR();
   r.lang = lang || state.settings.voiceLang || 'ro-RO';
   r.continuous = true; r.interimResults = true;
   let interim = '';
-  if (!quiet) {
-    bubble = h('div', { class: 'dict-bubble', role: 'status' }, h('span', { class: 'dict-dot' }), h('span', { class: 'dict-txt' }, t('listening')),
-      h('button', { class: 'btn sm', type: 'button', onclick: () => stopDictation() }, t('stop')));
-    document.body.append(bubble);
-  }
+  if (!quiet) showDictBubble();
   r.onresult = e => {
     interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -69,11 +281,10 @@ export function startDictation(target, { lang, onFinal, onEnd, quiet = false } =
         onFinal && onFinal(txt);
       } else interim += res[0].transcript;
     }
-    if (bubble) bubble.querySelector('.dict-txt').textContent = interim || t('listening');
+    setDictTxt(interim || t('listening'));
   };
   r.onerror = e => { if (!quiet && e.error !== 'no-speech' && e.error !== 'aborted') toast(t('dictationError', { e: e.error }), 3500); };
   r.onend = () => {
-    // Android oprește uneori recunoașterea după o pauză: o repornim cât timp utilizatorul nu a oprit
     if (rec === r && r._keep) { try { r.start(); return; } catch {} }
     if (rec === r) rec = null;
     if (bubble) { bubble.remove(); bubble = null; }
@@ -83,13 +294,29 @@ export function startDictation(target, { lang, onFinal, onEnd, quiet = false } =
   try { r.start(); } catch (e) { rec = null; if (bubble) { bubble.remove(); bubble = null; } toast(t('dictationMissing')); return false; }
   return true;
 }
-export function stopDictation() {
+
+export async function stopDictation() {
   if (!rec) return;
-  const r = rec; r._keep = false;
+  const r = rec;
+  if (r.kind === 'native') {
+    r._keep = false;
+    const last = r._last ? r._last() : '';
+    if (last && r._onFinal) r._onFinal(last);
+    try { await srPlugin()?.stop(); } catch {}
+    try { await srPlugin()?.removeAllListeners?.(); } catch {}
+    nativeHandles = [];
+    const end = r._onEnd;
+    rec = null;
+    if (bubble) { bubble.remove(); bubble = null; }
+    end && end();
+    return;
+  }
+  r._keep = false;
   try { r.stop(); } catch {}
   rec = null;
   if (bubble) { bubble.remove(); bubble = null; }
 }
+
 export function insertAtCursor(el, txt) {
   if (!txt) return;
   const start = el.selectionStart ?? el.value.length, end = el.selectionEnd ?? el.value.length;
@@ -100,29 +327,53 @@ export function insertAtCursor(el, txt) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+// Transcrierea live în timpul înregistrării: pe Android microfonul e folosit de MediaRecorder
+// și recunoașterea nativă nu-l poate partaja. Pe web (Chrome) Web Speech poate funcționa în paralel.
+export function canLiveTranscribe() {
+  if (isNative()) return false;
+  return !!WebSR;
+}
+
 // ---- Alegere limbă și voce (apăsare lungă pe butonul de voce) ----
 export async function voiceMenu() {
   const s = state.settings;
-  const langSel = h('select', { class: 'inp', 'data-test': 'voice-lang' }, LANGS.map(([v, n]) => h('option', { value: v, selected: v === s.voiceLang }, n)));
-  const voiceSel = h('select', { class: 'inp' });
-  const fill = () => {
-    voiceSel.innerHTML = '';
-    voiceSel.append(h('option', { value: '' }, t('voiceAuto')));
-    const pre = langSel.value.slice(0, 2);
-    voices().filter(v => v.lang.slice(0, 2) === pre).forEach(v => voiceSel.append(h('option', { value: v.name, selected: v.name === s.voiceName }, `${v.name} (${v.lang})`)));
+  const langBtn = h('button', { class: 'inp pick-btn', type: 'button', 'data-test': 'voice-lang' });
+  const voiceBtn = h('button', { class: 'inp pick-btn', type: 'button', 'data-test': 'voice-voice' });
+  let lang = s.voiceLang || 'ro-RO';
+  let voiceName = s.voiceName || '';
+  const langLabel = v => (LANGS.find(x => x[0] === v) || [v, v])[1];
+  const drawLang = () => { langBtn.textContent = langLabel(lang); };
+  let voiceList = [];
+  const drawVoice = () => { voiceBtn.textContent = voiceName || t('voiceAuto'); };
+  const fillVoices = async () => {
+    const all = await voices();
+    const pre = lang.slice(0, 2);
+    voiceList = all.filter(v => (v.lang || '').slice(0, 2) === pre);
+    if (voiceName && !voiceList.some(v => v.name === voiceName)) voiceName = '';
+    drawVoice();
   };
-  fill();
-  if (canSpeak()) speechSynthesis.onvoiceschanged = fill;
-  langSel.addEventListener('change', fill);
+  drawLang();
+  await fillVoices();
+  langBtn.addEventListener('click', async () => {
+    const v = await pickChoice({ title: t('voiceLang'), options: LANGS.map(([value, label]) => ({ value, label })), value: lang });
+    if (v == null) return;
+    lang = v; drawLang(); await fillVoices();
+  });
+  voiceBtn.addEventListener('click', async () => {
+    const opts = [{ value: '', label: t('voiceAuto') }, ...voiceList.map(v => ({ value: v.name, label: `${v.name} (${v.lang})` }))];
+    const v = await pickChoice({ title: t('voiceVoice'), options: opts, value: voiceName });
+    if (v == null) return;
+    voiceName = v; drawVoice();
+  });
   const rate = h('input', { type: 'range', min: '0.6', max: '1.6', step: '0.1', value: String(s.voiceRate || 1) });
   const body = h('div', {},
-    h('label', { class: 'fld' }, h('span', {}, t('voiceLang')), langSel),
-    h('label', { class: 'fld' }, h('span', {}, t('voiceVoice')), voiceSel),
+    h('label', { class: 'fld' }, h('span', {}, t('voiceLang')), langBtn),
+    h('label', { class: 'fld' }, h('span', {}, t('voiceVoice')), voiceBtn),
     h('label', { class: 'fld' }, h('span', {}, t('voiceRate')), rate),
-    !canSpeak() ? h('p', { class: 'r2-meta' }, t('ttsMissing')) : null,
+    !canSpeak() ? h('p', { class: 'r2-meta' }, t('ttsNeedEngine')) : null,
     !canDictate() ? h('p', { class: 'r2-meta' }, t('dictationMissing')) : null);
   openModal({ title: t('voiceSettings'), body, actions: [
-    { label: t('test'), cls: 'ghost', onClick: () => { s.voiceLang = langSel.value; s.voiceName = voiceSel.value; s.voiceRate = +rate.value; speak(t('voiceSample')); } },
-    { label: t('save'), cls: 'primary', onClick: async m => { s.voiceLang = langSel.value; s.voiceName = voiceSel.value; s.voiceRate = +rate.value; await saveSettings(); toast(t('savedOk')); m.close(); } },
+    { label: t('test'), cls: 'ghost', onClick: () => { s.voiceLang = lang; s.voiceName = voiceName; s.voiceRate = +rate.value; speak(t('voiceSample')); } },
+    { label: t('save'), cls: 'primary', onClick: async m => { s.voiceLang = lang; s.voiceName = voiceName; s.voiceRate = +rate.value; await saveSettings(); toast(t('savedOk')); m.close(); } },
   ] });
 }

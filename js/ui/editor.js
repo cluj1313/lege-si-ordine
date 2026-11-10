@@ -10,6 +10,7 @@ import { ensureOpen } from './list.js';
 import { pickFiles, compressImage, viewMedia } from '../features/media.js';
 import { shareText, shareFile } from '../features/share.js';
 import { speak } from '../features/voice.js';
+import { pickField, choiceField } from './pickers.js';
 import { app } from './registry.js';
 import { extOf } from './list.js';
 
@@ -46,10 +47,13 @@ export async function openEditor(tabId, it = null, opts = {}) {
   for (const f of K.fields || []) {
     const label = f.label();
     let el;
-    if (f.type === 'text' || f.type === 'url' || f.type === 'tel' || f.type === 'email') {
+    if ((f.type === 'text' || f.type === 'pick') && f.list) {
+      const pf = pickField({ value: data[f.k] || '', list: f.list, label, test: (f.list === 'clients' ? 'client-pick' : f.list === 'caseNumbers' ? 'case-number-pick' : 'case-pick') });
+      el = pf.el;
+      getters.push(() => { data[f.k] = pf.get(); return true; });
+    } else if (f.type === 'text' || f.type === 'url' || f.type === 'tel' || f.type === 'email') {
       const inp = h('input', { class: 'inp' + (f.type === 'text' ? ' voice-target' : ''), type: f.type === 'text' ? 'text' : f.type, 'data-k': f.k, autocomplete: 'off', enterkeyhint: 'next' });
       inp.value = data[f.k] || '';
-      if (f.list) { const id = 'dl_' + f.k; inp.setAttribute('list', id); form.append(h('datalist', { id }, lists[f.list]().map(v => h('option', { value: v })))); }
       inp.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
       const extra = f.type === 'tel' && data[f.k] ? h('a', { class: 'icon-btn sm', href: 'tel:' + data[f.k] }, '📞') : f.type === 'email' && data[f.k] ? h('a', { class: 'icon-btn sm', href: 'mailto:' + data[f.k] }, '✉') : f.type === 'url' && /^https?:/.test(data[f.k] || '') ? h('a', { class: 'icon-btn sm', href: data[f.k], target: '_blank', rel: 'noopener noreferrer' }, '↗') : null;
       el = h('label', { class: 'fld' }, h('span', {}, label), extra ? h('div', { class: 'row-inp' }, inp, extra) : inp);
@@ -67,15 +71,26 @@ export async function openEditor(tabId, it = null, opts = {}) {
       const tf = timeField(data[f.k] || '', { label }); el = tf.el;
       getters.push(() => { if (!tf.valid()) { tf.inp.classList.add('bad'); toast(t('badTime')); return false; } data[f.k] = tf.get(); return true; });
     } else if (f.type === 'select') {
-      const opts = f.options();
-      const sel = h('select', { class: 'inp', 'data-k': f.k }, h('option', { value: '' }, '—'), opts.map(o => h('option', { value: o, selected: data[f.k] === o }, o)));
-      if (data[f.k] && !opts.includes(data[f.k])) sel.append(h('option', { value: data[f.k], selected: true }, data[f.k]));
-      el = h('label', { class: 'fld' }, h('span', {}, label), sel);
-      getters.push(() => { data[f.k] = sel.value; return true; });
+      const cf = choiceField({ value: data[f.k] || '', options: f.options, label, test: 'choice-' + f.k });
+      el = cf.el;
+      getters.push(() => { data[f.k] = cf.get(); return true; });
     } else if (f.type === 'check') {
       const cb = h('input', { type: 'checkbox', 'data-k': f.k }); cb.checked = !!data[f.k];
       el = h('label', { class: 'fld-check' }, cb, h('span', {}, label));
       getters.push(() => { data[f.k] = cb.checked; return true; });
+    } else if (f.type === 'enum') {
+      let cur = data[f.k] || f.def || '';
+      const pills = h('div', { class: 'stage-pick' });
+      const draw = () => {
+        pills.innerHTML = '';
+        (f.options() || []).forEach(o => {
+          const v = o.value, lab = o.label;
+          pills.append(h('button', { type: 'button', class: 'pill' + (cur === v ? ' sel' : ''), 'data-test': 'enum-' + f.k + '-' + v, onclick: () => { cur = v; dirty = true; draw(); } }, lab));
+        });
+      };
+      draw();
+      el = h('div', { class: 'fld' }, h('span', {}, label), pills);
+      getters.push(() => { data[f.k] = cur; return true; });
     } else if (f.type === 'stage') {
       let cur = data[f.k] || '';
       const pills = h('div', { class: 'stage-pick' });
@@ -110,7 +125,8 @@ export async function openEditor(tabId, it = null, opts = {}) {
   m.el.dataset.test = 'editor';
   const handle = { isLocked: () => !!ownerOf(it || temp), autosave: async () => { if (dirty && await collect()) await doSave(m); else m.close(); } };
   openEditors.add(handle);
-  const prevClose = m.close; m.close = (...a) => { openEditors.delete(handle); prevClose(...a); };
+  app.speakEditor = async () => { if (!(await collect())) return ''; return plainText(K, data); };
+  const prevClose = m.close; m.close = (...a) => { if (app.speakEditor) delete app.speakEditor; openEditors.delete(handle); prevClose(...a); };
   // butonul Înapoi cere confirmare dacă există modificări
   const head = m.el.querySelector('.m-back');
   const tryClose = async () => { if (dirty && !(await confirmDlg(t('discardChanges')))) return; m.close(); };

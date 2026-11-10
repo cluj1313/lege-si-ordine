@@ -1,6 +1,6 @@
 {
   "name": "lege-si-ordine",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "LEGE ȘI ORDINE – aplicație pentru avocați. Datele rămân pe dispozitiv.",
   "scripts": {
@@ -10,8 +10,10 @@
     "apk:debug": "python3 tools/sync-www.py && python3 tools/make-android-icons.py && npx cap sync android && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
+    "@capacitor-community/text-to-speech": "^8.0.2",
     "@capacitor/android": "^8.6.0",
-    "@capacitor/core": "^8.6.0"
+    "@capacitor/core": "^8.6.0",
+    "@capgo/capacitor-speech-recognition": "^8.4.6"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.6.0"

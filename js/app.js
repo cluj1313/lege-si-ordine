@@ -139,7 +139,10 @@ async function voiceFab(tab) {
     { label: isRecording() ? t('recStop') : t('voiceRecord'), value: 'rec', icon: '🔴' },
     { label: t('voiceSettings'), value: 'set', icon: '⚙' },
   ]);
-  if (v === 'read') speak(readableText(tab));
+  if (v === 'read') {
+    const text = app.speakEditor ? await app.speakEditor() : readableText(tab);
+    await speak(text);
+  }
   else if (v === 'dict') {
     let target = getTarget();
     if (!target && tab && !(tab.lock && !isOpen(tab)) && !['news', 'rec'].includes(tab.kind)) {
@@ -150,7 +153,7 @@ async function voiceFab(tab) {
     }
     if (!target) { toast(t('dictNoTarget'), 3000); return; }
     target.focus();
-    if (startDictation(target)) render();
+    if (await startDictation(target)) render();
   } else if (v === 'rec') {
     const rt = liveTabs().find(x => x.kind === 'rec');
     if (isRecording()) { stopRecording(); return; }

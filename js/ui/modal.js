@@ -41,16 +41,29 @@ export function openModal({ title, body, actions = [], kind = 'dialog', onClose,
   m.close = (fromPop = false) => {
     if (m.closed) return; m.closed = true;
     const i = stack.indexOf(m); if (i >= 0) stack.splice(i, 1);
-    overlay.classList.add('closing');
-    setTimeout(() => overlay.remove(), 140);
+    const top = stack[stack.length - 1];
+    if (top) top.overlay.classList.remove('buried');
+    const instant = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (instant) overlay.remove();
+    else {
+      overlay.classList.add('closing');
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 160);
+    }
     onClose && onClose();
   };
   if (dismissable) overlay.addEventListener('pointerdown', e => { if (e.target === overlay) m._down = true; });
   if (dismissable) overlay.addEventListener('click', e => { if (e.target === overlay && m._down) m.close(); m._down = false; });
+  // o singură fereastră vizibilă: cele de dedesubt se ascund, ca să nu transpire prin animații în WebView
+  for (const x of stack) x.overlay.classList.add('buried');
+  overlay.style.zIndex = String(50 + stack.length * 2);
   root.append(overlay);
   stack.push(m);
   pushGuard();
-  requestAnimationFrame(() => overlay.classList.add('open'));
+  const openNow = () => { if (!m.closed) overlay.classList.add('open'); };
+  openNow();
+  requestAnimationFrame(() => requestAnimationFrame(openNow));
+  setTimeout(openNow, 0);
   return m;
 }
 export const topModal = () => stack[stack.length - 1];
@@ -110,15 +123,19 @@ export function sheet(title, options) {
 export function toast(msg, ms = 2400) {
   const box = $('#toasts');
   const text = String(msg);
-  // Același mesaj deja vizibil: nu mai adăugăm un al doilea „Salvat.”, doar prelungim afișarea.
+  // Un singur toast vizibil: același text își prelungește afișarea; un text nou îl înlocuiește pe cel vechi.
   const same = [...box.children].reverse().find(e => e.dataset.msg === text);
   if (same) {
     clearTimeout(same._hid); clearTimeout(same._rm);
     same._hid = setTimeout(() => { same.classList.remove('show'); same._rm = setTimeout(() => same.remove(), 300); }, ms);
     return same;
   }
+  while (box.children.length) {
+    const old = box.firstChild;
+    clearTimeout(old._hid); clearTimeout(old._rm);
+    old.remove();
+  }
   const el = h('div', { class: 'toast', role: 'status', 'data-msg': text, 'data-test': 'toast' }, text);
-  while (box.children.length >= 2) box.firstChild.remove();
   box.append(el);
   requestAnimationFrame(() => el.classList.add('show'));
   el._hid = setTimeout(() => { el.classList.remove('show'); el._rm = setTimeout(() => el.remove(), 300); }, ms);
