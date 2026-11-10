@@ -83,3 +83,25 @@ export async function stop() {
   try { await (P.sttStop ? P.sttStop() : P.stop()); } catch {}
   try { await P.removeAllListeners?.(); } catch {}
 }
+
+// Transcriere continuă pentru RECORDINGS (LsoVoice.transcribeStart/Stop; recunoașterea se repornește nativ).
+export const hasNativeTranscribe = () => !!(lsoVoice() && lsoVoice().transcribeStart);
+let trHandle = null;
+export async function transcribeStart({ language, onPartial, onFinal, onError } = {}) {
+  const P = lsoVoice();
+  if (trHandle) { try { await trHandle.remove(); } catch {} trHandle = null; }
+  trHandle = await P.addListener('transcribe', ev => {
+    const k = ev && ev.kind, txt = String((ev && ev.text) || '').trim();
+    if (k === 'partial' && txt) onPartial && onPartial(txt);
+    else if (k === 'final') onFinal && onFinal(txt);
+    else if (k === 'err') onError && onError(txt || 'noservice');
+  });
+  await P.transcribeStart({ language });
+}
+export async function transcribeStop() {
+  const P = lsoVoice();
+  let last = '';
+  try { const r = await P.transcribeStop(); last = String((r && r.last) || '').trim(); } catch {}
+  if (trHandle) { try { await trHandle.remove(); } catch {} trHandle = null; }
+  return last;
+}

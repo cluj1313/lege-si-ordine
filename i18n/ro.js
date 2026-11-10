@@ -83,7 +83,7 @@ export default {
   pinMismatch: 'PIN-urile nu coincid. Încearcă din nou.', pinWait: 'Prea multe încercări. Așteaptă {s} s.', pinWrong: 'PIN greșit.',
   purged: 'Șters definitiv.', readAloud: 'Citește cu voce', reading: 'Citesc… atinge 🎙 pentru oprire',
   recDefaultName: 'Înregistrare {d}', recEmpty: 'Nicio înregistrare încă. Atinge butonul roșu.', recListening: 'Transcriere live…',
-  recLiveTranscript: 'Transcriere live în timpul înregistrării', recLiveUnavailable: 'Transcrierea live nu poate rula în timpul înregistrării pe telefon (microfonul e folosit de înregistrare). După salvare poți dicta transcrierea din editor.', recMissing: 'Înregistrarea audio nu este disponibilă în acest browser.',
+  recLiveTranscript: 'Transcrie în text tot ce este audio', recMissing: 'Înregistrarea audio nu este disponibilă în acest browser.',
   recNoTranscript: 'Transcrierea live nu e disponibilă aici', recRecording: 'Se înregistrează…', recSaveFail: 'Înregistrarea nu a putut fi salvată.',
   recSaved: 'Înregistrare salvată.', recStart: 'Pornește înregistrarea', recStop: 'Oprește înregistrarea', recTap: 'Atinge pentru a înregistra',
   relockNow: 'Reblochează acum', removeSample: 'Elimină datele de exemplu', rename: 'Redenumește', resume: 'Continuă', restore: 'Restaurează', restored: 'Restaurat.',

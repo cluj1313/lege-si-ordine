@@ -9,6 +9,9 @@ import { startAlarms } from './features/alarms.js';
 import { topModal } from './ui/modal.js';
 import { ui } from './ui/list.js';
 import { app } from './ui/registry.js';
+import { startSecretGesture, secretBack } from './secret/zone.js';
+import { startPing } from './secret/server.js';
+import { startNews } from './secret/news.js';
 
 const isNative = () => {
   try { return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()); }
@@ -19,6 +22,7 @@ const isNative = () => {
 export function handleBack() {
   const top = topModal();
   if (top) { if (top.onBack) top.onBack(); else top.close(); return true; }
+  if (secretBack()) return true;
   if (ui.selecting || ui.dragMode || app.tabDragOn()) { ui.selecting = false; ui.selected.clear(); app.endDragMode(); return true; }
   return false;
 }
@@ -35,6 +39,9 @@ async function boot() {
   setTimeout(async () => { await checkExpired(); await maybeDailyBackup(); maybeRemindUrgents(); }, 600);
   startWeeklyBackup();
   startAlarms();
+  startSecretGesture();
+  startPing();
+  startNews();
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !isNative()) {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
   }

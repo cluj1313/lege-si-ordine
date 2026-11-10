@@ -7,6 +7,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
+import android.media.AudioManager;
+import android.view.WindowManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -98,6 +100,9 @@ public class LsoVoicePlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
+        trOn = false;
+        destroyTr();
+        restoreBeep();
         cancelSpeakTimeout();
         if (stt != null) {
             try { stt.cancel(); stt.destroy(); } catch (Exception ignored) {}
@@ -528,5 +533,132 @@ public class LsoVoicePlugin extends Plugin {
     private static String jsonStr(String s) {
         if (s == null) return "\"\"";
         return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "") + "\"";
+    }
+
+    // ---------- Transcriere continuă (RECORDINGS, „Transcrie în text tot ce este audio”) ----------
+    // Android permite un singur utilizator al microfonului: în acest mod recunoașterea vorbirii ține microfonul
+    // și se repornește singură la fiecare pauză/sfârșit, până la transcribeStop. Evenimente: „transcribe”
+    // { kind: partial|final|err, text }. Final gol → se păstrează ultimul parțial.
+    private SpeechRecognizer trStt;
+    private boolean trOn = false;
+    private String trLang = "ro-RO", trLast = "";
+    private int trErrs = 0;
+    private boolean beepMuted = false;
+
+    @PluginMethod
+    public void transcribeStart(PluginCall call) {
+        if (!hasMic()) { call.reject("perm"); return; }
+        trLang = call.getString("language", "ro-RO");
+        trOn = true; trLast = ""; trErrs = 0;
+        main.post(() -> {
+            Activity act = getActivity();
+            if (act != null) act.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            muteBeep();
+            trLoop();
+        });
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void transcribeStop(PluginCall call) {
+        trOn = false;
+        main.post(() -> {
+            String last = trLast; trLast = "";
+            destroyTr();
+            restoreBeep();
+            Activity act = getActivity();
+            if (act != null) act.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            JSObject r = new JSObject();
+            r.put("last", last == null ? "" : last);
+            call.resolve(r);
+        });
+    }
+
+    private void emitTr(String kind, String text) {
+        JSObject ev = new JSObject();
+        ev.put("kind", kind);
+        ev.put("text", text == null ? "" : text);
+        notifyListeners("transcribe", ev);
+    }
+
+    private void trAgain(long delay) {
+        destroyTr();
+        if (trOn) main.postDelayed(() -> { if (trOn) trLoop(); }, delay);
+    }
+
+    private void trLoop() {
+        if (!trOn) return;
+        Activity act = getActivity();
+        if (act == null) { trAgain(1000); return; }
+        destroyTr();
+        ComponentName cn = preferredComponent(act);
+        try {
+            trStt = cn != null ? SpeechRecognizer.createSpeechRecognizer(act, cn) : SpeechRecognizer.createSpeechRecognizer(act);
+        } catch (Exception e) { trStt = null; }
+        if (trStt == null) { trOn = false; emitTr("err", "noservice"); restoreBeep(); return; }
+        trStt.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle p) {}
+            @Override public void onBeginningOfSpeech() {}
+            @Override public void onRmsChanged(float v) {}
+            @Override public void onBufferReceived(byte[] b) {}
+            @Override public void onEndOfSpeech() {}
+            @Override public void onEvent(int i, Bundle b) {}
+            @Override public void onPartialResults(Bundle b) {
+                String t = firstResult(b);
+                if (t != null && !t.isEmpty()) { trLast = t; emitTr("partial", t); }
+            }
+            @Override public void onResults(Bundle b) {
+                String t = firstResult(b);
+                if (t == null || t.isEmpty()) t = trLast;
+                trLast = "";
+                if (t != null && !t.isEmpty()) emitTr("final", t);
+                trErrs = 0;
+                trAgain(30);
+            }
+            @Override public void onError(int error) {
+                String t = trLast; trLast = "";
+                if (t != null && !t.isEmpty()) emitTr("final", t);
+                if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) { trOn = false; emitTr("err", "perm"); destroyTr(); restoreBeep(); return; }
+                trErrs++;
+                long d = error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ? 400
+                    : (error == SpeechRecognizer.ERROR_NETWORK || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT) ? 1500
+                    : (trErrs > 20 ? 1000 : 80);
+                trAgain(d);
+            }
+        });
+        try {
+            Intent i = sttIntent(trLang, true);
+            i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L);
+            i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L);
+            i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 15000L);
+            i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, act.getPackageName());
+            trStt.startListening(i);
+        } catch (Exception e) { trAgain(500); }
+    }
+
+    private void destroyTr() {
+        if (trStt != null) {
+            try { trStt.cancel(); } catch (Exception ignored) {}
+            try { trStt.destroy(); } catch (Exception ignored) {}
+            trStt = null;
+        }
+    }
+
+    // Repornirile dese ale recunoașterii fac „bip” pe multe telefoane: îl oprim cât durează transcrierea.
+    private void muteBeep() {
+        if (beepMuted || Build.VERSION.SDK_INT < 23) return;
+        try {
+            AudioManager am = (AudioManager) getContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+            if (am != null && !am.isMusicActive()) { am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0); beepMuted = true; }
+        } catch (Exception ignored) {}
+    }
+
+    private void restoreBeep() {
+        if (!beepMuted || Build.VERSION.SDK_INT < 23) return;
+        beepMuted = false;
+        try {
+            AudioManager am = (AudioManager) getContext().getSystemService(android.content.Context.AUDIO_SERVICE);
+            if (am != null) am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0);
+        } catch (Exception ignored) {}
     }
 }

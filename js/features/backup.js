@@ -18,6 +18,9 @@ const cap = () => (typeof window !== 'undefined' ? window.Capacitor : null);
 const fsPlugin = () => cap()?.Plugins?.Filesystem || null;
 const sharePlugin = () => cap()?.Plugins?.Share || null;
 
+// Notă: backup-ul cuprinde doar IndexedDB (setări, ui, taburi, elemente, media). Cheile Zonei secrete și ale
+// serverului (lso_crsec, lso_crtok, lso_adpw, lso_adtok, lso_iid, lso_newsBox etc.) stau în localStorage/sessionStorage
+// și NU intră niciodată în backup.
 async function rawSnapshot() {
   return {
     app: 'lege-si-ordine', format: 1, version: APP_VERSION, created: Date.now(),
@@ -119,7 +122,7 @@ export async function restoreInternal(b) {
 }
 
 // ---- Fișiere pe dispozitiv (Android: Descărcări/Documente/LEGE-SI-ORDINE) ----
-async function writePublicFile(name, text) {
+export async function writePublicFile(name, text) {
   const FS = fsPlugin();
   if (!FS) return null;
   const data = bytesToB64(new TextEncoder().encode(text));

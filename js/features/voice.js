@@ -21,7 +21,7 @@ async function yieldMic() {
   try { if (app.isRecording && app.isRecording()) await app.stopRecording(); } catch {}
 }
 
-function sttErrMsg(code) {
+export function sttErrMsg(code) {
   const c = String(code || '').toLowerCase();
   const key = ['noservice', 'nomatch', 'network', 'busy', 'lang', 'perm'].find(k => c.includes(k));
   return key ? t('sttErr_' + key) : t('dictationError', { e: code || 'err' });
@@ -205,14 +205,14 @@ function showDictBubble() {
 }
 function setDictTxt(s) { if (bubble) bubble.querySelector('.dict-txt').textContent = s || t('listening'); }
 
-export async function startDictation(target, { lang, onFinal, onEnd, quiet = false, keepRecording = false } = {}) {
+export async function startDictation(target, { lang, onFinal, onEnd, onInterim, quiet = false, keepRecording = false } = {}) {
   // Transcrierea live din timpul înregistrării folosește același microfon; nu o oprim.
   if (!keepRecording) await yieldMic();
   if (!keepRecording && isSpeaking()) await stopSpeak();
   if (rec) await stopDictation();
   if (nativeStt.hasNativeStt()) return startNativeDictation(target, { lang, onFinal, onEnd, quiet });
   if (!WebSR) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
-  return startWebDictation(target, { lang, onFinal, onEnd, quiet });
+  return startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet });
 }
 
 async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
@@ -258,7 +258,7 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
   return true;
 }
 
-function startWebDictation(target, { lang, onFinal, onEnd, quiet }) {
+function startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet }) {
   const r = new WebSR();
   r.lang = lang || state.settings.voiceLang || 'ro-RO';
   r.continuous = true; r.interimResults = true;
@@ -275,6 +275,7 @@ function startWebDictation(target, { lang, onFinal, onEnd, quiet }) {
       } else interim += res[0].transcript;
     }
     setDictTxt(interim || t('listening'));
+    onInterim && onInterim(interim);
   };
   r.onerror = e => { if (!quiet && e.error !== 'no-speech' && e.error !== 'aborted') toast(t('dictationError', { e: e.error }), 3500); };
   r.onend = () => {
@@ -319,10 +320,10 @@ export function insertAtCursor(el, txt) {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-// Transcrierea live în timpul înregistrării: pe Android microfonul e folosit de MediaRecorder
-// și recunoașterea nativă nu-l poate partaja. Pe web (Chrome) Web Speech poate funcționa în paralel.
+// Transcrierea în timpul înregistrării: pe Android prin transcriere nativă continuă (LsoVoice),
+// pe web (Chrome) Web Speech în paralel cu MediaRecorder.
 export function canLiveTranscribe() {
-  if (isNative()) return false;
+  if (isNative()) return nativeStt.hasNativeTranscribe();
   return !!WebSR;
 }
 

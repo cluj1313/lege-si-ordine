@@ -235,8 +235,9 @@ function shareIcon() {
 }
 
 function recRow2(it, d) {
-  const audio = h('audio', { controls: true, preload: 'none', class: 'rec-audio' });
-  getMedia(d.mid).then(m => { if (m) audio.src = URL.createObjectURL(m.blob); else audio.replaceWith(h('div', { class: 'r2-meta' }, t('mediaMissing'))); });
+  // Înregistrările făcute doar ca text (transcriere pe telefon) nu au fișier audio.
+  const audio = d.mid ? h('audio', { controls: true, preload: 'none', class: 'rec-audio' }) : null;
+  if (audio) getMedia(d.mid).then(m => { if (m) audio.src = URL.createObjectURL(m.blob); else audio.replaceWith(h('div', { class: 'r2-meta' }, t('mediaMissing'))); });
   return h('div', { class: 'r2-col' },
     h('div', { class: 'rec-r2-head' },
       h('span', { class: 'rec-r2-case', 'data-test': 'rec-case' }, d.caseNumber || t('recNoCase')),

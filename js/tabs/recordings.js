@@ -1,4 +1,6 @@
-// RECORDINGS 🔴: înregistrare directă (MediaRecorder) cu transcriere live prin dictare, când browserul permite.
+// RECORDINGS 🔴: înregistrare directă (MediaRecorder). Bifa „Transcrie în text tot ce este audio” (lso_rec_transcribe):
+// pe Android, recunoașterea vorbirii nativă continuă ține microfonul (un singur utilizator permis) și scrie textul live;
+// pe web, MediaRecorder + Web Speech în paralel. Nebifat: doar audio, ca înainte.
 import { h, act, fmtDur, fmtTs } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, canView, saveUI, saveMeta, descendants, item as getItem, liveTabs } from '../core/store.js';
@@ -12,12 +14,18 @@ import { pickFolder, folderNameOf, recFoldersOf, ensureRecFolders, createRecFold
 import { pillRow, visibilitySheet, mergeOrder } from '../ui/pillrow.js';
 import { folderMenu } from './views.js';
 import { isoFromDate } from '../core/util.js';
-import { startDictation, stopDictation, canLiveTranscribe, isSpeaking, stopSpeak, isDictating } from '../features/voice.js';
+import { startDictation, stopDictation, isSpeaking, stopSpeak, isDictating, isNative, sttErrMsg } from '../features/voice.js';
+import * as nativeStt from '../voice/native-stt.js';
 import { pickField } from '../ui/pickers.js';
 import { app } from '../ui/registry.js';
 
-const R = { mr: null, chunks: [], start: 0, timer: null, transcript: '', live: true, tabId: null, stream: null, busy: false, folder: null };
-export const isRecording = () => !!R.mr;
+const R = { on: false, mode: 'audio', mr: null, chunks: [], start: 0, timer: null, transcript: '', partial: '', tabId: null, stream: null, busy: false, folder: null };
+export const isRecording = () => R.on;
+const TR_KEY = 'lso_rec_transcribe';
+export const transcribeOn = () => { try { return localStorage.getItem(TR_KEY) === '1'; } catch { return false; } };
+const setTranscribe = on => { try { localStorage.setItem(TR_KEY, on ? '1' : '0'); } catch {} };
+const addText = txt => { txt = String(txt || '').trim(); if (txt) R.transcript += (R.transcript ? ' ' : '') + txt; };
+const liveText = () => [R.transcript, R.partial].filter(Boolean).join(' ');
 
 function pickMime() {
   if (!window.MediaRecorder) return '';
@@ -48,12 +56,12 @@ function recFolderRow(tab) {
     items, activeId: active, test: 'rec-folder-row',
     onPick: c => {
       state.ui.sub[tab.id] = c.id;
-      if (R.mr) R.folder = c.id === 'all' ? null : c.id;
+      if (R.on) R.folder = c.id === 'all' ? null : c.id;
       saveUI(); app.render();
     },
     onAdd: async () => {
       const f = await createRecFolder(tab, null);
-      if (f) { state.ui.sub[tab.id] = f.id; if (R.mr) R.folder = f.id; await saveUI(); app.render(); }
+      if (f) { state.ui.sub[tab.id] = f.id; if (R.on) R.folder = f.id; await saveUI(); app.render(); }
     },
     onReorder: async ids => { const all = mergeOrder(roots, ids); for (const [i, f] of all.entries()) { f.order = i; await saveMeta(f); } },
     onManage: () => visibilitySheet(t('manageVisible'), roots.map(f => ({ id: f.id, name: folderNameOf(f), visible: !f.hidden })), async out => {
@@ -65,10 +73,37 @@ function recFolderRow(tab) {
   });
 }
 
+function beginCommon(tabId) {
+  R.transcript = ''; R.partial = ''; R.start = Date.now(); R.tabId = tabId; R.on = true;
+  const recTab = liveTabs().find(x => x.id === tabId);
+  const pref = recTab ? recFilter(recTab) : 'all';
+  R.folder = pref !== 'all' ? pref : null;
+  R.timer = setInterval(updateLive, 500);
+}
+
 export async function startRecording(tabId) {
-  if (R.mr || R.busy) return;
+  if (R.on || R.busy) return;
   if (isSpeaking()) await stopSpeak();
   if (isDictating()) await stopDictation();
+  const wantText = transcribeOn();
+  // Telefon + bifă: transcriere nativă continuă (textul are prioritate față de fișierul audio).
+  if (wantText && isNative() && nativeStt.hasNativeTranscribe()) {
+    R.busy = true;
+    if (!(await nativeStt.ensurePermission())) { R.busy = false; toast(t('micDenied'), 4000); return; }
+    R.mode = 'text'; beginCommon(tabId);
+    try {
+      await nativeStt.transcribeStart({
+        language: state.settings.voiceLang || 'ro-RO',
+        onPartial: txt => { R.partial = txt; updateLive(); },
+        onFinal: txt => { addText(txt || R.partial); R.partial = ''; updateLive(); },
+        onError: code => toast(sttErrMsg(code), 4000),
+      });
+    } catch (e) {
+      clearInterval(R.timer); R.on = false; R.busy = false;
+      toast(sttErrMsg((e && e.message) || 'noservice'), 4000); app.render(); return;
+    }
+    R.busy = false; app.render(); return;
+  }
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { toast(t('recMissing'), 4000); return; }
   R.busy = true;
   try {
@@ -76,36 +111,50 @@ export async function startRecording(tabId) {
   } catch (e) { R.busy = false; toast(t('micDenied'), 4000); return; }
   const mime = pickMime();
   R.mr = new MediaRecorder(R.stream, mime ? { mimeType: mime } : undefined);
-  R.chunks = []; R.transcript = ''; R.start = Date.now(); R.tabId = tabId;
-  const recTab = liveTabs().find(x => x.id === tabId);
-  const pref = recTab ? recFilter(recTab) : 'all';
-  R.folder = pref !== 'all' ? pref : null;
+  R.chunks = []; R.mode = 'audio';
   R.mr.ondataavailable = e => { if (e.data && e.data.size) R.chunks.push(e.data); };
   R.mr.start(1000);
+  beginCommon(tabId);
   R.busy = false;
-  if (R.live && canLiveTranscribe()) startDictation(null, { quiet: true, keepRecording: true, onFinal: txt => { R.transcript += (R.transcript ? ' ' : '') + txt; updateLive(); } });
-  R.timer = setInterval(updateLive, 500);
+  if (wantText) {
+    const ok = await startDictation(null, { quiet: true, keepRecording: true,
+      onInterim: txt => { R.partial = txt; updateLive(); },
+      onFinal: txt => { addText(txt); R.partial = ''; updateLive(); } });
+    if (!ok) toast(t('dictationMissing'), 4000);
+  }
   app.render();
 }
 
 export async function stopRecording() {
-  if (!R.mr || R.busy) return;
+  if (!R.on || R.busy) return;
   R.busy = true;
-  const mr = R.mr;
-  const done = new Promise(res => { mr.onstop = res; });
-  mr.stop(); stopDictation();
-  await done;
-  R.stream.getTracks().forEach(tr => tr.stop());
-  clearInterval(R.timer);
   const duration = (Date.now() - R.start) / 1000;
-  const blob = new Blob(R.chunks, { type: mr.mimeType || 'audio/webm' });
-  R.mr = null;
+  clearInterval(R.timer);
+  let mid = null, mime = '';
+  if (R.mode === 'text') {
+    const last = await nativeStt.transcribeStop();
+    addText(R.partial || last); R.partial = '';
+  } else {
+    const mr = R.mr;
+    const done = new Promise(res => { mr.onstop = res; });
+    mr.stop(); await stopDictation();
+    await done;
+    addText(R.partial); R.partial = '';
+    R.stream.getTracks().forEach(tr => tr.stop());
+    const blob = new Blob(R.chunks, { type: mr.mimeType || 'audio/webm' });
+    R.mr = null;
+    try {
+      const temp = { tab: R.tabId, kind: 'rec', folder: null };
+      mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }), blob.type, ownerOf(temp));
+      mime = blob.type;
+    } catch (e) { console.error(e); }
+  }
+  R.on = false;
   try {
-    const temp = { tab: R.tabId, kind: 'rec', folder: null };
-    const mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }), blob.type, ownerOf(temp));
+    if (R.mode === 'audio' && !mid) throw new Error('media');
     const folder = R.folder || null;
     const status = folder ? recArchivedStatus() : (recStatuses()[0] || '');
-    await newItem(R.tabId, 'rec', { name: '', duration, mid, mime: blob.type, transcript: R.transcript.trim(), at: R.start, status }, { folder });
+    await newItem(R.tabId, 'rec', { name: '', duration, mid, mime, transcript: R.transcript.trim(), at: R.start, status }, { folder });
     toast(t('recSaved'));
   } catch (e) { console.error(e); toast(t('recSaveFail'), 4000); }
   R.busy = false;
@@ -114,24 +163,23 @@ export async function stopRecording() {
 
 function updateLive() {
   const tm = document.querySelector('.rec-timer'); if (tm) tm.textContent = fmtDur((Date.now() - R.start) / 1000);
-  const tr = document.querySelector('.rec-live'); if (tr) tr.textContent = R.transcript || (canLiveTranscribe() && R.live ? t('recListening') : '');
+  const tr = document.querySelector('.rec-live'); if (tr) tr.textContent = liveText() || t('recListening');
 }
 
 export function renderRecordings(view, tab) {
-  ensureRecFolders(tab).then(created => { if (created && !R.mr) app.render(); });
-  const recording = !!R.mr;
+  ensureRecFolders(tab).then(created => { if (created && !R.on) app.render(); });
+  const recording = R.on;
   const big = h('button', { class: 'rec-big' + (recording ? ' on' : ''), type: 'button', 'aria-label': recording ? t('recStop') : t('recStart'),
     onclick: e => act(e.currentTarget, () => (recording ? stopRecording() : startRecording(tab.id))) }, h('span', { class: 'rec-core' }));
-  const liveOk = canLiveTranscribe();
-  const liveCb = h('input', { type: 'checkbox', checked: R.live && liveOk, disabled: recording || !liveOk, onchange: e => { R.live = e.target.checked; } });
+  const liveCb = h('input', { type: 'checkbox', 'data-test': 'rec-transcribe', checked: transcribeOn(), disabled: recording, onchange: e => setTranscribe(e.target.checked) });
   view.append(h('div', { class: 'rec-head' },
     big,
     h('div', { class: 'rec-info' },
       h('div', { class: 'rec-state' }, recording ? t('recRecording') : t('recTap')),
       h('div', { class: 'rec-timer' }, recording ? fmtDur((Date.now() - R.start) / 1000) : '0:00'),
-      h('label', { class: 'fld-check sm' }, liveCb, h('span', {}, liveOk ? t('recLiveTranscript') : t('recLiveUnavailable'))))),
+      h('label', { class: 'fld-check sm' }, liveCb, h('span', {}, t('recLiveTranscript'))))),
     );
-  if (recording) view.append(h('div', { class: 'rec-live' }, R.transcript || t('recListening')));
+  if (recording && transcribeOn()) view.append(h('div', { class: 'rec-live', 'data-test': 'rec-live' }, liveText() || t('recListening')));
   view.append(recFolderRow(tab));
   const list = h('div', { class: 'days' });
   view.append(list);

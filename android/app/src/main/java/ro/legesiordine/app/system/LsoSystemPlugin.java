@@ -35,4 +35,21 @@ public class LsoSystemPlugin extends Plugin {
         r.put("opened", true);
         call.resolve(r);
     }
+
+    /** „Mesaje de la creator”: pornește/oprește poll-ul nativ (inexact, 6 h). poll=true → interogare imediată. */
+    @PluginMethod
+    public void newsSet(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        boolean now = Boolean.TRUE.equals(call.getBoolean("poll", true));
+        NewsReceiver.set(getContext(), on, call.getString("lang", "ro"), now);
+        call.resolve();
+    }
+
+    /** Id văzut deja în aplicație: receptorul nu-l mai notifică. Primul poll web marchează și „primed”. */
+    @PluginMethod
+    public void newsSeen(PluginCall call) {
+        NewsReceiver.seen(getContext(), call.getString("id"));
+        if (Boolean.TRUE.equals(call.getBoolean("primed", false))) NewsReceiver.p(getContext()).edit().putBoolean("primed", true).apply();
+        call.resolve();
+    }
 }

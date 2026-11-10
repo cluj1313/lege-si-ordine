@@ -12,6 +12,7 @@ import { openTrash } from './trash.js';
 import { TAB_KINDS } from '../tabs/kinds.js';
 import { app } from '../ui/registry.js';
 import { isNative } from '../voice/native-cap.js';
+import { privacyBody, creatorBody, codeBlock } from '../secret/settings-parts.js';
 
 export function applyTheme() {
   const s = state.settings || {};
@@ -198,6 +199,8 @@ export function openSettings() {
         h('button', { class: 'btn sm', type: 'button', onclick: async () => { const n = Math.max(1, Math.min(3650, Math.round(+days.value || 30))); s.trashDays = n; days.value = n; await saveSettings(); toast(t('savedOk')); } }, t('save')))),
       h('button', { class: 'btn ghost', type: 'button', onclick: () => openTrash() }, t('openTrash')))),
     section('backup', t('setBackup'), backupSection()),
+    section('privacy', 'Confidențialitate', privacyBody()),
+    section('creator', 'Comunică cu creatorul aplicației', creatorBody()),
     hasSample ? section('sample', t('setSample'), h('div', {}, h('p', { class: 'r2-meta' }, t('sampleHint')),
       h('button', { class: 'btn danger-ghost', type: 'button', onclick: e => act(e.currentTarget, async () => {
         if (!(await confirmDlg(t('confirmRemoveSample'), { danger: true }))) return;
@@ -208,6 +211,7 @@ export function openSettings() {
     section('about', t('setAbout'), h('div', {},
       h('p', {}, `LEGE ȘI ORDINE • ${t('version')} ${APP_VERSION}`),
       h('p', { class: 'r2-meta' }, t('aboutHint')),
+      codeBlock(),
       updateStatus,
       h('button', { class: 'btn ghost', type: 'button', 'data-test': 'check-update', onclick: () => checkUpdate(updateStatus) }, t('checkUpdate')))),
   );

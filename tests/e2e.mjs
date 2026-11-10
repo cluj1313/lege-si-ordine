@@ -26,6 +26,33 @@ async function run(vp, label, full) {
     viewport: vp, hasTouch: true, isMobile: true, deviceScaleFactor: 2, locale: 'ro-RO', acceptDownloads: true, permissions: ['microphone'],
     userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36',
   });
+  // v1.0.6: serverele externe sunt SIMULATE în test (fără apeluri la serverul real de statistici / GitHub).
+  const mock = { claimed: true, pass: null, sessions: new Set(), calls: [], pings: [], lastGen: null, news: [],
+    codes: [{ code: 'LSO-AAAAA-BBBBB', batch: 'b1', days: 0, created: Date.now() - 864e5, used: Date.now() - 3600e3 }, { code: 'LSO-CCCCC-DDDDD', batch: 'b1', days: 0, created: Date.now() - 864e5, used: null }] };
+  const ghCalls = [], liveLeaks = [];
+  await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, route => { liveLeaks.push(route.request().url()); return route.abort(); });
+  await ctx.route(/^https:\/\/lso-stats\.cluj1313\.workers\.dev\//, async route => {
+    const r = route.request(), u = new URL(r.url()), P = u.pathname; let b = {};
+    try { b = r.postDataJSON() || {}; } catch {}
+    mock.calls.push(P);
+    const J = (o, s = 200) => route.fulfill({ status: s, contentType: 'application/json', headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type,authorization' }, body: JSON.stringify(o) });
+    if (r.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type,authorization', 'access-control-allow-methods': 'GET,POST,OPTIONS' } });
+    const auth = (r.headers().authorization || '').replace(/^Bearer /, '');
+    if (P === '/ping') { mock.pings.push(b); return J({ ok: true, new: mock.pings.length === 1 }); }
+    if (P === '/redeem') { const c = String(b.code); if (c === 'LSO-USED0-00000') return J({ ok: false, e: 'used' }); if (c === 'LSO-EXPIR-00000') return J({ ok: false, e: 'expired' }); if (c === 'LSO-GOOD0-00000') return J({ ok: true, exp: Date.now() + 30 * 864e5 }); return J({ ok: false, e: 'invalid' }); }
+    if (P === '/admin/state') return J({ ok: true, claimed: mock.claimed });
+    if (P === '/admin/claim') { if (mock.claimed) return J({ ok: false, e: 'claimed' }, 403); if (String(b.pass || '').length < 10) return J({ ok: false, e: 'short' }, 400); mock.claimed = true; mock.pass = b.pass; return J({ ok: true }); }
+    if (P === '/admin/login') { if (b.pass !== mock.pass) return J({ ok: false, e: 'wrong' }, 403); const t = 'mocktok' + Math.random().toString(16).slice(2) + 'xxxxxxxxxxxx'; mock.sessions.add(t); return J({ ok: true, t }); }
+    if (!mock.sessions.has(auth)) return J({ ok: false, e: 'auth' }, 401);
+    if (P === '/admin/stats') return J({ ok: true, total: 128, country: [{ k: 'RO', n: 120 }, { k: 'MD', n: 6 }, { k: 'XX', n: 2 }], ver: [{ k: '1.0.6', n: 90 }, { k: '1.0.5', n: 38 }], src: [{ k: 'apk', n: 128 }], active: [{ k: '2026-11-10', n: 41 }, { k: '2026-11-09', n: 37 }, { k: '2026-11-08', n: 35 }] });
+    if (P === '/admin/codes') return J({ ok: true, codes: mock.codes });
+    if (P === '/admin/gen') { mock.lastGen = b; const out = Array.from({ length: b.n }, (_, i) => 'LSO-TEST' + i + '-' + String(Date.now()).slice(-5)); out.forEach(c => mock.codes.unshift({ code: c, batch: 'b2', days: b.days, created: Date.now(), used: null })); return J({ ok: true, batch: 'b2', days: b.days, codes: out }); }
+    return J({ ok: false, e: 'nf' }, 404);
+  });
+  await ctx.route(/^https:\/\/cluj1313\.github\.io\/lso-mesaje\//, route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ messages: mock.news }) }));
+  await ctx.route(/^https:\/\/api\.github\.com\//, route => { const r = route.request(); ghCalls.push({ method: r.method(), url: r.url(), auth: r.headers().authorization }); return route.fulfill({ status: 401, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"message":"Bad credentials (mock)"}' }); });
+  // onboarding-ul „Mesaje de la creator” nu trebuie să întrerupă testele vechi (are pasul lui)
+  await ctx.addInitScript(() => { try { if (!localStorage.getItem('lso_ob_test')) localStorage.setItem('lso_newsOb', 'true'); } catch {} });
   const p = await ctx.newPage(); curPage = p;
   p.setDefaultTimeout(10000);
   const cdp = await ctx.newCDPSession(p);
@@ -1080,6 +1107,324 @@ async function run(vp, label, full) {
     if (label === '412x915') await p.screenshot({ path: `${SHOTS}${label}-v105-recordings-pastile.png` });
   });
 
+  // ======================= v1.0.6: Zona secretă / Meniul creator (Notis) =======================
+  const holdTouch = async (sel, ms, { moveAt = 0, shotAt = 0, shot = '' } = {}) => {
+    const b = await p.locator(sel).first().boundingBox();
+    const x = b.x + b.width / 2, y = b.y + b.height / 2, t0 = Date.now();
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+    if (shotAt) { await p.waitForTimeout(shotAt); assert(await p.locator('#crRing').count() === 1, 'inelul cyan nu apare'); if (shot) await p.screenshot({ path: shot }); }
+    if (moveAt) { await p.waitForTimeout(Math.max(0, moveAt - (Date.now() - t0))); await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 30, y, id: 1 }] }); }
+    await p.waitForTimeout(Math.max(0, ms - (Date.now() - t0)));
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  const crErr = () => p.locator('#crE').textContent();
+  const zoneOpen = () => p.locator('#crx').count();
+  const ls = k => p.evaluate(k => localStorage.getItem(k), k);
+  const FAKE_TOKEN = 'ghp_' + 'TESTONLY'.repeat(4); // format valid, nu e un token real
+  const ZPW = 'zona-test-1234', ZCH = '§';         // valori de test, nu ale lui Iosif
+  const APW = 'admin-test-12345';                   // parola de admin doar pentru serverul simulat
+
+  await step(`[${label}] [v1.0.6] Antet: atingerea scurtă pe logo și pe titlu deschide Setările (nu zona)`, async () => {
+    await tap('[data-test=hdr-emblem]'); await p.locator('[data-test=settings]').waitFor();
+    assert(!(await zoneOpen()), 'zona s-a deschis la atingere scurtă');
+    await p.evaluate(() => window.LSO.handleBack()); await gone('[data-test=settings]');
+    await tap('[data-test=hdr-title]'); await p.locator('[data-test=settings]').waitFor();
+    await p.evaluate(() => window.LSO.handleBack()); await gone('[data-test=settings]');
+    await p.waitForTimeout(250);
+  });
+
+  await step(`[${label}] [v1.0.6] Gest secret: mișcarea >15 px anulează; ridicarea degetului înainte de 6 s anulează`, async () => {
+    await holdTouch('[data-test=hdr-emblem]', 6600, { moveAt: 1200 });
+    await p.waitForTimeout(300);
+    assert(!(await zoneOpen()), 'zona s-a deschis deși degetul s-a mișcat');
+    assert(!(await p.locator('#crRing').count()), 'inelul a rămas');
+    await holdTouch('[data-test=hdr-title]', 2500);
+    await p.waitForTimeout(6500 - 2500);
+    assert(!(await zoneOpen()), 'zona s-a deschis după ridicarea degetului');
+    if (await p.locator('[data-test=settings]').count()) { await p.evaluate(() => window.LSO.handleBack()); await gone('[data-test=settings]'); }
+  });
+
+  await step(`[${label}] [v1.0.6] Apăsare 6 s pe logo: inel cyan, zona se deschide pe „Creează”, click înghițit (fără Setări)`, async () => {
+    await holdTouch('[data-test=hdr-emblem]', 6400, { shotAt: 2600, shot: `${SHOTS}${label}-v106-inel-apasare.png` });
+    await p.locator('#crx .crc').waitFor();
+    await p.waitForTimeout(500);
+    assert(!(await p.locator('[data-test=settings]').count()), 'Setările s-au deschis după gest');
+    assert((await p.locator('#crGo').textContent()) === 'Creează', 'nu e ecranul Creează');
+    const bg = await p.locator('#crx .crc').evaluate(e => getComputedStyle(e).backgroundColor);
+    assert(bg === 'rgb(20, 20, 22)', 'fundal card ' + bg);
+    // atingere pe titlu imediat după: ignorată 4 s (zona acoperă antetul oricum)
+    await p.screenshot({ path: `${SHOTS}${label}-v106-zona-creeaza.png` });
+  });
+
+  await step(`[${label}] [v1.0.6] Creează: validări (Minim 8, nu coincid, caracter), apoi formularul de token; nimic în clar`, async () => {
+    await p.fill('#crP1', 'scurt'); await p.fill('#crP2', 'scurt'); await tap('#crGo');
+    assert((await crErr()) === 'Minim 8 caractere', await crErr());
+    await p.fill('#crP1', ZPW); await p.fill('#crP2', ZPW + 'x'); await tap('#crGo');
+    assert((await crErr()) === 'Parolele nu coincid', await crErr());
+    await p.fill('#crP2', ZPW); await tap('#crGo');
+    assert((await crErr()) === 'Alege un caracter secret', await crErr());
+    assert((await p.locator('#crCh').getAttribute('maxlength')) === '4');
+    // ochiul arată/ascunde
+    await tap('#crx .eye[data-f=crP1]'); assert((await p.locator('#crP1').getAttribute('type')) === 'text');
+    await tap('#crx .eye[data-f=crP1]'); assert((await p.locator('#crP1').getAttribute('type')) === 'password');
+    await p.fill('#crCh', ZCH); await tap('#crGo');
+    await p.locator('#crTk').waitFor({ timeout: 20000 });
+    const sec = await ls('lso_crsec');
+    assert(sec && !sec.includes(ZPW) && JSON.parse(sec).iter === 200000, 'lso_crsec greșit: ' + sec);
+  });
+
+  await step(`[${label}] [v1.0.6] Token: format greșit respins; token de test acceptat și salvat criptat (fără publicare)`, async () => {
+    await p.fill('#crTk', 'abc'); await tap('#crGo');
+    assert((await crErr()).startsWith('Token invalid sau expirat'), await crErr());
+    await p.fill('#crTk', ' "' + FAKE_TOKEN + '"\u200B '); await tap('#crGo');
+    await p.locator('#crT').waitFor({ timeout: 20000 });
+    await p.locator('.toast', { hasText: 'Tokenul e salvat criptat pe acest dispozitiv' }).waitFor();
+    const tk = JSON.parse(await ls('lso_crtok'));
+    assert(tk.ct && tk.iv && tk.salt && !JSON.stringify(tk).includes('TESTONLY'), 'token necriptat');
+    assert(ghCalls.length === 0, 'apel GitHub neașteptat');
+    await noToasts();
+    await p.screenshot({ path: `${SHOTS}${label}-v106-zona-compunere.png` });
+  });
+
+  await step(`[${label}] [v1.0.6] Trimite: câmpuri goale refuzate; cu token de test → GitHub simulat 401 → mesaj clar (nimic publicat)`, async () => {
+    await tap('#crGo'); assert((await crErr()) === 'Completează titlul și mesajul', await crErr());
+    await p.fill('#crT', 'Titlu test'); await p.fill('#crB', 'Corp test');
+    await tap('#crGo');
+    await p.waitForFunction(() => /Token invalid/.test(document.getElementById('crE').textContent), null, { timeout: 20000 });
+    assert(ghCalls.length >= 1 && ghCalls.every(c => c.method === 'GET'), 'apeluri GitHub: ' + JSON.stringify(ghCalls));
+    assert(ghCalls[0].url.includes('/repos/cluj1313/lso-mesaje/contents/creator.json'), ghCalls[0].url);
+    assert(ghCalls[0].auth === 'Bearer ' + FAKE_TOKEN, 'tokenul decriptat nu se potrivește');
+    // ciorna rămâne între Mesaje și compunere
+    await tap('#crMs'); await p.locator('#crBack').waitFor(); await tap('#crBack');
+    assert((await p.inputValue('#crT')) === 'Titlu test', 'ciorna s-a pierdut');
+  });
+
+  await step(`[${label}] [v1.0.6] Ieșire: Da/Nu al aplicației (deasupra zonei); Nu rămâne; Back și Escape cer tot Da/Nu; Da iese`, async () => {
+    await tap('#crOut');
+    await p.locator('[data-test=confirm]', { hasText: 'Vrei să ieși din Zona secretă?' }).waitFor();
+    const z = await p.evaluate(() => [+getComputedStyle(document.getElementById('crx')).zIndex, +document.querySelector('[data-test=confirm]').closest('.m-overlay').style.zIndex]);
+    assert(z[1] > z[0], 'dialogul e sub zonă ' + z);
+    await tap('[data-test=confirm] .m-actions .btn:first-child'); await gone('[data-test=confirm]');
+    assert(await zoneOpen(), 'zona s-a închis la Nu');
+    assert(await p.evaluate(() => window.LSO.handleBack()) === true);
+    await p.locator('[data-test=confirm]').waitFor();
+    assert(await p.evaluate(() => window.LSO.handleBack()) === true); await gone('[data-test=confirm]'); // Back închide doar dialogul
+    assert(await zoneOpen(), 'Back a închis zona fără Da');
+    await p.keyboard.press('Escape'); await p.locator('[data-test=confirm]').waitFor();
+    await yes();
+    await p.waitForTimeout(200);
+    assert(!(await zoneOpen()), 'zona nu s-a închis la Da');
+    assert((await ls('lso_crsec')) && (await ls('lso_crtok')), 'hash/token șterse la ieșire');
+  });
+
+  await step(`[${label}] [v1.0.6] Redeschidere: Deblochează; greșit → mesaj; corect → compunere (ciorna golită)`, async () => {
+    await holdTouch('[data-test=hdr-title]', 6400);
+    await p.locator('#crRs').waitFor();
+    assert((await p.locator('#crGo').textContent()) === 'Deblochează');
+    await p.fill('#crP1', ZPW); await p.fill('#crCh', 'x'); await tap('#crGo');
+    await p.waitForFunction(() => document.getElementById('crE').textContent === 'Parolă sau caracter greșit', null, { timeout: 20000 });
+    await p.fill('#crCh', ZCH); await tap('#crGo');
+    await p.locator('#crT').waitFor({ timeout: 20000 });
+    assert((await p.inputValue('#crT')) === '', 'ciorna nu s-a golit la ieșire');
+  });
+
+  await step(`[${label}] [v1.0.6] 📊 Statistici (server SIMULAT): prima dată parola de admin, apoi tabloul direct, fără „Cod secret”`, async () => {
+    mock.claimed = false; mock.calls.length = 0;
+    await tap('#crAd');
+    await p.locator('#adP2').waitFor();
+    assert(!(await p.locator('#adSec').count()), 'există câmp Cod secret');
+    await p.fill('#adP1', 'scurt'); await p.fill('#adP2', 'scurt'); await tap('#adGo');
+    assert((await p.locator('#adE').textContent()) === 'Minim 10 caractere');
+    await p.fill('#adP1', APW); await p.fill('#adP2', APW + '!'); await tap('#adGo');
+    assert((await p.locator('#adE').textContent()) === 'Parolele nu coincid');
+    await p.fill('#adP2', APW); await tap('#adGo');
+    await p.locator('[data-test=ad-total]').waitFor({ timeout: 20000 });
+    assert((await p.locator('[data-test=ad-total]').textContent()) === '128', 'total');
+    assert(mock.pass === APW, 'claim');
+    const ap = await ls('lso_adpw');
+    assert(ap && JSON.parse(ap).ct && !ap.includes(APW), 'parola admin necriptată: ' + ap);
+    assert(await p.evaluate(() => !!sessionStorage.getItem('lso_adtok')), 'token sesiune');
+    await noToasts();
+    await p.evaluate(() => { const l = document.createElement('div'); l.id = 'mockLabel'; l.textContent = 'DATE SIMULATE (test) — nu sunt date reale'; l.style.cssText = 'position:fixed;top:4px;left:50%;transform:translateX(-50%);z-index:99;background:#ff3b30;color:#fff;font:600 12px system-ui;padding:3px 8px;border-radius:6px'; document.body.appendChild(l); });
+    await p.screenshot({ path: `${SHOTS}${label}-v106-statistici-SIMULAT.png` });
+    await p.evaluate(() => document.getElementById('mockLabel').remove());
+  });
+
+  await step(`[${label}] [v1.0.6] Statistici: generare coduri, rezumat, contor oprit/pornit, Export CSV lege-coduri-*.csv`, async () => {
+    await p.fill('#adN', '3'); await p.selectOption('#adD', '30'); await tap('#adGen');
+    await p.locator('.toast', { hasText: '3 coduri' }).waitFor({ timeout: 15000 });
+    await p.locator('[data-test=ad-sum]', { hasText: 'Coduri: 5 · folosite 1 · nefolosite 4' }).waitFor();
+    assert(mock.lastGen.n === 3 && mock.lastGen.days === 30, JSON.stringify(mock.lastGen));
+    await p.locator('#adStat').uncheck(); assert((await ls('lso_stat_off')) === '1');
+    await p.locator('#adStat').check(); assert((await ls('lso_stat_off')) === null);
+    const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 15000 }), tap('#adCsv')]);
+    const today = new Date().toISOString().slice(0, 10);
+    assert(dl.suggestedFilename() === `lege-coduri-${today}.csv`, dl.suggestedFilename());
+    const csv = fs.readFileSync(await dl.path(), 'utf8');
+    assert(csv.startsWith('code,type,status,used,expires\n') && csv.includes('LSO-'), csv.slice(0, 80));
+  });
+
+  await step(`[${label}] [v1.0.6] Statistici: sesiune expirată → autologare cu parola salvată criptat (fără tastare); Back închide doar statisticile`, async () => {
+    mock.sessions.clear(); mock.calls.length = 0; // serverul a „uitat” sesiunea (12 h)
+    await tap('#adX'); await gone('#adx');
+    await tap('#crAd');
+    await p.locator('[data-test=ad-total]').waitFor({ timeout: 20000 });
+    assert(!(await p.locator('#adP1').count()), 'a cerut parola');
+    assert(mock.calls.includes('/admin/login'), 'nu s-a relogat: ' + mock.calls.join(','));
+    // fără token în sessionStorage (repornire aplicație)
+    await p.evaluate(() => sessionStorage.removeItem('lso_adtok')); mock.sessions.clear();
+    assert(await p.evaluate(() => window.LSO.handleBack()) === true);
+    await gone('#adx'); assert(await zoneOpen(), 'Back a închis zona');
+    mock.calls.length = 0;
+    await tap('#crAd'); await p.locator('[data-test=ad-total]').waitFor({ timeout: 20000 });
+    assert(mock.calls.includes('/admin/login') && !(await p.locator('#adP1').count()), 'autologare');
+    await tap('#adOut'); await gone('#adx');
+    assert(await zoneOpen(), 'Ieși a închis zona');
+    await tap('#crOut'); await yes(); await p.waitForTimeout(200);
+    assert(!(await zoneOpen()));
+  });
+
+  await step(`[${label}] [v1.0.6] Contor anonim: ping o dată pe zi la serverul simulat (id anonim, versiune, sursă); bifă în Confidențialitate`, async () => {
+    assert(mock.pings.length >= 1, 'niciun ping');
+    const pg = mock.pings[0];
+    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.0.6' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
+    assert((await ls('lso_ping_day')) === new Date().toISOString().slice(0, 10));
+    await openSet();
+    await tap('[data-sec=privacy] summary');
+    const cb = p.locator('[data-test=stat-toggle]');
+    assert(await cb.isChecked(), 'implicit pornit');
+    await p.locator('[data-sec=privacy]', { hasText: 'Fără nume, notițe sau IP.' }).waitFor();
+    await cb.uncheck(); assert((await ls('lso_stat_off')) === '1');
+    await cb.check(); assert((await ls('lso_stat_off')) === null);
+  });
+
+  await step(`[${label}] [v1.0.6] Mesaje de la creator: bifă, primul poll fără „nou”, mesaj nou → card plutitor; ștergere locală Da/Nu`, async () => {
+    mock.news = [{ id: 'm1', date: '2026-11-01', title: 'Bun venit', body: 'Mesaj vechi' }];
+    await tap('[data-sec=creator] summary');
+    await p.locator('[data-test=news-toggle]').check();
+    await p.locator('[data-test=news-list] .news-item').first().waitFor({ timeout: 10000 });
+    assert(!(await p.locator('[data-test=news-card]').count()), 'stocul vechi a apărut ca nou');
+    assert((await ls('lso_newsPrimed')) === 'true');
+    await noToasts();
+    await p.locator('[data-sec=creator]').scrollIntoViewIfNeeded();
+    await p.screenshot({ path: `${SHOTS}${label}-v106-setari-contor-mesaje.png` });
+    mock.news.push({ id: 'm2', date: '2026-11-10', title: 'Actualizare 1.0.6', body: 'Mesaj nou de test' });
+    await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await p.locator('[data-test=news-card]', { hasText: 'Mesaj nou de la creator' }).waitFor({ timeout: 10000 });
+    await p.locator('[data-test=news-list] .news-item').nth(1).waitFor();
+    await p.locator('[data-test=news-list] .news-item[data-id=m2] button').tap();
+    await p.locator('[data-test=confirm]', { hasText: 'Ștergi mesajul?' }).waitFor(); await yes();
+    await p.locator('[data-test=news-list] .news-item[data-id=m2]').waitFor({ state: 'detached' });
+    assert(mock.news.length === 2, 'ștergerea a atins sursa');
+    await p.locator('[data-test=news-card] .nc-x').tap();
+    await p.locator('[data-test=news-toggle]').uncheck();
+  });
+
+  await step(`[${label}] [v1.0.6] Ai un cod?: scurt → Cod invalid; folosit / expirat; valid → Cod activat: Super Class`, async () => {
+    await tap('[data-sec=about] summary');
+    await tap('[data-test=have-code]');
+    const tryCode = async (c, msg) => { await noToasts(); await p.fill('[data-test=code-input]', c); await tap('[data-test=code-go]'); await p.locator('.toast', { hasText: msg }).waitFor({ timeout: 10000 }); };
+    await tryCode('abc', 'Cod invalid');
+    await tryCode('LSO-USED0-00000', 'Codul a fost deja folosit');
+    await tryCode('LSO-EXPIR-00000', 'Codul a expirat');
+    await tryCode('LSO-NUEXI-STA00', 'Cod invalid');
+    await tryCode('lso-good0-00000', 'Cod activat: Super Class');
+    const s = JSON.parse(await ls('lso_super'));
+    assert(s.code === 'LSO-GOOD0-00000' && s.exp > Date.now(), JSON.stringify(s));
+    await p.locator('[data-test=super-status]', { hasText: 'Super Class activ până la' }).waitFor();
+    await p.evaluate(() => localStorage.removeItem('lso_super'));
+    await p.evaluate(() => window.LSO.handleBack()); await gone('[data-test=settings]');
+  });
+
+  await step(`[${label}] [v1.0.6] Backup-ul NU conține cheile secrete (lso_crsec, lso_crtok, lso_adpw, lso_iid, mesaje)`, async () => {
+    const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 20000 }), p.evaluate(() => import('./js/features/backup.js').then(m => m.exportJSON()))]);
+    const txt = fs.readFileSync(await dl.path(), 'utf8');
+    for (const k of ['lso_crsec', 'lso_crtok', 'lso_adpw', 'lso_adtok', 'lso_iid', 'lso_newsBox', 'TESTONLY', ZPW, APW]) assert(!txt.includes(k), 'backup conține ' + k);
+    await noToasts();
+  });
+
+  await step(`[${label}] [v1.0.6] Onboarding „Mesaje de la creator” o singură dată, bifă implicit pornită, Continuă`, async () => {
+    await p.evaluate(() => { localStorage.setItem('lso_ob_test', '1'); localStorage.removeItem('lso_newsOb'); localStorage.removeItem('lso_news'); });
+    await p.reload(); await p.waitForSelector('.tab-pill');
+    await p.locator('[data-test=news-onboarding]').waitFor({ timeout: 8000 });
+    assert(await p.locator('[data-test=news-ob-check]').isChecked(), 'bifa nu e implicit pornită');
+    await p.locator('[data-test=news-onboarding] .m-actions .btn').tap(); await gone('[data-test=news-onboarding]');
+    assert((await ls('lso_newsOb')) === 'true' && (await ls('lso_news')) === 'true');
+    await p.reload(); await p.waitForSelector('.tab-pill'); await p.waitForTimeout(2500);
+    assert(!(await p.locator('[data-test=news-onboarding]').count()), 'onboarding repetat');
+    await p.evaluate(() => { localStorage.removeItem('lso_ob_test'); localStorage.setItem('lso_news', 'false'); });
+  });
+
+  await step(`[${label}] [v1.0.6] Niciun apel la serverele reale din browser (statistici, Pages, GitHub API sunt simulate)`, async () => {
+    assert(liveLeaks.length === 0, 'cereri reale: ' + liveLeaks.join(', '));
+  });
+
+  await step(`[${label}] [v1.0.6] RECORDINGS: bifa „Transcrie în text tot ce este audio” (implicit oprită, salvată), fără mențiuni de apeluri`, async () => {
+    await goTab('RECORDINGS');
+    const cb = p.locator('[data-test=rec-transcribe]');
+    await cb.waitFor();
+    assert(!(await cb.isChecked()) && !(await cb.isDisabled()), 'bifa trebuie să fie activă și nebifată');
+    const lbl = await p.locator('.rec-head .fld-check').textContent();
+    assert(lbl.trim() === 'Transcrie în text tot ce este audio', lbl);
+    const all = await p.locator('#view').textContent();
+    assert(!/convorbir|telefonic|apel/i.test(all), 'mențiune de apel: ' + all.slice(0, 200));
+    await cb.check(); assert((await ls('lso_rec_transcribe')) === '1');
+    await p.reload(); await p.waitForSelector('.tab-pill');
+    assert(await p.locator('[data-test=rec-transcribe]').isChecked(), 'bifa nu s-a păstrat');
+    await p.locator('[data-test=rec-transcribe]').uncheck(); assert((await ls('lso_rec_transcribe')) === '0');
+  });
+
+  await step(`[${label}] [v1.0.6] RECORDINGS pe telefon (STT nativ SIMULAT): textul se adună live în timpul înregistrării și se salvează`, async () => {
+    const np = await p.context().newPage();
+    await np.addInitScript(() => {
+      const L = {}; const st = window.__stt = { started: 0, stopped: 0, gum: 0, lang: '' };
+      const emit = (kind, text) => (L.transcribe || []).forEach(f => f({ kind, text }));
+      window.__emit = emit;
+      const LsoVoice = {
+        available: async () => ({ available: true }),
+        checkPermissions: async () => ({ mic: 'granted', speechRecognition: 'granted' }),
+        requestPermissions: async () => ({ mic: 'granted', speechRecognition: 'granted' }),
+        addListener: async (n, f) => { (L[n] = L[n] || []).push(f); return { remove: async () => { L[n] = (L[n] || []).filter(x => x !== f); } }; },
+        removeAllListeners: async () => {},
+        transcribeStart: async o => { st.started++; st.lang = o.language; },
+        transcribeStop: async () => { st.stopped++; return { last: '' }; },
+        ttsState: async () => ({ ready: true }), getSupportedVoices: async () => ({ voices: [] }),
+      };
+      const gum = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia = c => { st.gum++; return gum(c); };
+      window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', Plugins: { LsoVoice, LocalNotifications: { checkPermissions: async () => ({ display: 'granted' }), createChannel: async () => {}, schedule: async () => ({}), getPending: async () => ({ notifications: [] }), cancel: async () => {}, getDeliveredNotifications: async () => ({ notifications: [] }), removeDeliveredNotifications: async () => {}, addListener: async () => ({ remove() {} }), checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }) } } };
+    });
+    await np.goto(BASE); await np.waitForSelector('.tab-pill');
+    await np.locator('.tab-pill', { hasText: 'RECORDINGS' }).first().tap();
+    await np.locator('[data-test=rec-transcribe]').check();
+    const before = (await np.evaluate(() => [...window.LSO.state.items.values()].filter(i => i.kind === 'rec').length));
+    await np.locator('.rec-big').tap(); await np.locator('.rec-big.on').waitFor();
+    let st = await np.evaluate(() => window.__stt);
+    assert(st.started === 1 && st.lang === 'ro-RO' && st.gum === 0, 'pornire STT: ' + JSON.stringify(st));
+    const live = () => np.locator('[data-test=rec-live]').textContent();
+    await np.evaluate(() => window.__emit('partial', 'bună ziua'));
+    await np.waitForFunction(() => document.querySelector('[data-test=rec-live]').textContent === 'bună ziua');
+    await np.evaluate(() => window.__emit('final', '')); // final gol → se păstrează ultimul parțial
+    await np.evaluate(() => window.__emit('partial', 'dosarul'));
+    await np.waitForFunction(() => document.querySelector('[data-test=rec-live]').textContent === 'bună ziua dosarul');
+    await np.evaluate(() => window.__emit('final', 'dosarul numărul 12'));
+    await np.evaluate(() => window.__emit('partial', 'termen luni'));
+    await np.waitForTimeout(300);
+    assert((await live()) === 'bună ziua dosarul numărul 12 termen luni', 'live: ' + await live());
+    await np.screenshot({ path: `${SHOTS}${label}-v106-recordings-transcriere-live.png` });
+    await np.locator('.rec-big.on').tap(); await np.locator('.rec-big:not(.on)').waitFor();
+    await np.waitForTimeout(400);
+    st = await np.evaluate(() => window.__stt);
+    assert(st.stopped === 1, 'STT neoprit');
+    const recs = await np.evaluate(() => [...window.LSO.state.items.values()].filter(i => i.kind === 'rec').sort((a, b) => b.created - a.created));
+    assert(recs.length === before + 1, 'înregistrarea nu s-a salvat');
+    const saved = (await idbItems()).find(i => i.id === recs[0].id);
+    const d = recs[0].data || saved.data;
+    assert(d && d.transcript === 'bună ziua dosarul numărul 12 termen luni', 'transcriere salvată: ' + JSON.stringify(d));
+    await np.locator('[data-test=rec-transcribe]').uncheck();
+    await np.close();
+  });
+
   await step(`[${label}] voce: meniul se deschide; degradare elegantă fără API`, async () => {
     await goTab('Taskuri');
     await tap('[data-test=fab-voice]');
@@ -1092,12 +1437,18 @@ async function run(vp, label, full) {
   await finish();
 
   async function finish() {
-    const real = errors.filter(e => !/favicon/.test(e));
+    // 401 = răspunsurile simulate intenționat (GitHub fals, sesiune admin expirată)
+    const real = errors.filter(e => !/favicon/.test(e) && !/status of 401/.test(e));
     await step(`[${label}] fără erori în consolă`, async () => { assert(!real.length, real.slice(0, 5).join(' | ')); });
     await browser.close();
   }
 }
 
+// Singurul apel la serverul real: /health (fără date, fără scriere).
+try {
+  const r = await fetch('https://lso-stats.cluj1313.workers.dev/health', { cache: 'no-store' }); const j = await r.json();
+  if (j && j.ok === true && j.svc === 'lso-stats') results.push('PASS [live] serverul de statistici răspunde la /health (' + JSON.stringify(j) + ')'); else { failed++; results.push('FAIL [live] /health: ' + JSON.stringify(j)); }
+} catch (e) { failed++; results.push('FAIL [live] /health: ' + e.message); }
 await run({ width: 360, height: 780 }, '360x780', true);
 if (!process.env.ONLY360) await run({ width: 412, height: 915 }, '412x915', true);
 console.log(results.join('\n'));
