@@ -486,7 +486,24 @@ async function run(vp, label, full) {
     await p.locator('.m-dialog input.inp').fill('Audiere martor');
     await p.locator('.m-dialog .m-actions .btn.primary').tap();
     await p.locator('#view .card[data-kind=rec]', { hasText: 'Audiere martor' }).waitFor();
+    const del = p.locator('#view .card[data-kind=rec] [data-test=rec-delete]');
+    assert(await del.getAttribute('aria-label') === 'Șterge', 'eticheta accesibilă Șterge');
+    assert((await del.textContent()).includes('🗑'), 'icoană coș');
+    const pos = await del.evaluate(el => {
+      const row = el.closest('.r2-actions');
+      const rr = row.getBoundingClientRect(), br = el.getBoundingClientRect();
+      return { rightGap: rr.right - br.right, leftOf: [...row.querySelectorAll('button,a')].filter(b => b !== el).every(b => b.getBoundingClientRect().right <= br.left + 1) };
+    });
+    assert(pos.rightGap < 4, 'coșul nu e în dreapta de tot: ' + pos.rightGap);
+    assert(pos.leftOf, 'coșul nu e după celelalte acțiuni');
     await p.screenshot({ path: `${SHOTS}${label}-NOU-recordings-deschis.png` });
+    await p.screenshot({ path: `${SHOTS}${label}-recordings-cos.png` });
+    // confirmă că Șterge deschide fereastra Da/Nu, fără a muta elementul (Anulează/Nu)
+    await del.tap();
+    await p.locator('[data-test=confirm]').waitFor();
+    await p.locator('[data-test=confirm] .m-actions .btn.ghost').tap();
+    await gone('[data-test=confirm]');
+    assert(await p.locator('#view .card[data-kind=rec]', { hasText: 'Audiere martor' }).count() === 1, 'Nu nu trebuie să mute în Coș');
     await p.locator('#view .day-row').first().tap();
     await p.waitForTimeout(200);
     assert(await p.locator('#view .day-group.open').count() === 0, 'ziua nu s-a închis');

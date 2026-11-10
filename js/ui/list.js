@@ -164,9 +164,10 @@ function recRow2(it, d) {
     audio,
     d.transcript ? h('div', { class: 'r2-text pre' }, d.transcript) : h('div', { class: 'r2-meta' }, t('noTranscript')),
     h('div', { class: 'r2-actions' },
-      h('button', { class: 'btn sm ghost', type: 'button', onclick: () => app.renameRec(it) }, t('rename')),
-      h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-status', onclick: () => app.recStatus(it) }, t('recStatusBtn', { s: d.status || '—' })),
-      h('button', { class: 'btn sm ghost', type: 'button', onclick: async () => { const m = await getMedia(d.mid); if (m) shareFile(m.blob, (d.name || 'inregistrare') + extOf(m.mime), d.name); } }, t('share')),
-      h('button', { class: 'btn sm danger-ghost', type: 'button', onclick: () => app.deleteItem(it) }, t('delete'))));
+      h('div', { class: 'r2-actions-main' },
+        h('button', { class: 'btn sm ghost', type: 'button', onclick: () => app.renameRec(it) }, t('rename')),
+        h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-status', onclick: () => app.recStatus(it) }, t('recStatusBtn', { s: d.status || '—' })),
+        h('button', { class: 'btn sm ghost', type: 'button', onclick: async () => { const m = await getMedia(d.mid); if (m) shareFile(m.blob, (d.name || 'inregistrare') + extOf(m.mime), d.name); } }, t('share'))),
+      h('button', { class: 'icon-btn sm trash', type: 'button', 'aria-label': t('delete'), 'data-test': 'rec-delete', onclick: () => app.deleteItem(it) }, '🗑️')));
 }
 export const extOf = mime => (/ogg/.test(mime) ? '.ogg' : /mp4|aac|m4a/.test(mime) ? '.m4a' : /webm/.test(mime) ? '.webm' : /jpeg/.test(mime) ? '.jpg' : /png/.test(mime) ? '.png' : /pdf/.test(mime) ? '.pdf' : '');

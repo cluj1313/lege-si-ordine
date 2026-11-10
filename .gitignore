@@ -1,3 +1,48 @@
+# dependențe
+node_modules/
 tests/node_modules/
-tests/test-results/
+
+# jurnale
 *.log
+npm-debug.log*
+
+# rezultate de test (capturile rămân în screenshots/)
+tests/test-results/
+tests/playwright-report/
+
+# ieșiri de build și pachete
+dist/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Android / Gradle / Capacitor — fără căi locale sau artefacte
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+android/app/release/
+android/app/debug/
+android/app/src/androidTest/
+android/.settings/
+*.hprof
+
+# semnare — nu se încarcă niciodată
+*.jks
+*.keystore
+*.p12
+*.pem
+key.properties
+keystore.properties
+*.keystore.b64
+
+# secrete / mediu
+.env
+.env.*
+!.env.example

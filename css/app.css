@@ -78,7 +78,10 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .r2-text { font-size: 15px; color: var(--text); opacity: .88; overflow-wrap: anywhere; }
 .r2-text.pre { white-space: pre-wrap; }
 .r2-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.r2-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.r2-actions { display: flex; align-items: flex-start; gap: 8px; margin-top: 4px; }
+.r2-actions-main { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
+.icon-btn.trash { color: var(--danger); border-color: var(--danger); background: transparent; font-size: 18px; }
+.icon-btn.trash:active { background: var(--danger-soft); }
 .card.done .r1t { text-decoration: line-through; opacity: .55; }
 .card.done, .card.past { opacity: .7; }
 .card.locked .r1t { color: var(--muted); }
