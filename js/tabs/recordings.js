@@ -1,13 +1,14 @@
 // RECORDINGS 🔴: înregistrare directă (MediaRecorder) cu transcriere live prin dictare, când browserul permite.
 import { h, act, fmtDur, fmtTs } from '../core/util.js';
 import { t } from '../core/i18n.js';
-import { state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem } from '../core/store.js';
-import { toast, promptDlg } from '../ui/modal.js';
+import { state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, canView } from '../core/store.js';
+import { toast, promptDlg, openModal } from '../ui/modal.js';
 import { card } from '../ui/list.js';
 import { renderDayGroups } from '../ui/daygroups.js';
-import { recName, recStatuses } from './kinds.js';
+import { recName, recTitle, recStatuses, recArchivedStatus } from './kinds.js';
 import { sheet } from '../ui/modal.js';
 import { saveSettings } from '../core/store.js';
+import { pickFolder, folderNameOf } from '../ui/folderpick.js';
 import { isoFromDate } from '../core/util.js';
 import { startDictation, stopDictation, canDictate } from '../features/voice.js';
 import { app } from '../ui/registry.js';
@@ -86,7 +87,7 @@ export function renderRecordings(view, tab) {
   renderDayGroups(list, items, {
     key: tab.id, empty: t('recEmpty'),
     dateOf: it => isoFromDate(new Date(at(it))),
-    summary: arr => h('span', { class: 'day-chips' }, arr.slice().sort((a, b) => at(a) - at(b)).map(it => h('span', { class: 'chip' }, dataOf(it) ? recName(dataOf(it)) : '🔒'))),
+    summary: arr => h('span', { class: 'day-chips' }, arr.slice().sort((a, b) => at(a) - at(b)).map(it => h('span', { class: 'chip' }, dataOf(it) ? recTitle(dataOf(it)) : '🔒'))),
     renderItem: it => card(it),
   });
 }
@@ -106,6 +107,45 @@ export async function recStatus(it) {
 
 export async function renameRec(it) {
   const d = dataOf(it); if (!d) return;
-  const n = await promptDlg(t('rename'), { value: d.name || recName(d) });
-  if (n) { await saveItem(it, { ...d, name: n }); toast(t('savedOk')); }
+  const clients = [...state.items.values()].filter(x => x.kind === 'client' && !x.trashedAt && canView(x)).map(x => dataOf(x).name).filter(Boolean);
+  const cases = [...state.items.values()].filter(x => x.kind === 'case' && !x.trashedAt && canView(x)).map(x => dataOf(x).number).filter(Boolean);
+  const nameInp = h('input', { class: 'inp', type: 'text', 'data-test': 'rec-edit-name', value: d.name || '' });
+  nameInp.value = d.name || '';
+  const clientInp = h('input', { class: 'inp', type: 'text', list: 'dl_rec_client', 'data-test': 'rec-edit-client' });
+  clientInp.value = d.client || '';
+  const caseInp = h('input', { class: 'inp', type: 'text', list: 'dl_rec_case', 'data-test': 'rec-edit-case' });
+  caseInp.value = d.caseNumber || '';
+  const body = h('div', {},
+    h('datalist', { id: 'dl_rec_client' }, clients.map(v => h('option', { value: v }))),
+    h('datalist', { id: 'dl_rec_case' }, cases.map(v => h('option', { value: v }))),
+    h('label', { class: 'fld' }, h('span', {}, t('fName')), nameInp),
+    h('label', { class: 'fld' }, h('span', {}, t('fNameSurname')), clientInp),
+    h('label', { class: 'fld' }, h('span', {}, t('fCaseNumber')), caseInp),
+  );
+  const ok = await new Promise(res => {
+    let done = false;
+    const finish = (v, m) => { if (done) return; done = true; res(v); m.close(); };
+    const m = openModal({
+      title: t('rename'), body,
+      actions: [
+        { label: t('no'), cls: 'ghost', onClick: m => finish(null, m) },
+        { label: t('yes'), cls: 'primary', onClick: m => finish({ name: nameInp.value.trim(), client: clientInp.value.trim(), caseNumber: caseInp.value.trim() }, m) },
+      ],
+      onClose: () => { if (!done) res(null); },
+    });
+    m.el.dataset.test = 'rec-edit';
+  });
+  if (!ok) return;
+  await saveItem(it, { ...d, name: ok.name, client: ok.client, caseNumber: ok.caseNumber });
+  toast(t('savedOk'));
+}
+
+export async function archiveRec(it) {
+  const d = dataOf(it); if (!d) return;
+  const folder = await pickFolder({ title: t('archiveIn'), confirmLabel: t('archiveHere') });
+  if (!folder) return;
+  it.folder = folder.id;
+  await saveItem(it, { ...d, status: recArchivedStatus() });
+  toast(t('archiveOk', { n: folderNameOf(folder) }));
+  app.render();
 }

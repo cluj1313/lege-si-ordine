@@ -1,11 +1,11 @@
 // Liste cu 2 rânduri: inițial doar rândul 1; atingerea lui deschide/închide rândul 2; atingerea rândului 2 deschide elementul.
 import { h, fmtDate, fmtTsDate, fmtDur, act } from '../core/util.js';
 import { t } from '../core/i18n.js';
-import { KINDS, stagePill } from '../tabs/kinds.js';
+import { KINDS, stagePill, recLen } from '../tabs/kinds.js';
 import { state, dataOf, canView, locksChain, isOpen, unlockTemp, relock, saveItem, newItem, liveTabs, getMedia } from '../core/store.js';
 import { pinDlg, toast } from './modal.js';
 import { app } from './registry.js';
-import { shareText, shareFile } from '../features/share.js';
+import { shareText, shareRecording } from '../features/share.js';
 
 export const ui = { expanded: new Set(), selecting: false, selected: new Set() };
 
@@ -85,7 +85,7 @@ export function card(it) {
   const meta = h('span', { class: 'r1-meta' });
   if (it.lock) meta.append('🔓');
   if (it.alarmAt && it.alarmAt > Date.now()) meta.append('⏰');
-  if (it.kind === 'rec') { if (d.status) meta.append(h('span', { class: 'pill rec-st' }, d.status)); meta.append(fmtDur(d.duration)); }
+  if (it.kind === 'rec') { /* durata, starea și ștergerea apar pe rândul 2 */ }
   if (it.kind === 'task' && d.date) meta.append(h('span', { class: 'r1-small' }, fmtDate(d.date).slice(0, 5) + (d.time ? ' ' + d.time : '')));
   if (meta.childNodes.length) r1.append(meta);
   r1.append(h('span', { class: 'chev' }, open ? '▴' : '▾'));
@@ -181,13 +181,18 @@ function recRow2(it, d) {
   const audio = h('audio', { controls: true, preload: 'none', class: 'rec-audio' });
   getMedia(d.mid).then(m => { if (m) audio.src = URL.createObjectURL(m.blob); else audio.replaceWith(h('div', { class: 'r2-meta' }, t('mediaMissing'))); });
   return h('div', { class: 'r2-col' },
-    h('div', { class: 'r2-meta' }, `${fmtTsDate(d.at || it.created)} • ${fmtDur(d.duration)}`),
+    h('div', { class: 'rec-r2-head' },
+      h('span', { class: 'rec-r2-case', 'data-test': 'rec-case' }, d.caseNumber || t('recNoCase')),
+      h('span', { class: 'rec-r2-len', 'data-test': 'rec-len' }, recLen(d.duration)),
+      h('span', { class: 'pill rec-st', 'data-test': 'rec-row-status' }, d.status || '—'),
+      h('button', { class: 'icon-btn sm trash', type: 'button', 'aria-label': t('delete'), 'data-test': 'rec-row-delete', onclick: () => app.deleteItem(it) }, '🗑️')),
+    h('div', { class: 'r2-meta' }, fmtTsDate(d.at || it.created)),
     audio,
     d.transcript ? h('div', { class: 'r2-text pre' }, d.transcript) : h('div', { class: 'r2-meta' }, t('noTranscript')),
     h('div', { class: 'r2-actions rec-actions' },
       h('button', { class: 'btn sm ghost', type: 'button', onclick: () => app.renameRec(it) }, t('rename')),
-      h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-status', 'aria-label': t('recStatusBtn', { s: d.status || '—' }), onclick: () => app.recStatus(it) }, d.status || '—'),
-      h('button', { class: 'icon-btn share', type: 'button', 'aria-label': t('share'), title: t('share'), 'data-test': 'rec-share', onclick: async () => { const m = await getMedia(d.mid); if (m) shareFile(m.blob, (d.name || 'inregistrare') + extOf(m.mime), d.name); } }, shareIcon()),
+      h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-archive', onclick: () => app.archiveRec(it) }, t('archive')),
+      h('button', { class: 'icon-btn share', type: 'button', 'aria-label': t('share'), title: t('share'), 'data-test': 'rec-share', onclick: () => shareRecording(it, d) }, shareIcon()),
       h('button', { class: 'icon-btn trash', type: 'button', 'aria-label': t('delete'), 'data-test': 'rec-delete', onclick: () => app.deleteItem(it) }, '🗑️')));
 }
 export const extOf = mime => (/ogg/.test(mime) ? '.ogg' : /mp4|aac|m4a/.test(mime) ? '.m4a' : /webm/.test(mime) ? '.webm' : /jpeg/.test(mime) ? '.jpg' : /png/.test(mime) ? '.png' : /pdf/.test(mime) ? '.pdf' : '');

@@ -98,6 +98,7 @@ export function sheet(title, options) {
     let done = false;
     const list = h('div', { class: 'sheet-list' });
     const m = openModal({ title, body: list, kind: 'sheet', onClose: () => { if (!done) res(null); } });
+    m.el.dataset.test = 'sheet';
     for (const o of options) {
       if (!o) continue;
       list.append(h('button', { class: 'sheet-opt ' + (o.cls || ''), type: 'button', 'data-v': o.value, onclick: () => { done = true; res(o.value); m.close(); } },
@@ -107,12 +108,21 @@ export function sheet(title, options) {
 }
 
 export function toast(msg, ms = 2400) {
-  const el = h('div', { class: 'toast', role: 'status' }, msg);
   const box = $('#toasts');
-  while (box.children.length >= 2) box.firstChild.remove(); // cel mult 2 mesaje simultan
+  const text = String(msg);
+  // Același mesaj deja vizibil: nu mai adăugăm un al doilea „Salvat.”, doar prelungim afișarea.
+  const same = [...box.children].reverse().find(e => e.dataset.msg === text);
+  if (same) {
+    clearTimeout(same._hid); clearTimeout(same._rm);
+    same._hid = setTimeout(() => { same.classList.remove('show'); same._rm = setTimeout(() => same.remove(), 300); }, ms);
+    return same;
+  }
+  const el = h('div', { class: 'toast', role: 'status', 'data-msg': text, 'data-test': 'toast' }, text);
+  while (box.children.length >= 2) box.firstChild.remove();
   box.append(el);
   requestAnimationFrame(() => el.classList.add('show'));
-  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, ms);
+  el._hid = setTimeout(() => { el.classList.remove('show'); el._rm = setTimeout(() => el.remove(), 300); }, ms);
+  return el;
 }
 
 // Tastatură PIN de 4 cifre. verify(pin) -> true/false (opțional); întoarce PIN-ul sau null.

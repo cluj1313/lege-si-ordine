@@ -445,7 +445,7 @@ async function run(vp, label, full) {
     assert(await p.locator('#view .day-group.open').count() === 0, 'nu s-a închis');
   });
 
-  await step(`[${label}] [NOU] RECORDINGS pe zile: rând pe dată cu cipuri, deschidere cu ora și numele, stare, redenumire, nume implicit`, async () => {
+  await step(`[${label}] [NOU] RECORDINGS: rând compact, acțiuni pe o linie, client/nr dosar, un singur Salvat.`, async () => {
     await goTab('RECORDINGS');
     await p.locator('.rec-big').tap();
     await p.locator('.rec-big.on').waitFor();
@@ -460,40 +460,28 @@ async function run(vp, label, full) {
     await day.tap();
     const c = p.locator('#view .day-group.open .card[data-kind=rec]').first();
     await c.waitFor();
-    assert(/^\d{2}:\d{2}$/.test(await c.locator('.r1-date').textContent()), 'ora lipsă');
-    assert((await c.locator('.rec-st').textContent()) === 'Nouă', 'stare implicită');
+    assert(await c.locator('.r1-date').count() === 0, 'ora nu trebuie să apară pe rândul 1');
+    assert(await c.locator('.r1 .rec-st').count() === 0, 'starea nu trebuie să apară pe rândul 1');
+    assert(/^Înregistrare \d{2}:\d{2}$/.test((await c.locator('.r1t').textContent()).trim()), 'titlu compact: ' + await c.locator('.r1t').textContent());
+    assert(await c.locator('.r2').count() === 0, 'rândul 2 trebuie să fie închis inițial');
+    await p.screenshot({ path: `${SHOTS}${label}-recordings-collapsed.png` });
     await c.locator('.r1').tap();
     await c.locator('audio').waitFor();
     assert((await c.locator('audio').getAttribute('src') || '').startsWith('blob:'), 'audio');
-    await c.locator('[data-test=rec-status]').tap();
-    await sheetOpt('În lucru');
-    await p.locator('#view .card[data-kind=rec] .rec-st', { hasText: 'În lucru' }).waitFor();
-    // editare stări
-    await p.locator('#view .card[data-kind=rec] [data-test=rec-status]').tap();
-    await sheetOpt('Editează stările');
-    const ta = p.locator('.m-dialog textarea'); await ta.fill('Nouă\nÎn lucru\nFinalizată\nArhivată');
-    await p.locator('.m-dialog .m-actions .btn.primary').tap();
-    await p.waitForTimeout(300);
-    await p.locator('#view .card[data-kind=rec] [data-test=rec-status]').tap();
-    await sheetOpt('Arhivată');
-    await p.locator('#view .card[data-kind=rec] .rec-st', { hasText: 'Arhivată' }).waitFor();
-    // nume din transcriere când nu are nume
-    await p.locator('#view .card[data-kind=rec] .r2').tap({ position: { x: 20, y: 8 } });
-    await p.locator('[data-test=editor] textarea[data-k=transcript]').fill('Declarația martorului principal despre contractul de vânzare');
-    await save();
-    await p.locator('#view .card[data-kind=rec] .r1t', { hasText: 'Declarația martorului principal despre contractul de…' }).waitFor();
-    await p.locator('#view .card[data-kind=rec] button', { hasText: 'Redenumește' }).tap();
-    await p.locator('.m-dialog input.inp').fill('Audiere martor');
-    await p.locator('.m-dialog .m-actions .btn.primary').tap();
-    await p.locator('#view .card[data-kind=rec]', { hasText: 'Audiere martor' }).waitFor();
-    const del = p.locator('#view .card[data-kind=rec] [data-test=rec-delete]');
-    const share = p.locator('#view .card[data-kind=rec] [data-test=rec-share]');
+    assert((await c.locator('[data-test=rec-case]').textContent()).trim() === '—', 'nr dosar gol trebuie „—”');
+    assert(/\d+\s+(sec|min)/.test((await c.locator('[data-test=rec-len]').textContent()).trim()), 'durata: ' + await c.locator('[data-test=rec-len]').textContent());
+    assert((await c.locator('[data-test=rec-row-status]').textContent()).trim() === 'Nouă', 'stare implicită');
+    assert(await c.locator('[data-test=rec-row-delete]').count() === 1, 'ștergere pe rândul 2');
+    const acts = c.locator('.rec-actions');
+    assert((await acts.locator('button').nth(0).textContent()).trim() === 'Redenumește', 'prima acțiune');
+    assert((await acts.locator('[data-test=rec-archive]').textContent()).trim() === 'Arhivează', 'Arhivează, nu pilula de stare');
+    const del = c.locator('[data-test=rec-delete]');
+    const share = c.locator('[data-test=rec-share]');
     assert(await del.getAttribute('aria-label') === 'Șterge', 'eticheta accesibilă Șterge');
     assert((await del.textContent()).includes('🗑'), 'icoană coș');
     assert(await share.getAttribute('aria-label') === 'Partajează', 'eticheta accesibilă Partajează');
     assert(await share.locator('svg').count() === 1, 'icoana Share lipsește');
-    assert((await p.locator('#view .card[data-kind=rec] [data-test=rec-status]').textContent()).trim() === 'Arhivată', 'pilula de stare trebuie să arate starea, fără prefix');
-    const layout = await p.locator('#view .card[data-kind=rec] .rec-actions').evaluate(el => {
+    const layout = await acts.evaluate(el => {
       const btns = [...el.querySelectorAll('button')];
       const boxes = btns.map(b => {
         const r = b.getBoundingClientRect();
@@ -513,19 +501,120 @@ async function run(vp, label, full) {
     assert(!layout.trunc.length, 'text tăiat: ' + layout.trunc.join(', '));
     assert(!layout.tooSmall.length, 'țintă sub 40px: ' + JSON.stringify(layout.tooSmall));
     assert(layout.rightGap < 4, 'coșul nu e în dreapta de tot: ' + layout.rightGap);
+    assert(layout.order[0] === 'Redenumește' && layout.order[1] === 'Arhivează', 'ordinea acțiunilor: ' + layout.order.join(' · '));
+    await p.screenshot({ path: `${SHOTS}${label}-recordings-expanded.png` });
     await p.screenshot({ path: `${SHOTS}${label}-NOU-recordings-deschis.png` });
     await p.screenshot({ path: `${SHOTS}${label}-recordings-cos.png` });
     await p.screenshot({ path: `${SHOTS}${label}-recordings-actiuni.png` });
-    // confirmă că Șterge deschide fereastra Da/Nu, fără a muta elementul (Anulează/Nu)
-    await del.tap();
+    // un singur toast „Salvat.” după salvare din editor
+    await c.locator('.r2').tap({ position: { x: 20, y: 8 } });
+    await p.locator('[data-test=editor] textarea[data-k=transcript]').fill('Declarația martorului principal despre contractul de vânzare');
+    await save();
+    const savedToasts = await p.locator('[data-test=toast]', { hasText: 'Salvat.' }).count();
+    assert(savedToasts === 1, 'Salvat. de ' + savedToasts + ' ori');
+    await p.locator('#view .card[data-kind=rec] .r1t', { hasText: 'Declarația martorului principal despre contractul de…' }).waitFor();
+    await p.locator('#view .card[data-kind=rec] button', { hasText: 'Redenumește' }).tap();
+    await p.locator('[data-test=rec-edit]').waitFor();
+    await p.locator('[data-test=rec-edit-name]').fill('Audiere martor');
+    await p.locator('[data-test=rec-edit-client]').fill('Ion Popescu (exemplu)');
+    await p.locator('[data-test=rec-edit-case]').fill('1234/299/2026 (exemplu)');
+    await p.locator('[data-test=rec-edit] .m-actions .btn.primary').tap();
+    await gone('[data-test=rec-edit]');
+    await p.locator('#view .card[data-kind=rec] .r1t', { hasText: 'Ion Popescu (exemplu)' }).waitFor();
+    assert((await p.locator('#view .card[data-kind=rec] [data-test=rec-case]').textContent()).trim() === '1234/299/2026 (exemplu)', 'nr dosar după editare');
+    await p.locator('#view .card[data-kind=rec] [data-test=rec-delete]').tap();
     await p.locator('[data-test=confirm]').waitFor();
     await p.locator('[data-test=confirm] .m-actions .btn.ghost').tap();
     await gone('[data-test=confirm]');
-    assert(await p.locator('#view .card[data-kind=rec]', { hasText: 'Audiere martor' }).count() === 1, 'Nu nu trebuie să mute în Coș');
+    assert(await p.locator('#view .card[data-kind=rec]', { hasText: 'Ion Popescu (exemplu)' }).count() === 1, 'Nu nu trebuie să mute în Coș');
+  });
+
+  await step(`[${label}] [NOU] Arhivare în folder imbricat, search în arhivă, share Text/Voce/Ambele, căutare globală`, async () => {
+    await goTab('RECORDINGS');
+    const day = p.locator('#view .day-row').first();
+    if (await p.locator('#view .day-group.open').count() === 0) await day.tap();
+    const c = p.locator('#view .day-group.open .card[data-kind=rec]').first();
+    await c.waitFor();
+    if (await c.locator('.r2').count() === 0) await c.locator('.r1').tap();
+    await c.locator('[data-test=rec-archive]').tap();
+    await p.locator('[data-test=folder-pick]').waitFor();
+    assert(await p.locator('[data-test=fp-new]', { hasText: 'Creează Folder' }).count() === 1, 'Creează Folder la rădăcină');
+    assert(await p.locator('[data-test=folder-pick] .fp-item', { hasText: 'Folder 1' }).count() === 1, 'arborele de foldere');
+    await p.screenshot({ path: `${SHOTS}${label}-recordings-folder-pick.png` });
+    // Creează Folder întreabă întotdeauna; Nu anulează
+    await p.locator('[data-test=fp-new]').tap();
+    await p.locator('[data-test=create-folder]').waitFor();
+    await p.locator('[data-test=folder-name]').fill('Nu acesta');
+    await p.screenshot({ path: `${SHOTS}${label}-recordings-create-folder.png` });
+    await p.locator('[data-test=create-folder] .m-actions .btn.ghost').tap();
+    await gone('[data-test=create-folder]');
+    assert(await p.locator('[data-test=folder-pick]').count() === 1, 'picker-ul rămâne deschis');
+    assert(await p.locator('[data-test=folder-pick] .fp-item', { hasText: 'Nu acesta' }).count() === 0, 'Nu nu trebuie să creeze folderul');
+    // Folder 1 e lacătuit dintr-un test anterior; creăm un folder nou, apoi un subfolder.
+    await p.locator('[data-test=fp-new]').tap();
+    await p.locator('[data-test=create-folder]').waitFor();
+    await p.locator('[data-test=folder-name]').fill('Arhivă test');
+    await p.locator('[data-test=create-folder] .m-actions .btn.primary').tap();
+    await gone('[data-test=create-folder]');
+    await p.locator('[data-test=folder-pick] .crumbs', { hasText: 'Arhivă test' }).waitFor();
+    await p.locator('[data-test=fp-new-sub]', { hasText: 'Creează Subfolder' }).waitFor();
+    await p.locator('[data-test=fp-new-sub]').tap();
+    await p.locator('[data-test=create-folder]').waitFor();
+    await p.locator('[data-test=folder-name]').fill('Sub Arhivă');
+    await p.locator('[data-test=create-folder] .m-actions .btn.primary').tap();
+    await gone('[data-test=create-folder]');
+    await p.locator('[data-test=folder-pick] .crumbs', { hasText: 'Sub Arhivă' }).waitFor();
+    await p.locator('[data-test=fp-here]', { hasText: 'Arhivează aici' }).tap();
+    await gone('[data-test=folder-pick]');
+    await p.locator('#view .card[data-kind=rec] [data-test=rec-row-status]', { hasText: 'Arhivată' }).waitFor();
+    // Share: Text / Voce / Ambele (fără Web Share, ca să verificăm foaia și varianta de rezervă)
+    await p.evaluate(() => { try { navigator.canShare = () => false; } catch (e) {} navigator.share = undefined; });
+    await p.locator('#view .card[data-kind=rec] [data-test=rec-share]').tap();
+    await p.locator('[data-test=sheet]', { hasText: 'Partajează înregistrarea' }).waitFor();
+    assert(await p.locator('[data-test=sheet] .sheet-opt[data-v=text]').textContent().then(t => t.includes('Text')), 'Text');
+    assert(await p.locator('[data-test=sheet] .sheet-opt[data-v=voice]').textContent().then(t => t.includes('Voce')), 'Voce');
+    assert(await p.locator('[data-test=sheet] .sheet-opt[data-v=both]').textContent().then(t => t.includes('Ambele')), 'Ambele');
+    await p.screenshot({ path: `${SHOTS}${label}-recordings-share.png` });
+    await p.locator('[data-test=sheet] .sheet-opt[data-v=text]').tap();
+    await gone('[data-test=sheet]');
+    await p.locator('[data-test=toast]', { hasText: 'Copiat.' }).waitFor();
+    // Foldere: înregistrarea e vizibilă în subfolder, se poate căuta și partaja
+    await goTab('Foldere');
+    const tile = p.locator('.folder-tile', { hasText: 'Arhivă test' }).first();
+    await tile.waitFor();
+    const ttxt = await tile.textContent();
+    assert(/[2-9]/.test(ttxt), 'contorul trebuie să includă subfolderul și înregistrarea: ' + ttxt);
+    await tile.tap();
+    await p.locator('.crumbs', { hasText: 'Arhivă test' }).waitFor();
+    await p.locator('.folder-panel .folder-row, .folder-panel .card.folder-row', { hasText: 'Sub Arhivă' }).first().tap();
+    await p.locator('.crumbs', { hasText: 'Sub Arhivă' }).waitFor();
+    await p.locator('[data-test=folder-items] .card[data-kind=rec]', { hasText: 'Ion Popescu (exemplu)' }).waitFor();
+    await p.locator('[data-test=archive-search]').fill('declaratia martorului');
+    await p.waitForTimeout(200);
+    assert(await p.locator('[data-test=folder-items] .card[data-kind=rec]').count() === 1, 'search în arhivă (fără diacritice)');
+    await p.locator('[data-test=archive-search]').fill('xyz-nu-exista');
+    await p.waitForTimeout(200);
+    assert(await p.locator('#view', { hasText: 'Nicio înregistrare găsită' }).count() === 1, 'fără rezultate');
+    await p.locator('[data-test=archive-search]').fill('1234/299');
+    await p.waitForTimeout(200);
+    await p.locator('[data-test=folder-items] .card[data-kind=rec]', { hasText: 'Ion Popescu (exemplu)' }).waitFor();
+    await p.screenshot({ path: `${SHOTS}${label}-recordings-archive-search.png` });
+    const rec = p.locator('[data-test=folder-items] .card[data-kind=rec]').first();
+    if (await rec.locator('.r2').count() === 0) await rec.locator('.r1').tap();
+    await rec.locator('[data-test=rec-share]').tap();
+    await p.locator('[data-test=sheet] .sheet-opt[data-v=both]').waitFor();
+    await p.locator('.m-overlay').last().evaluate(el => { el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); el.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await gone('[data-test=sheet]');
+    // căutare globală (inclusiv transcrierea)
+    await search('declaratia martorului');
+    await p.locator('[data-test=search] .sr', { hasText: 'Ion Popescu (exemplu)' }).waitFor();
+    await p.locator('[data-test=search] .m-back').tap();
+    await gone('[data-test=search]');
+    await goTab('RECORDINGS');
     await p.locator('#view .day-row').first().tap();
     await p.waitForTimeout(200);
     assert(await p.locator('#view .day-group.open').count() === 0, 'ziua nu s-a închis');
-    assert(await p.locator('#view .day-row .chip', { hasText: 'Audiere martor' }).count() === 1, 'cip după redenumire');
+    assert(await p.locator('#view .day-row .chip', { hasText: 'Ion Popescu (exemplu)' }).count() === 1, 'cip după arhivare');
     await p.screenshot({ path: `${SHOTS}${label}-NOU-recordings.png` });
   });
 

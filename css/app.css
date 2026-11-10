@@ -87,6 +87,7 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .icon-btn.trash:active { background: var(--danger-soft); }
 @media (max-width: 370px) {
   .rec-actions .icon-btn { width: 40px; height: 40px; }
+  .rec-actions .btn.sm { padding: 6px 7px; font-size: 13px; }
 }
 .card.done .r1t { text-decoration: line-through; opacity: .55; }
 .card.done, .card.past { opacity: .7; }
@@ -344,3 +345,14 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .day-body .card { box-shadow: none; }
 .mo-sources { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
 .pill.rec-st { font-size: 12px; padding: 1px 8px; }
+.rec-r2-head { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-height: 40px; }
+.rec-r2-case { font-size: 14.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-r2-len { color: var(--muted); font-size: 14px; flex: none; white-space: nowrap; }
+.rec-r2-head .pill { flex: none; }
+.rec-r2-head .icon-btn { margin-left: auto; width: 40px; height: 40px; flex: none; }
+.arch-search { padding: 4px 0 10px; }
+.folder-pick { display: flex; flex-direction: column; gap: 12px; min-height: 40vh; }
+.fp-list { display: flex; flex-direction: column; gap: 8px; }
+.fp-item { width: 100%; text-align: left; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.fp-acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 4px; position: sticky; bottom: 0; background: var(--card); }
+.folder-pick-page .m-body { overflow: auto; }

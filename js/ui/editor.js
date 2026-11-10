@@ -39,6 +39,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
   const lists = {
     clients: () => [...state.items.values()].filter(x => x.kind === 'client' && !x.trashedAt && canView(x)).map(x => dataOf(x).name).filter(Boolean),
     cases: () => [...state.items.values()].filter(x => x.kind === 'case' && !x.trashedAt && canView(x)).map(x => dataOf(x).title).filter(Boolean),
+    caseNumbers: () => [...state.items.values()].filter(x => x.kind === 'case' && !x.trashedAt && canView(x)).map(x => dataOf(x).number).filter(Boolean),
   };
 
   let row = null;
@@ -120,18 +121,23 @@ export async function openEditor(tabId, it = null, opts = {}) {
     for (const g of getters) if (!g()) return false;
     return true;
   }
+  let saving = false;
   async function doSave(m) {
+    if (saving) return;
     if (!(await collect())) return;
-    const alarmAt = K.alarm ? K.alarm(data) : null;
-    if (alarmAt && alarmAt < Date.now()) toast(t('alarmPast'), 3500);
-    let rec;
-    if (it) { delete it.snoozeAt; delete it.firedAt; it.alarmAt = alarmAt && alarmAt > Date.now() ? alarmAt : null; rec = await saveItem(it, data); }
-    else rec = await newItem(tab.id, kind, data, { folder: opts.folder || null, sub: opts.sub || null, cat: opts.cat || null, alarmAt: alarmAt && alarmAt > Date.now() ? alarmAt : null });
-    for (const mid of removed) await delMedia(mid);
-    saved = true; dirty = false;
-    toast(t('savedOk'));
-    m.close();
-    app.afterSave && app.afterSave(rec);
+    saving = true;
+    try {
+      const alarmAt = K.alarm ? K.alarm(data) : null;
+      if (alarmAt && alarmAt < Date.now()) toast(t('alarmPast'), 3500);
+      let rec;
+      if (it) { delete it.snoozeAt; delete it.firedAt; it.alarmAt = alarmAt && alarmAt > Date.now() ? alarmAt : null; rec = await saveItem(it, data); }
+      else rec = await newItem(tab.id, kind, data, { folder: opts.folder || null, sub: opts.sub || null, cat: opts.cat || null, alarmAt: alarmAt && alarmAt > Date.now() ? alarmAt : null });
+      for (const mid of removed) await delMedia(mid);
+      saved = true; dirty = false;
+      toast(t('savedOk'));
+      m.close();
+      app.afterSave && app.afterSave(rec);
+    } finally { saving = false; }
   }
   async function moreMenu() {
     const own = it.lock;

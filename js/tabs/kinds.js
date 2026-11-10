@@ -4,7 +4,16 @@ import { t } from '../core/i18n.js';
 
 import { state } from '../core/store.js';
 const hhmm = ts => { if (!ts) return ''; const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
-export const DEFAULT_REC_STATUSES = () => [t('recStNew'), t('recStWork'), t('recStDone')];
+export const DEFAULT_REC_STATUSES = () => [t('recStNew'), t('recStWork'), t('recStDone'), t('recStArchived')];
+export const recArchivedStatus = () => t('recStArchived');
+export function recLen(sec) {
+  sec = Math.round(sec || 0);
+  return sec < 60 ? t('recSeconds', { n: sec }) : t('recMinutes', { n: Math.round(sec / 60) });
+}
+export function recTitle(d) {
+  const c = String(d.client || '').trim();
+  return c || recName(d);
+}
 export const recStatuses = () => (state.settings.recStatuses && state.settings.recStatuses.length ? state.settings.recStatuses : DEFAULT_REC_STATUSES());
 // Nume afișat: numele dat de utilizator; altfel primele cuvinte din transcriere; altfel „Înregistrare HH:MM”.
 export function recName(d) {
@@ -168,15 +177,16 @@ export const KINDS = {
   },
   rec: {
     label: () => t('kindRec'),
-    newData: () => ({ name: '', duration: 0, mid: null, transcript: '', mime: '', at: Date.now(), status: '' }),
-    title: d => recName(d),
-    lead: d => h('span', { class: 'r1-date' }, hhmm(d.at)),
+    newData: () => ({ name: '', client: '', caseNumber: '', duration: 0, mid: null, transcript: '', mime: '', at: Date.now(), status: t('recStNew') }),
+    title: d => recTitle(d),
     fields: [
       { k: 'name', type: 'text', label: () => t('fName') },
+      { k: 'client', type: 'text', label: () => t('fNameSurname'), list: 'clients' },
+      { k: 'caseNumber', type: 'text', label: () => t('fCaseNumber'), list: 'caseNumbers' },
       { k: 'status', type: 'select', label: () => t('fRecStatus'), options: () => recStatuses() },
       { k: 'transcript', type: 'textarea', label: () => t('fTranscript'), main: true, rows: 8 },
     ],
-    search: d => [recName(d), d.status, d.transcript].join(' \n '),
+    search: d => [recTitle(d), recName(d), d.client, d.caseNumber, d.status, d.transcript].join(' \n '),
     meta: d => fmtDur(d.duration),
   },
 };

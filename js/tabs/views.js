@@ -1,8 +1,8 @@
 // Ecranele taburilor: listă generică, Salvate (subtaburi), Foldere, Ultimele noutăți.
-import { h, act, onLongPress, fmtDate } from '../core/util.js';
+import { h, act, onLongPress, fmtDate, norm } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { locksChain } from '../core/store.js';
-import { state, itemsOf, dataOf, canView, isOpen, newItem, saveItem, saveTab, unlockTemp, relock, descendants, item as getItem,
+import { state, itemsOf, itemsInFolder, countInFolder, dataOf, canView, isOpen, newItem, saveItem, saveTab, unlockTemp, relock, descendants, item as getItem,
   lockWithPin, unlockPermanent, trash, saveUI, saveMeta } from '../core/store.js';
 import { renderList, card, ui } from '../ui/list.js';
 import { pinDlg, promptDlg, sheet, toast, confirmDlg } from '../ui/modal.js';
@@ -10,6 +10,8 @@ import { timeField } from '../ui/datetime.js';
 import { app } from '../ui/registry.js';
 import { waLink, mailLink } from '../features/share.js';
 import { db } from '../core/db.js';
+import { createFolder } from '../ui/folderpick.js';
+import { recTitle } from './kinds.js';
 import { catRow, curCat } from './cats.js';
 import { pillRow, visibilitySheet } from '../ui/pillrow.js';
 import { renderDayGroups } from '../ui/daygroups.js';
@@ -89,7 +91,7 @@ async function subMenu(tab, s) {
 
 // ---- Foldere ----
 const folderName = f => { const d = dataOf(f); return d && locksChain(f).every(isOpen) ? d.name : t('lockedItem'); };
-const countIn = f => itemsOf(f.tab, { folder: f.id }).length;
+const countIn = f => countInFolder(f.id);
 export function currentFolder(tab) {
   const id = state.ui.folder[tab.id];
   const f = id && getItem(id);
@@ -143,17 +145,36 @@ export function renderFolders(view, tab) {
     onLongPress(row, () => folderMenu(tab, f));
     panel.append(row);
   });
-  const notes = itemsOf(tab.id, { folder: here }).filter(i => i.kind !== 'folder');
-  const list = h('div', { class: 'list' });
-  renderList(list, notes, { kind: 'note', empty: subs.length && here ? '' : (here ? t('emptyFolder') : t('foldersRootHint')) });
-  panel.append(list);
+  const kids = (here ? itemsInFolder(here) : itemsOf(tab.id, { folder: null })).filter(i => i.kind !== 'folder');
+  const recsAll = kids.filter(i => i.kind === 'rec');
+  const notes = kids.filter(i => i.kind !== 'rec');
+  if (here) {
+    const box = h('div', { class: 'arch-search' });
+    const inp = h('input', { class: 'inp', type: 'search', placeholder: t('archiveSearchPh'), 'data-test': 'archive-search', enterkeyhint: 'search' });
+    box.append(inp);
+    panel.append(box);
+    const list = h('div', { class: 'list', 'data-test': 'folder-items' });
+    panel.append(list);
+    const drawList = () => {
+      list.innerHTML = '';
+      const q = norm(inp.value);
+      const recs = q ? recsAll.filter(it => { const d = canView(it) && dataOf(it); return d && norm([recTitle(d), d.client || '', d.caseNumber || '', d.transcript || '', d.name || ''].join(' ')).includes(q); }) : recsAll;
+      const items = q ? recs : [...recs, ...notes];
+      if (!items.length) list.append(h('div', { class: 'empty' }, recsAll.length && q ? t('noArchiveHits') : (subs.length ? '' : t('emptyFolder'))));
+      else items.forEach(it => list.append(card(it)));
+    };
+    inp.addEventListener('input', drawList);
+    drawList();
+  } else {
+    const list = h('div', { class: 'list' });
+    renderList(list, notes, { kind: 'note', empty: t('foldersRootHint') });
+    panel.append(list);
+  }
   view.append(panel);
 }
 export async function newFolder(tab, parent) {
-  const n = await promptDlg(t('newFolder'), { placeholder: t('folderNamePh') });
-  if (!n) return;
-  await newItem(tab.id, 'folder', { name: n }, { folder: parent ? parent.id : null });
-  toast(t('savedOk'));
+  const f = await createFolder(tab, parent);
+  if (f) app.render();
 }
 async function folderMenu(tab, f) {
   if (!canView(f)) return;

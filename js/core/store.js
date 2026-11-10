@@ -3,7 +3,7 @@ import { db, S } from './db.js';
 import { uid } from './util.js';
 import * as C from './crypto.js';
 
-export const APP_VERSION = '1.0.1';
+export const APP_VERSION = '1.0.2';
 
 export const state = {
   settings: {},
@@ -70,6 +70,21 @@ export function descendants(folderId) {
   const out = [];
   const walk = fid => { for (const it of state.items.values()) if (it.folder === fid) { out.push(it); if (it.kind === 'folder') walk(it.id); } };
   walk(folderId); return out;
+}
+// Numără tot ce e în folder, inclusiv subfolderele și conținutul lor (adâncime nelimitată).
+export function countInFolder(folderId) {
+  return descendants(folderId).filter(i => !i.trashedAt).length;
+}
+// Copiii direcți ai unui folder, din orice tab (înregistrările arhivate rămân în RECORDINGS, dar apar și aici).
+export function itemsInFolder(folderId, { kind } = {}) {
+  const out = [];
+  for (const it of state.items.values()) {
+    if (it.trashedAt) continue;
+    if ((it.folder || null) !== folderId) continue;
+    if (kind && it.kind !== kind) continue;
+    out.push(it);
+  }
+  return out;
 }
 
 // ---------- Lacăte ----------

@@ -11,7 +11,7 @@ import { confirmDlg, toast, sheet, closeAll, modalsOpen } from './ui/modal.js';
 import { renderGeneric, renderSaved, renderFolders, renderNews, renderLocked, currentFolder, newFolder, newsResults, renderMO, hasCats } from './tabs/views.js';
 import { curCat } from './tabs/cats.js';
 import { isoToday } from './core/util.js';
-import { renderRecordings, startRecording, renameRec, recStatus, isRecording, stopRecording } from './tabs/recordings.js';
+import { renderRecordings, startRecording, renameRec, archiveRec, recStatus, isRecording, stopRecording } from './tabs/recordings.js';
 import { openSearch } from './features/search.js';
 import { openTrash } from './features/trash.js';
 import { openSettings } from './features/settings.js';
@@ -212,7 +212,7 @@ async function onHidden() {
 }
 
 export async function startApp() {
-  Object.assign(app, { render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, recStatus, startRecording });
+  Object.assign(app, { render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, archiveRec, recStatus, startRecording });
   header();
   newsCache = await newsResults();
   onChange(() => { if (!rendering) render(); });
