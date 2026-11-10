@@ -5,21 +5,21 @@ import { t } from '../core/i18n.js';
 import { state, saveSettings } from '../core/store.js';
 import { toast, openModal, confirmDlg } from '../ui/modal.js';
 import { pickChoice } from '../ui/pickers.js';
+import { isNative } from '../voice/native-cap.js';
+import * as nativeTts from '../voice/native-tts.js';
+import * as nativeStt from '../voice/native-stt.js';
 
 export const LANGS = [
   ['ro-RO', 'Română'], ['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['fr-FR', 'Français'], ['de-DE', 'Deutsch'],
   ['it-IT', 'Italiano'], ['es-ES', 'Español'], ['hu-HU', 'Magyar'], ['ru-RU', 'Русский'], ['uk-UA', 'Українська'],
 ];
 
-const cap = () => (typeof window !== 'undefined' ? window.Capacitor : null);
-export const isNative = () => !!(cap() && typeof cap().isNativePlatform === 'function' && cap().isNativePlatform());
-const ttsPlugin = () => cap()?.Plugins?.TextToSpeech || null;
-const srPlugin = () => cap()?.Plugins?.SpeechRecognition || null;
+export { isNative };
 
 const WebSR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
-export const canDictate = () => !!(srPlugin() || WebSR);
-export const canSpeak = () => !!(ttsPlugin() || (typeof window !== 'undefined' && 'speechSynthesis' in window));
+export const canDictate = () => !!(nativeStt.hasNativeStt() || WebSR);
+export const canSpeak = () => !!(nativeTts.hasNativeTts() || (typeof window !== 'undefined' && 'speechSynthesis' in window));
 
 // ---- câmpul țintă pentru dictare (ultimul câmp de text atins) ----
 let lastTarget = null;
@@ -60,25 +60,20 @@ function setPauseLabel() {
 }
 
 export function webVoices() { return ('speechSynthesis' in window) ? speechSynthesis.getVoices() : []; }
-export async function nativeVoices() {
-  const P = ttsPlugin();
-  if (!P) return [];
-  try { const r = await P.getSupportedVoices(); return r.voices || []; } catch { return []; }
-}
-export async function voices() { return ttsPlugin() ? nativeVoices() : webVoices(); }
+export async function nativeVoices() { return nativeTts.getVoices(); }
+export async function voices() { return nativeTts.hasNativeTts() ? nativeVoices() : webVoices(); }
 export function isSpeaking() {
   if (speakSt.playing && !speakSt.paused) return true;
-  if (!ttsPlugin() && 'speechSynthesis' in window) return speechSynthesis.speaking || speechSynthesis.pending;
+  if (!nativeTts.hasNativeTts() && 'speechSynthesis' in window) return speechSynthesis.speaking || speechSynthesis.pending;
   return false;
 }
 
 async function showTtsHelp({ noEngine = false, noLang = false } = {}) {
   const msg = noEngine ? t('ttsNeedEngine') : t('ttsNeedRo');
-  const P = ttsPlugin();
   const actions = [
     { label: t('ok'), cls: 'ghost', onClick: m => m.close() },
   ];
-  if (P && P.openInstall) actions.unshift({ label: t('ttsOpenInstall'), cls: 'primary', onClick: async m => { try { await P.openInstall(); } catch {} m.close(); } });
+  if (nativeTts.canOpenInstall()) actions.unshift({ label: t('ttsOpenInstall'), cls: 'primary', onClick: async m => { await nativeTts.openInstall(); m.close(); } });
   openModal({ title: t('ttsHelpTitle'), body: h('p', { class: 'm-msg' }, msg), actions });
 }
 
@@ -101,14 +96,9 @@ async function speakWeb(text, lang, rate, voiceName) {
 }
 
 async function speakNative(text, lang, rate, voiceName) {
-  const P = ttsPlugin();
-  let langOk = true, hasEngine = true;
-  try {
-    if (P.isLanguageSupported) {
-      const r = await P.isLanguageSupported({ lang });
-      langOk = !!(r && r.supported);
-    }
-  } catch { hasEngine = false; }
+  const langInfo = await nativeTts.isLanguageSupported(lang);
+  let langOk = langInfo.supported !== false, hasEngine = langInfo.hasEngine;
+  if (langInfo.supported === null) langOk = true;
   if (!hasEngine) { await showTtsHelp({ noEngine: true }); return false; }
   if (!langOk) {
     // mai verificăm vocile: unele motoare raportează altfel BCP-47
@@ -126,20 +116,19 @@ async function speakNative(text, lang, rate, voiceName) {
 }
 
 async function playNativeFrom(i) {
-  const P = ttsPlugin();
   for (let k = i; k < speakSt.chunks.length; k++) {
     if (!speakSt.playing || speakSt.paused || speakSt.engine !== 'native') return;
     speakSt.index = k;
     try {
-      await P.speak({
+      await nativeTts.speak({
         text: speakSt.chunks[k],
         lang: speakSt.lang,
         rate: speakSt.rate,
         pitch: 1,
         volume: 1,
+        voiceName: speakSt.voiceName,
         category: 'ambient',
         queueStrategy: 1,
-        ...(speakSt.voiceName ? { voiceName: speakSt.voiceName } : {}),
       });
     } catch (e) {
       speakSt.playing = false; hideSpeakBubble();
@@ -159,8 +148,7 @@ export async function speak(text) {
   const lang = s.voiceLang || 'ro-RO';
   const rate = s.voiceRate || 1;
   const voiceName = s.voiceName || '';
-  const P = ttsPlugin();
-  const ok = P ? await speakNative(text, lang, rate, voiceName) : await speakWeb(text, lang, rate, voiceName);
+  const ok = nativeTts.hasNativeTts() ? await speakNative(text, lang, rate, voiceName) : await speakWeb(text, lang, rate, voiceName);
   return ok;
 }
 
@@ -169,7 +157,7 @@ export async function pauseSpeak() {
   speakSt.paused = true;
   setPauseLabel();
   if (speakSt.engine === 'native') {
-    try { await ttsPlugin()?.stop(); } catch {}
+    await nativeTts.stop();
   } else if ('speechSynthesis' in window) {
     try { speechSynthesis.pause(); } catch { speechSynthesis.cancel(); }
   }
@@ -188,7 +176,7 @@ export async function resumeSpeak() {
 export async function stopSpeak() {
   speakSt.playing = false; speakSt.paused = false;
   hideSpeakBubble();
-  if (ttsPlugin()) { try { await ttsPlugin().stop(); } catch {} }
+  if (nativeTts.hasNativeTts()) await nativeTts.stop();
   if ('speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch {} }
 }
 
@@ -205,22 +193,14 @@ function setDictTxt(s) { if (bubble) bubble.querySelector('.dict-txt').textConte
 
 export async function startDictation(target, { lang, onFinal, onEnd, quiet = false } = {}) {
   if (rec) await stopDictation();
-  const P = srPlugin();
-  if (P) return startNativeDictation(P, target, { lang, onFinal, onEnd, quiet });
+  if (nativeStt.hasNativeStt()) return startNativeDictation(target, { lang, onFinal, onEnd, quiet });
   if (!WebSR) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
   return startWebDictation(target, { lang, onFinal, onEnd, quiet });
 }
 
-async function startNativeDictation(P, target, { lang, onFinal, onEnd, quiet }) {
-  try {
-    const avail = await P.available();
-    if (!avail?.available) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
-  } catch { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
-  try {
-    let perm = await P.checkPermissions();
-    if (perm.speechRecognition !== 'granted') perm = await P.requestPermissions();
-    if (perm.speechRecognition !== 'granted') { if (!quiet) toast(t('micDenied'), 4000); return false; }
-  } catch { if (!quiet) toast(t('micDenied'), 4000); return false; }
+async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
+  if (!(await nativeStt.available())) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
+  if (!(await nativeStt.ensurePermission())) { if (!quiet) toast(t('micDenied'), 4000); return false; }
 
   if (!quiet) showDictBubble();
   rec = { kind: 'native', _keep: true };
@@ -243,19 +223,14 @@ async function startNativeDictation(P, target, { lang, onFinal, onEnd, quiet }) 
     setDictTxt(txt);
   };
   try {
-    if (P.removeAllListeners) await P.removeAllListeners();
-    const h1 = await P.addListener('partialResults', ev => {
-      const txt = (ev.accumulatedText || (ev.matches && ev.matches[0]) || '').trim();
-      applyPartial(txt);
+    nativeHandles = await nativeStt.start({
+      language: lang || state.settings.voiceLang || 'ro-RO',
+      maxResults: 1, partialResults: true, popup: false,
+      onPartial: applyPartial,
+      onState: status => {
+        if (status === 'stopped' && rec && rec.kind === 'native' && rec._keep) rec._keep = false;
+      },
     });
-    const h2 = await P.addListener('listeningState', ev => {
-      if (ev.status === 'stopped' && rec && rec.kind === 'native' && rec._keep) {
-        // sesiunea s-a încheiat singură; păstrăm textul
-        rec._keep = false;
-      }
-    });
-    nativeHandles = [h1, h2].filter(Boolean);
-    await P.start({ language: lang || state.settings.voiceLang || 'ro-RO', maxResults: 1, partialResults: true, popup: false });
   } catch (e) {
     rec = null; if (bubble) { bubble.remove(); bubble = null; }
     if (!quiet) toast(t('dictationError', { e: (e && e.message) || 'err' }), 3500);
@@ -302,8 +277,7 @@ export async function stopDictation() {
     r._keep = false;
     const last = r._last ? r._last() : '';
     if (last && r._onFinal) r._onFinal(last);
-    try { await srPlugin()?.stop(); } catch {}
-    try { await srPlugin()?.removeAllListeners?.(); } catch {}
+    await nativeStt.stop();
     nativeHandles = [];
     const end = r._onEnd;
     rec = null;
