@@ -1,0 +1,19 @@
+{
+  "name": "lege-si-ordine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LEGE ȘI ORDINE – aplicație pentru avocați. Datele rămân pe dispozitiv.",
+  "scripts": {
+    "sync-www": "python3 tools/sync-www.py",
+    "icons": "python3 tools/make-android-icons.py",
+    "cap:sync": "python3 tools/sync-www.py && npx cap sync android",
+    "apk:debug": "python3 tools/sync-www.py && python3 tools/make-android-icons.py && npx cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.0"
+  }
+}

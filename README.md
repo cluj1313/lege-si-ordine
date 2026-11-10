@@ -20,3 +20,15 @@ Rezultatele se scriu în `tests/results.txt`, iar capturile de ecran în `screen
 - `js/tabs/`: `kinds` (tipurile de elemente), `views` (listă, Salvate, Foldere, Ultimele noutăți, Monitorul Oficial), `cats` (categorii pentru Documente și Legi), `recordings`.
 - `js/features/`: `search`, `trash`, `alarms`, `voice`, `backup`, `settings`, `share`, `media`.
 - `i18n/ro.js`: toate textele interfeței, în română.
+
+## APK Android (Capacitor, pachet `ro.legesiordine.app`)
+Datele rămân pe telefon (IndexedDB). Nu se trimite o copie automată în cloud.
+
+    npm install
+    python3 tools/sync-www.py
+    python3 tools/make-android-icons.py
+    npx cap sync android
+    cd android && ./gradlew assembleDebug
+
+APK-ul rezultat: `android/app/build/outputs/apk/debug/app-debug.apk`.
+Cheile de semnare și `local.properties` nu se încarcă pe GitHub. În repo există un flux GitHub Actions (`APK`), pornit doar manual, care pune APK-ul ca artefact privat.

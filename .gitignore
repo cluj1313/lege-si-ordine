@@ -46,3 +46,7 @@ keystore.properties
 .env
 .env.*
 !.env.example
+
+# Capacitor web copy (generat)
+www/
+android/local.properties

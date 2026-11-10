@@ -1,0 +1,9 @@
+{
+  "appId": "ro.legesiordine.app",
+  "appName": "LEGE ȘI ORDINE",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  }
+}
