@@ -8,11 +8,11 @@ import { renderDayGroups } from '../ui/daygroups.js';
 import { recName, recTitle, recStatuses, recArchivedStatus } from './kinds.js';
 import { sheet } from '../ui/modal.js';
 import { saveSettings } from '../core/store.js';
-import { pickFolder, folderNameOf, foldersTab, createFolder } from '../ui/folderpick.js';
+import { pickFolder, folderNameOf, recFoldersOf, ensureRecFolders, createRecFolder } from '../ui/folderpick.js';
 import { pillRow, visibilitySheet } from '../ui/pillrow.js';
 import { folderMenu } from './views.js';
 import { isoFromDate } from '../core/util.js';
-import { startDictation, stopDictation, canLiveTranscribe } from '../features/voice.js';
+import { startDictation, stopDictation, canLiveTranscribe, isSpeaking, stopSpeak, isDictating } from '../features/voice.js';
 import { pickField } from '../ui/pickers.js';
 import { app } from '../ui/registry.js';
 
@@ -36,25 +36,23 @@ function recsOfFolder(folderId) {
 }
 
 function recFolderRow(tab) {
-  const foldTab = liveTabs().find(x => x.kind === 'folders');
-  const roots = foldTab ? itemsOf(foldTab.id, { folder: null, kind: 'folder' }).sort((a, b) => (a.order || 0) - (b.order || 0)) : [];
+  const roots = recFoldersOf(tab);
   const cur = recFilter(tab);
-  const all = itemsOf(tab.id);
+  const all = itemsOf(tab.id).filter(i => i.kind === 'rec');
   const items = [
     { id: 'all', name: t('catAll'), fixed: true, count: all.length },
     ...roots.filter(f => !f.hidden).map(f => ({ id: f.id, name: folderNameOf(f), count: recsOfFolder(f.id).length, locked: !!f.lock })),
   ];
   const active = roots.some(f => f.id === cur && !f.hidden) ? cur : 'all';
   return pillRow({
-    items, activeId: active, variant: 'folder', test: 'rec-folder-row',
+    items, activeId: active, variant: 'pill', test: 'rec-folder-row',
     onPick: c => {
       state.ui.sub[tab.id] = c.id;
       if (R.mr) R.folder = c.id === 'all' ? null : c.id;
       saveUI(); app.render();
     },
     onAdd: async () => {
-      const ft = await foldersTab();
-      const f = await createFolder(ft, null);
+      const f = await createRecFolder(tab, null);
       if (f) { state.ui.sub[tab.id] = f.id; if (R.mr) R.folder = f.id; await saveUI(); app.render(); }
     },
     onManage: () => visibilitySheet(t('manageVisible'), roots.map(f => ({ id: f.id, name: folderNameOf(f), visible: !f.hidden })), async out => {
@@ -62,12 +60,14 @@ function recFolderRow(tab) {
       if (active !== 'all' && getItem(active)?.hidden) state.ui.sub[tab.id] = 'all';
       app.render();
     }),
-    onItemMenu: c => foldTab && folderMenu(foldTab, getItem(c.id)),
+    onItemMenu: c => folderMenu(tab, getItem(c.id)),
   });
 }
 
 export async function startRecording(tabId) {
   if (R.mr || R.busy) return;
+  if (isSpeaking()) await stopSpeak();
+  if (isDictating()) await stopDictation();
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { toast(t('recMissing'), 4000); return; }
   R.busy = true;
   try {
@@ -82,7 +82,7 @@ export async function startRecording(tabId) {
   R.mr.ondataavailable = e => { if (e.data && e.data.size) R.chunks.push(e.data); };
   R.mr.start(1000);
   R.busy = false;
-  if (R.live && canLiveTranscribe()) startDictation(null, { quiet: true, onFinal: txt => { R.transcript += (R.transcript ? ' ' : '') + txt; updateLive(); } });
+  if (R.live && canLiveTranscribe()) startDictation(null, { quiet: true, keepRecording: true, onFinal: txt => { R.transcript += (R.transcript ? ' ' : '') + txt; updateLive(); } });
   R.timer = setInterval(updateLive, 500);
   app.render();
 }
@@ -117,6 +117,7 @@ function updateLive() {
 }
 
 export function renderRecordings(view, tab) {
+  ensureRecFolders(tab).then(created => { if (created && !R.mr) app.render(); });
   const recording = !!R.mr;
   const big = h('button', { class: 'rec-big' + (recording ? ' on' : ''), type: 'button', 'aria-label': recording ? t('recStop') : t('recStart'),
     onclick: e => act(e.currentTarget, () => (recording ? stopRecording() : startRecording(tab.id))) }, h('span', { class: 'rec-core' }));
@@ -134,12 +135,39 @@ export function renderRecordings(view, tab) {
   const list = h('div', { class: 'days' });
   view.append(list);
   const filt = recFilter(tab);
-  let items = itemsOf(tab.id);
+  let items = itemsOf(tab.id).filter(i => i.kind === 'rec');
   if (filt !== 'all') {
     const ids = new Set([filt, ...descendants(filt).filter(i => i.kind === 'folder').map(i => i.id)]);
     items = items.filter(i => ids.has(i.folder));
   }
   const at = it => { const d = dataOf(it); return (d && d.at) || it.created; };
+  if (filt !== 'all') {
+    const qWrap = h('div', { class: 'rec-folder-search' });
+    const q = h('input', { class: 'inp', type: 'search', placeholder: t('archiveSearchPh'), 'data-test': 'archive-search', value: state.ui.recSearch || '' });
+    const apply = () => {
+      const needle = (q.value || '').trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+      state.ui.recSearch = q.value;
+      const hit = it => {
+        if (!needle) return true;
+        const d = dataOf(it) || {};
+        const blob = [d.name, d.client, d.caseNumber, d.transcript, d.status].filter(Boolean).join(' ').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+        return blob.includes(needle);
+      };
+      const shown = needle ? items.filter(hit) : items;
+      list.innerHTML = '';
+      renderDayGroups(list, shown, {
+        key: tab.id, empty: needle ? t('noRecHits') : t('recEmpty'),
+        dateOf: it => isoFromDate(new Date(at(it))),
+        summary: arr => h('span', { class: 'day-chips' }, arr.slice().sort((a, b) => at(a) - at(b)).map(it => h('span', { class: 'chip' }, dataOf(it) ? recTitle(dataOf(it)) : '🔒'))),
+        renderItem: it => card(it),
+      });
+    };
+    q.addEventListener('input', apply);
+    qWrap.append(q);
+    view.insertBefore(qWrap, list);
+    // first draw happens below, then apply if query
+    setTimeout(() => { if (q.value) apply(); }, 0);
+  }
   renderDayGroups(list, items, {
     key: tab.id, empty: t('recEmpty'),
     dateOf: it => isoFromDate(new Date(at(it))),
@@ -192,7 +220,8 @@ export async function renameRec(it) {
 
 export async function archiveRec(it) {
   const d = dataOf(it); if (!d) return;
-  const folder = await pickFolder({ title: t('archiveIn'), confirmLabel: t('archiveHere') });
+  const recTab = liveTabs().find(x => x.id === it.tab) || liveTabs().find(x => x.kind === 'rec');
+  const folder = await pickFolder({ title: t('archiveIn'), confirmLabel: t('archiveHere'), tab: recTab });
   if (!folder) return;
   it.folder = folder.id;
   await saveItem(it, { ...d, status: recArchivedStatus() });

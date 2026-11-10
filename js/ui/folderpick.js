@@ -4,6 +4,7 @@ import { t } from '../core/i18n.js';
 import { liveTabs, itemsOf, itemsInFolder, countInFolder, dataOf, canView, isOpen, newItem, item as getItem, addTab } from '../core/store.js';
 import { openModal, pinDlg, toast } from './modal.js';
 import { unlockTemp } from '../core/store.js';
+import { pickClient, pickCase, clientRecords, caseRecords } from './pickers.js';
 
 export function folderNameOf(f) {
   if (!f) return '';
@@ -54,8 +55,75 @@ async function ensureOpenFolder(f) {
 }
 
 // Alege un folder din arborele tabului Foldere. Întoarce folderul sau null.
-export async function pickFolder({ title, confirmLabel } = {}) {
-  const tab = await foldersTab();
+
+export function defaultRecFolderNames() {
+  const names = [];
+  for (const c of clientRecords()) {
+    if (c.name && !names.includes(c.name)) names.push(c.name);
+    if (names.length >= 3) return names;
+  }
+  for (const c of caseRecords()) {
+    const n = c.number || c.title;
+    if (n && !names.includes(n)) names.push(n);
+    if (names.length >= 3) return names;
+  }
+  let i = 1;
+  while (names.length < 3) names.push(t('recFolderPh', { n: i++ }));
+  return names;
+}
+
+export function recFoldersOf(tab) {
+  return itemsOf(tab.id, { folder: null, kind: 'folder' }).sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+let ensuring = false;
+export async function ensureRecFolders(tab) {
+  if (!tab || recFoldersOf(tab).length) return false;
+  if (ensuring) return false;
+  ensuring = true;
+  try {
+    const names = defaultRecFolderNames();
+    for (let i = 0; i < names.length; i++) await newItem(tab.id, 'folder', { name: names[i] }, { order: i });
+    return true;
+  } finally { ensuring = false; }
+}
+
+// Dialog pentru folder de înregistrări: mereu Da/Nu; poți alege un client, un dosar, sau scrie un nume.
+export async function createRecFolder(tab, parent) {
+  const name = await new Promise(res => {
+    let done = false;
+    const inp = h('input', { class: 'inp', type: 'text', placeholder: t('folderNamePh'), enterkeyhint: 'done', 'data-test': 'folder-name' });
+    const finish = (v, m) => { if (done) return; done = true; res(v); m.close(); };
+    const pick = async (what) => {
+      const v = what === 'client' ? await pickClient() : await pickCase({ mode: 'number' });
+      if (v) { inp.value = v; inp.dispatchEvent(new Event('input', { bubbles: true })); inp.focus(); }
+    };
+    const m = openModal({
+      title: parent ? t('createSubfolder') : t('createRecFolder'),
+      body: h('div', {},
+        h('p', { class: 'm-msg' }, parent ? t('createSubfolderAsk', { n: folderNameOf(parent) }) : t('createRecFolderAsk')),
+        h('div', { class: 'row-btns' },
+          h('button', { class: 'btn ghost sm', type: 'button', 'data-test': 'rec-folder-client', onclick: () => pick('client') }, t('fromClient')),
+          h('button', { class: 'btn ghost sm', type: 'button', 'data-test': 'rec-folder-case', onclick: () => pick('case') }, t('fromCase'))),
+        h('label', { class: 'fld' }, h('span', {}, t('folderNamePh')), inp)),
+      actions: [
+        { label: t('no'), cls: 'ghost', onClick: m => finish(null, m) },
+        { label: t('yes'), cls: 'primary', onClick: m => { const v = inp.value.trim(); if (!v) { inp.focus(); return; } finish(v, m); } },
+      ],
+      onClose: () => { if (!done) res(null); },
+    });
+    m.el.dataset.test = 'create-folder';
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const v = inp.value.trim(); if (v) finish(v, m); else inp.focus(); } });
+    setTimeout(() => inp.focus(), 60);
+  });
+  if (!name) return null;
+  const f = await newItem(tab.id, 'folder', { name }, { folder: parent ? parent.id : null });
+  toast(t('savedOk'));
+  return f;
+}
+
+export async function pickFolder({ title, confirmLabel, tab: tabOpt } = {}) {
+  const tab = tabOpt || await foldersTab();
   return new Promise(res => {
     let here = null; // folder curent sau null = rădăcină
     let done = false;
@@ -70,7 +138,7 @@ export async function pickFolder({ title, confirmLabel } = {}) {
     const draw = async () => {
       body.innerHTML = '';
       const crumbs = h('div', { class: 'crumbs' });
-      crumbs.append(h('button', { class: 'crumb', type: 'button', onclick: () => { here = null; draw(); } }, t('tkFolders')));
+      crumbs.append(h('button', { class: 'crumb', type: 'button', onclick: () => { here = null; draw(); } }, tab.kind === 'rec' ? t('tabRecFolders') : t('tkFolders')));
       const chain = []; let x = here; while (x) { chain.unshift(x); x = x.folder && getItem(x.folder); }
       chain.forEach(f => {
         crumbs.append(h('span', { class: 'crumb-sep' }, '›'));
@@ -102,7 +170,7 @@ export async function pickFolder({ title, confirmLabel } = {}) {
       const acts = h('div', { class: 'fp-acts' });
       acts.append(h('button', { class: 'btn ghost', type: 'button', 'data-test': here ? 'fp-new-sub' : 'fp-new',
         onclick: async () => {
-          const created = await createFolder(tab, here);
+          const created = tab.kind === 'rec' ? await createRecFolder(tab, here) : await createFolder(tab, here);
           if (created) { here = created; draw(); }
         } }, here ? t('createSubfolder') : t('createFolder')));
       if (here) {

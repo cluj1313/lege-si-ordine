@@ -18,6 +18,8 @@ self.addEventListener('activate', e => {{
 self.addEventListener('fetch', e => {{
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  // Cereri Range (fonte woff2): le lăsăm pe rețea, ca să nu primim 416 din cache.
+  if (req.headers.has('range')) return;
   e.respondWith(caches.match(req, {{ ignoreSearch: true }}).then(hit => hit || fetch(req).then(res => {{
     if (res.ok) {{ const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }}
     return res;

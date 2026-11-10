@@ -191,10 +191,11 @@ function renderSelBar() {
 }
 
 function header() {
-  for (const [id, k] of [['hdr-search', 'search'], ['hdr-folders', 'tkFolders'], ['hdr-select', 'selectOn'], ['hdr-menu', 'menu']]) { const b = $('#' + id); b.setAttribute('aria-label', t(k)); b.title = t(k); }
+  for (const [id, k] of [['hdr-search', 'search'], ['hdr-folders', 'tkFolders'], ['hdr-select', 'selectOn'], ['hdr-settings', 'settings'], ['hdr-menu', 'menu']]) { const b = $('#' + id); if (!b) continue; b.setAttribute('aria-label', t(k)); b.title = t(k); }
   $('#hdr-search').onclick = () => openSearch();
   $('#hdr-folders').onclick = () => { const f = liveTabs().find(x => x.kind === 'folders'); if (f) { if (f.visible === false) { f.visible = true; } goTab(f.id); } };
   $('#hdr-select').onclick = () => { ui.selecting = !ui.selecting; ui.selected.clear(); render(); toast(ui.selecting ? t('selectOn') : t('selectOff')); };
+  $('#hdr-settings').onclick = () => openSettings();
   $('#hdr-menu').onclick = async () => {
     const v = await sheet(t('menu'), [
       { label: t('settings'), value: 'set', icon: '⚙' },
@@ -215,7 +216,7 @@ async function onHidden() {
 }
 
 export async function startApp() {
-  Object.assign(app, { render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, archiveRec, recStatus, startRecording });
+  Object.assign(app, { render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, archiveRec, recStatus, startRecording, stopRecording, isRecording });
   header();
   newsCache = await newsResults();
   onChange(() => { if (!rendering) render(); });

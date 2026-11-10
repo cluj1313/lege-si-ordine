@@ -1,20 +1,26 @@
-// Setări: Taburi (arătare, reordonare cu ≡), Design (teme), Voce, Alarme, Coș, Backup, Date de exemplu, Versiune.
+// Setări: deschidere din antet (aceeași poziție ca în Notis: sus dreapta),
+// secțiuni pliabile, backup manual/automat, setările LSO păstrate.
 import { h, act } from '../core/util.js';
 import { t } from '../core/i18n.js';
-import { state, liveTabs, saveTab, saveTabsOrder, saveSettings, saveUI, APP_VERSION, purge } from '../core/store.js';
-import { openModal, confirmDlg, toast } from '../ui/modal.js';
-import { tabMenu, newTabFlow } from '../ui/tabsbar.js';
+import { state, liveTabs, saveTab, saveTabsOrder, saveSettings, saveUI, APP_VERSION, purge, itemsOf, dataOf, canView } from '../core/store.js';
+import { openModal, confirmDlg, toast, infoDlg } from '../ui/modal.js';
+import { tabMenu, newTabFlow, renderTabBar } from '../ui/tabsbar.js';
 import { voiceMenu, LANGS, canDictate, canSpeak } from './voice.js';
 import { requestNotif } from './alarms.js';
 import { backupSection } from './backup.js';
 import { openTrash } from './trash.js';
 import { TAB_KINDS } from '../tabs/kinds.js';
 import { app } from '../ui/registry.js';
+import { isNative } from '../voice/native-cap.js';
 
 export function applyTheme() {
-  document.documentElement.dataset.theme = state.settings.theme === 'navy' ? 'navy' : 'light';
+  const s = state.settings || {};
+  document.documentElement.dataset.theme = s.theme === 'navy' ? 'navy' : 'light';
+  document.documentElement.dataset.tabStyle = s.tabStyle === 'box' ? 'box' : 'pill';
+  document.documentElement.dataset.font = s.fontScale === 'sm' || s.fontScale === 'lg' ? s.fontScale : 'md';
+  document.documentElement.dataset.outline = s.cardOutline === false ? 'off' : 'on';
   const meta = document.querySelector('meta[name=theme-color]');
-  if (meta) meta.content = state.settings.theme === 'navy' ? '#0f1a2e' : '#f7f5f0';
+  if (meta) meta.content = s.theme === 'navy' ? '#0f1a2e' : '#f7f5f0';
 }
 
 function section(id, title, body) {
@@ -44,7 +50,6 @@ function tabsSection() {
     h('button', { class: 'btn ghost', type: 'button', onclick: async () => { await newTabFlow(); draw(); } }, '+ ' + t('newTab')));
 }
 
-// Reordonare verticală cu ≡ prin pointer events.
 function dragRow(handle, row, list) {
   handle.addEventListener('pointerdown', e => {
     e.preventDefault();
@@ -59,7 +64,6 @@ function dragRow(handle, row, list) {
         if (y < b.top + b.height / 2) { if (row.nextSibling !== r) list.insertBefore(row, r); placed = true; break; }
       }
       if (!placed && list.lastElementChild !== row) list.append(row);
-      // derulare automată la margini
       const sc = list.closest('.m-body'); if (sc) { const sb = sc.getBoundingClientRect(); if (y < sb.top + 40) sc.scrollTop -= 12; else if (y > sb.bottom - 40) sc.scrollTop += 12; }
     };
     const up = async () => {
@@ -74,21 +78,80 @@ function dragRow(handle, row, list) {
   });
 }
 
-export function openSettings() {
+function designSection() {
   const s = state.settings;
   const themeRow = h('div', { class: 'theme-pick' }, [['light', t('themeLight')], ['navy', t('themeNavy')]].map(([v, n]) =>
     h('button', { class: 'theme-opt th-' + v + (s.theme === v ? ' sel' : ''), type: 'button', 'data-theme': v, onclick: async e => { const box = e.currentTarget.parentNode; s.theme = v; applyTheme(); box.querySelectorAll('.theme-opt').forEach(b => b.classList.toggle('sel', b.dataset.theme === v)); await saveSettings(); } },
       h('span', { class: 'th-swatch' }), n)));
+  const styleRow = h('div', { class: 'row-btns' },
+    [['pill', t('tabStylePill')], ['box', t('tabStyleBox')]].map(([v, n]) =>
+      h('button', { class: 'btn sm' + (s.tabStyle === v || (!s.tabStyle && v === 'pill') ? ' primary' : ' ghost'), type: 'button', 'data-test': 'tab-style-' + v, onclick: async e => {
+        s.tabStyle = v; applyTheme();
+        e.currentTarget.parentNode.querySelectorAll('button').forEach(b => b.classList.toggle('primary', b === e.currentTarget));
+        e.currentTarget.parentNode.querySelectorAll('button').forEach(b => b.classList.toggle('ghost', b !== e.currentTarget));
+        await saveSettings();
+        const bar = document.getElementById('tabbar'); if (bar) renderTabBar(bar, state.ui.tab);
+      } }, n)));
+  const fontRow = h('div', { class: 'row-btns' },
+    [['sm', t('fontSm')], ['md', t('fontMd')], ['lg', t('fontLg')]].map(([v, n]) =>
+      h('button', { class: 'btn sm' + ((s.fontScale || 'md') === v ? ' primary' : ' ghost'), type: 'button', 'data-test': 'font-' + v, onclick: async e => {
+        s.fontScale = v; applyTheme();
+        e.currentTarget.parentNode.querySelectorAll('button').forEach(b => { b.classList.toggle('primary', b === e.currentTarget); b.classList.toggle('ghost', b !== e.currentTarget); });
+        await saveSettings();
+      } }, n)));
+  const outline = h('label', { class: 'fld-check' },
+    h('input', { type: 'checkbox', 'data-test': 'card-outline', checked: s.cardOutline !== false, onchange: async e => { s.cardOutline = e.target.checked; applyTheme(); await saveSettings(); } }),
+    h('span', {}, t('cardOutline')));
+  return h('div', {},
+    h('h3', { class: 'sub-h' }, t('setThemes')), themeRow,
+    h('h3', { class: 'sub-h' }, t('setTabStyle')), styleRow,
+    h('h3', { class: 'sub-h' }, t('setFont')), fontRow,
+    h('h3', { class: 'sub-h' }, t('setFine')), outline);
+}
+
+async function checkUpdate(statusEl) {
+  statusEl.textContent = t('updateChecking');
+  try {
+    const r = await fetch('https://api.github.com/repos/cluj1313/lege-si-ordine/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
+    if (!r.ok) throw new Error('http');
+    const j = await r.json();
+    const tag = String(j.tag_name || '').replace(/^v/, '');
+    if (tag && tag !== APP_VERSION) statusEl.textContent = t('updateAvailable', { v: tag });
+    else statusEl.textContent = t('updateCurrent', { v: APP_VERSION });
+  } catch {
+    statusEl.textContent = t('updateCheckFail');
+  }
+}
+
+export function openSettings() {
+  const s = state.settings;
+  const nameInp = h('input', { class: 'inp', type: 'text', value: s.displayName || '', autocomplete: 'name', 'data-test': 'set-name', placeholder: t('setNamePh') });
+  nameInp.addEventListener('change', async () => { s.displayName = nameInp.value.trim(); await saveSettings(); });
+  const remind = h('label', { class: 'fld-check' },
+    h('input', { type: 'checkbox', 'data-test': 'remind-urgents', checked: !!s.remindUrgents, onchange: async e => { s.remindUrgents = e.target.checked; await saveSettings(); } }),
+    h('span', {}, t('remindUrgents')));
+
   const days = h('input', { class: 'inp', type: 'number', min: '1', max: '3650', value: String(s.trashDays), inputmode: 'numeric', 'data-test': 'trash-days' });
   const notifState = h('span', { class: 'r2-meta' }, 'Notification' in window ? t('notif_' + Notification.permission) : t('notif_unsupported'));
   const hasSample = [...state.items.values()].some(i => i.sample);
+  const updateStatus = h('p', { class: 'r2-meta', 'data-test': 'update-status' }, `${t('version')} ${APP_VERSION}`);
+
+  let installBtn = null;
+  if (window.__lsoInstall) {
+    installBtn = h('button', { class: 'btn ghost', type: 'button', onclick: async () => {
+      try { await window.__lsoInstall.prompt(); const r = await window.__lsoInstall.userChoice; if (r && r.outcome === 'accepted') { installBtn.remove(); window.__lsoInstall = null; } } catch {}
+    } }, t('installApp'));
+  }
+
   const body = h('div', { class: 'settings' },
-    section('tabs', t('setTabs'), tabsSection()),
-    section('design', t('setDesign'), themeRow),
+    h('label', { class: 'fld' }, h('span', {}, t('setName')), nameInp),
+    remind,
     section('voice', t('setVoice'), h('div', {},
       h('p', { class: 'r2-meta' }, t('voiceCurrent', { l: (LANGS.find(l => l[0] === s.voiceLang) || [0, s.voiceLang])[1] })),
       h('p', { class: 'r2-meta' }, `${t('voiceRead')}: ${canSpeak() ? t('available') : t('unavailable')} • ${t('voiceDictation')}: ${canDictate() ? t('available') : t('unavailable')}`),
       h('button', { class: 'btn ghost', type: 'button', onclick: () => voiceMenu() }, t('voiceSettings')))),
+    section('tabs', t('setTabs'), tabsSection()),
+    section('design', t('setDesign'), designSection()),
     section('alarms', t('setAlarms'), h('div', {},
       h('p', { class: 'r2-meta' }, t('alarmsHint')), notifState,
       h('button', { class: 'btn ghost', type: 'button', onclick: async () => { const r = await requestNotif(); notifState.textContent = t('notif_' + r); } }, t('allowNotif')))),
@@ -103,8 +166,40 @@ export function openSettings() {
         for (const it of [...state.items.values()].filter(i => i.sample)) if (state.items.has(it.id)) await purge(it);
         toast(t('sampleRemoved')); app.render();
       }) }, t('removeSample')))) : null,
-    section('about', t('setAbout'), h('div', {}, h('p', {}, `LEGE ȘI ORDINE • ${t('version')} ${APP_VERSION}`), h('p', { class: 'r2-meta' }, t('aboutHint')))),
+    installBtn,
+    section('about', t('setAbout'), h('div', {},
+      h('p', {}, `LEGE ȘI ORDINE • ${t('version')} ${APP_VERSION}`),
+      h('p', { class: 'r2-meta' }, t('aboutHint')),
+      updateStatus,
+      h('button', { class: 'btn ghost', type: 'button', 'data-test': 'check-update', onclick: () => checkUpdate(updateStatus) }, t('checkUpdate')))),
   );
   const m = openModal({ title: t('settings'), body, kind: 'page', cls: 'settings-page', onClose: () => app.render() });
   m.el.dataset.test = 'settings';
+}
+
+export async function maybeRemindUrgents() {
+  const s = state.settings;
+  if (!s.remindUrgents) return;
+  const day = new Date(); const key = `${day.getFullYear()}-${day.getMonth() + 1}-${day.getDate()}`;
+  if (s.lastUrgentRemind === key) return;
+  const urgTab = liveTabs().find(x => x.urgent || x.kind === 'note' && /urgen/i.test(x.name));
+  let n = 0;
+  if (urgTab) n = itemsOf(urgTab.id).filter(it => !it.trashedAt && canView(it)).length;
+  for (const it of state.items.values()) {
+    if (it.kind !== 'task' || it.trashedAt) continue;
+    const d = dataOf(it);
+    if (d && d.done) continue;
+    if (d && d.date === key.replace(/-(\d)-/, '-0$1-').split('').join('') ) { /* skip brittle */ }
+    // today by ISO date
+    const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    if (d && d.date === iso) n++;
+  }
+  if (!n) return;
+  s.lastUrgentRemind = key;
+  await saveSettings();
+  toast(t('urgentRemind', { n }), 4000);
+}
+
+export function listenInstallPrompt() {
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__lsoInstall = e; });
 }

@@ -1,16 +1,19 @@
-// Adapter TTS nativ (Android). Interfața rămâne stabilă ca să putem
-// înlocui motorul când avem abordarea confirmată (plugin, interogări, fallback).
+// Adapter TTS nativ (Android). Preferă podul propriu LsoVoice (QUEUE_FLUSH,
+// timeout de siguranță, ecran de instalare vocilor). Dacă lipsește, folosește
+// pluginul Capacitor TextToSpeech, apoi nimic (fallback web în voice.js).
 import { plugin } from './native-cap.js';
 
-const NAME = 'TextToSpeech';
-
-export function ttsEngine() { return plugin(NAME); }
+export function lsoVoice() { return plugin('LsoVoice') || null; }
+export function ttsEngine() { return lsoVoice() || plugin('TextToSpeech') || null; }
 export function hasNativeTts() { return !!ttsEngine(); }
 
 export async function getVoices() {
   const P = ttsEngine();
   if (!P) return [];
-  try { const r = await P.getSupportedVoices(); return r.voices || []; } catch { return []; }
+  try {
+    const r = await (P.getSupportedVoices ? P.getSupportedVoices() : P.ttsVoices?.());
+    return (r && (r.voices || r)) || [];
+  } catch { return []; }
 }
 
 export async function isLanguageSupported(lang) {
@@ -25,11 +28,17 @@ export async function isLanguageSupported(lang) {
   }
 }
 
-export async function speak({ text, lang, rate = 1, pitch = 1, volume = 1, voiceName = '', category = 'ambient', queueStrategy = 1 } = {}) {
+export async function speak({ text, lang, rate = 1.25, pitch = 1, volume = 1, voiceName = '', category = 'ambient', queueStrategy = 0 } = {}) {
+  const L = lsoVoice();
+  if (L && L.ttsSpeak) {
+    await L.ttsSpeak({ text, lang, rate, pitch, voiceName: voiceName || '' });
+    return;
+  }
   const P = ttsEngine();
   if (!P) throw new Error('no-tts');
   await P.speak({
-    text, lang, rate, pitch, volume, category, queueStrategy,
+    text, lang, rate, pitch, volume, category,
+    queueStrategy: 0, // QUEUE_FLUSH
     ...(voiceName ? { voiceName } : {}),
   });
 }
@@ -37,12 +46,20 @@ export async function speak({ text, lang, rate = 1, pitch = 1, volume = 1, voice
 export async function stop() {
   const P = ttsEngine();
   if (!P) return;
-  try { await P.stop(); } catch {}
+  try { await (P.ttsStop ? P.ttsStop() : P.stop()); } catch {}
 }
 
-export function canOpenInstall() { return typeof ttsEngine()?.openInstall === 'function'; }
+export function canOpenInstall() {
+  const L = lsoVoice();
+  if (L && L.ttsInstall) return true;
+  return typeof ttsEngine()?.openInstall === 'function';
+}
 
 export async function openInstall() {
+  const L = lsoVoice();
+  if (L && L.ttsInstall) {
+    try { await L.ttsInstall(); return true; } catch { return false; }
+  }
   const P = ttsEngine();
   if (!P?.openInstall) return false;
   try { await P.openInstall(); return true; } catch { return false; }

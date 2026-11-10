@@ -1,6 +1,6 @@
 {
   "name": "lege-si-ordine",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "LEGE ȘI ORDINE – aplicație pentru avocați. Datele rămân pe dispozitiv.",
   "scripts": {
@@ -13,6 +13,8 @@
     "@capacitor-community/text-to-speech": "^8.0.2",
     "@capacitor/android": "^8.6.0",
     "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
     "@capgo/capacitor-speech-recognition": "^8.4.6"
   },
   "devDependencies": {

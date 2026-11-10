@@ -3,7 +3,7 @@ import { db, S } from './db.js';
 import { uid } from './util.js';
 import * as C from './crypto.js';
 
-export const APP_VERSION = '1.0.3';
+export const APP_VERSION = '1.0.4';
 
 export const state = {
   settings: {},
@@ -15,8 +15,11 @@ export const state = {
 };
 
 export const DEFAULT_SETTINGS = {
-  theme: 'light', trashDays: 30, voiceLang: 'ro-RO', voiceName: '', voiceRate: 1,
+  theme: 'light', trashDays: 30, voiceLang: 'ro-RO', voiceName: '', voiceRate: 1.25,
   newsHour: '08:00', lastAutoBackup: 0, lastAutoHash: '', version: APP_VERSION,
+  displayName: '', remindUrgents: false, lastUrgentRemind: '',
+  tabStyle: 'pill', fontScale: 'md', cardOutline: true,
+  weeklyBackup: true, lastWeeklyCheck: 0, lastWeeklyHash: '', lastWeeklyWrite: 0,
 };
 
 const listeners = new Set();

@@ -14,6 +14,7 @@ export function pillRow({ items, activeId, onPick, onAdd, onItemMenu, onManage, 
         h('span', { class: 'ft-name' }, h('span', { class: 'ft-label' }, it.name), it.count != null ? h('span', { class: 'cnt' }, String(it.count)) : null));
     } else {
       b = h('button', { class: 'pill subtab' + (it.id === activeId ? ' active' : ''), type: 'button', 'data-id': it.id, onclick: () => onPick(it) },
+        it.locked ? h('span', { class: 'pill-lock', 'aria-hidden': 'true' }, '🔒') : null,
         it.name, it.count != null ? h('span', { class: 'cnt' }, String(it.count)) : null);
     }
     if (onItemMenu && !it.fixed) onLongPress(b, () => onItemMenu(it));

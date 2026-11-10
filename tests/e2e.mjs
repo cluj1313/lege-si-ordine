@@ -266,8 +266,28 @@ async function run(vp, label, full) {
     assert(after.every(i => i.data && !i.sec), 'nu s-a decriptat la deblocarea permanentă');
   });
 
+  await step(`[${label}] [NOU] Setări se deschid din antet (sus dreapta), ca în Notis`, async () => {
+    await tap('#hdr-settings');
+    await p.locator('[data-test=settings]').waitFor();
+    assert(await p.locator('[data-test=settings] [data-test=set-name]').count() === 1, 'câmpul Nume');
+    assert(await p.locator('[data-test=remind-urgents]').count() === 1, 'amintește urgențele');
+    await p.locator('[data-test=settings] details.set-sec[data-sec=backup]').evaluate(el => { el.open = true; });
+    await p.locator('[data-test=bk-manual]').waitFor();
+    await p.locator('[data-test=bk-auto]').waitFor();
+    assert(await p.locator('[data-test=export]').count() === 1, 'salvează backup');
+    assert(await p.locator('[data-test=weekly-backup]').count() === 1, 'copie săptămânală');
+    if (label === '412x915') {
+      await p.screenshot({ path: `${SHOTS}${label}-setari.png` });
+      await p.locator('[data-test=settings] details.set-sec[data-sec=backup]').evaluate(el => el.scrollIntoView({ block: 'start' }));
+      await p.screenshot({ path: `${SHOTS}${label}-setari-backup.png` });
+    } else {
+      await p.screenshot({ path: `${SHOTS}${label}-setari.png` });
+    }
+    await tap('[data-test=settings] .m-back'); await gone('[data-test=settings]');
+  });
+
   await step(`[${label}] setări: reordonare taburi cu ≡ (pointer) și ascundere`, async () => {
-    await tap('#hdr-menu'); await sheetOpt('Setări');
+    await tap('#hdr-settings');
     await p.locator('[data-test=settings] details[data-sec=tabs] summary').tap();
     const rows = p.locator('[data-test=tab-order] .to-row');
     await rows.first().waitFor();
@@ -572,7 +592,8 @@ async function run(vp, label, full) {
     await p.locator('[data-test=folder-pick]').waitFor();
     await assertModalFit('[data-test=folder-pick]');
     assert(await p.locator('[data-test=fp-new]', { hasText: 'Creează Folder' }).count() === 1, 'Creează Folder la rădăcină');
-    assert(await p.locator('[data-test=folder-pick] .fp-item', { hasText: 'Folder 1' }).count() === 1, 'arborele de foldere');
+    assert(await p.locator('[data-test=folder-pick] .fp-item').count() >= 3, 'folderele de înregistrări (din clienți/dosare)');
+    assert(await p.locator('[data-test=folder-pick] .fp-item', { hasText: 'Ion Popescu' }).count() === 1, 'folder după client');
     await p.screenshot({ path: `${SHOTS}${label}-recordings-folder-pick.png` });
     // Creează Folder întreabă întotdeauna; Nu anulează
     await p.locator('[data-test=fp-new]').tap();
@@ -613,33 +634,32 @@ async function run(vp, label, full) {
     await p.locator('[data-test=sheet] .sheet-opt[data-v=text]').tap();
     await gone('[data-test=sheet]');
     await p.locator('[data-test=toast]', { hasText: 'Copiat.' }).waitFor();
-    // Foldere: înregistrarea e vizibilă în subfolder, se poate căuta și partaja
-    await goTab('Foldere');
-    const tile = p.locator('.folder-tile', { hasText: 'Arhivă test' }).first();
-    await tile.waitFor();
-    const ttxt = await tile.textContent();
-    assert(/[2-9]/.test(ttxt), 'contorul trebuie să includă subfolderul și înregistrarea: ' + ttxt);
-    await tile.tap();
-    await p.locator('.crumbs', { hasText: 'Arhivă test' }).waitFor();
-    await p.locator('.folder-panel .folder-row, .folder-panel .card.folder-row', { hasText: 'Sub Arhivă' }).first().tap();
-    await p.locator('.crumbs', { hasText: 'Sub Arhivă' }).waitFor();
-    await p.locator('[data-test=folder-items] .card[data-kind=rec]', { hasText: 'Ion Popescu (exemplu)' }).waitFor();
+    // RECORDINGS: folderul propriu (nu tab-ul Foldere), căutare în arhivă
+    await goTab('RECORDINGS');
+    const recRow = p.locator('[data-test=rec-folder-row]');
+    await recRow.locator('.subtab', { hasText: 'Arhivă test' }).waitFor();
+    await recRow.locator('.subtab', { hasText: 'Arhivă test' }).tap();
+    await p.waitForTimeout(200);
+    const recCard = p.locator('#view .card[data-kind=rec]', { hasText: 'Ion Popescu (exemplu)' });
+    await recCard.waitFor();
     await p.locator('[data-test=archive-search]').fill('declaratia martorului');
     await p.waitForTimeout(200);
-    assert(await p.locator('[data-test=folder-items] .card[data-kind=rec]').count() === 1, 'search în arhivă (fără diacritice)');
+    assert(await p.locator('#view .card[data-kind=rec]').count() === 1, 'search în arhivă (fără diacritice)');
     await p.locator('[data-test=archive-search]').fill('xyz-nu-exista');
     await p.waitForTimeout(200);
     assert(await p.locator('#view', { hasText: 'Nicio înregistrare găsită' }).count() === 1, 'fără rezultate');
     await p.locator('[data-test=archive-search]').fill('1234/299');
     await p.waitForTimeout(200);
-    await p.locator('[data-test=folder-items] .card[data-kind=rec]', { hasText: 'Ion Popescu (exemplu)' }).waitFor();
+    await p.locator('#view .card[data-kind=rec]', { hasText: 'Ion Popescu (exemplu)' }).waitFor();
     await p.screenshot({ path: `${SHOTS}${label}-recordings-archive-search.png` });
-    const rec = p.locator('[data-test=folder-items] .card[data-kind=rec]').first();
+    const rec = p.locator('#view .card[data-kind=rec]').first();
     if (await rec.locator('.r2').count() === 0) await rec.locator('.r1').tap();
     await rec.locator('[data-test=rec-share]').tap();
     await p.locator('[data-test=sheet] .sheet-opt[data-v=both]').waitFor();
     await p.locator('.m-overlay').last().evaluate(el => { el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); el.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await gone('[data-test=sheet]');
+    await recRow.locator('.subtab', { hasText: 'Toate' }).tap();
+    await p.waitForTimeout(150);
     // căutare globală (inclusiv transcrierea)
     await search('declaratia martorului');
     await p.locator('[data-test=search] .sr', { hasText: 'Ion Popescu (exemplu)' }).waitFor();
@@ -653,23 +673,30 @@ async function run(vp, label, full) {
     await p.screenshot({ path: `${SHOTS}${label}-NOU-recordings.png` });
   });
 
-  await step(`[${label}] [NOU] RECORDINGS: rând de pastile (Toate + folderele din Foldere), filtru, + la capăt`, async () => {
+  await step(`[${label}] [NOU] RECORDINGS: pastile compacte (Toate + foldere client/dosar), filtru, + la capăt`, async () => {
     await goTab('RECORDINGS');
     const row = p.locator('[data-test=rec-folder-row]');
     await row.waitFor();
-    const labels = await row.locator('.folder-tile .ft-label').evaluateAll(els => els.map(e => e.textContent.trim()));
-    assert(labels[0] === 'Toate', 'prima pastilă trebuie să fie Toate: ' + labels.join('|'));
-    assert(labels.includes('Folder 2') && labels.includes('Folder 3'), 'folderele din Foldere lipsesc: ' + labels.join('|'));
+    await row.locator('.subtab', { hasText: 'Ion Popescu' }).waitFor();
+    assert(await row.locator('.folder-tile').count() === 0, 'fără icoane mari de folder pe RECORDINGS');
+    const labels = await row.locator('.subtab:not(.add)').evaluateAll(els => els.map(e => e.textContent.replace(/🔒/g,'').replace(/\d+$/,'').trim()));
+    assert(labels[0] === 'Toate' || labels[0].startsWith('Toate'), 'prima pastilă trebuie să fie Toate: ' + labels.join('|'));
+    assert(labels.some(l => /Ion Popescu/.test(l)) && labels.some(l => /Maria Ionescu/.test(l)), 'folderele din clienți lipsesc: ' + labels.join('|'));
     assert(await row.locator(':scope > :last-child').evaluate(e => e.textContent.trim() === '+'), '„+” la capăt');
     assert(await row.locator('.pr-manage').count() === 1, '⋯ vizibilitate');
     await p.screenshot({ path: `${SHOTS}${label}-recordings-pastile.png` });
-    // filtru: un folder fără înregistrări
-    await row.locator('.folder-tile', { hasText: 'Folder 2' }).tap();
+    await row.locator('.subtab', { hasText: 'Maria Ionescu' }).tap();
     await p.waitForTimeout(200);
-    assert(await p.locator('#view .day-group .card[data-kind=rec]').count() === 0, 'Folder 2 ar trebui să fie gol');
-    await row.locator('.folder-tile', { hasText: 'Toate' }).tap();
+    assert(await p.locator('#view .day-group .card[data-kind=rec]').count() === 0, 'Maria Ionescu ar trebui să fie goală');
+    await row.locator('.subtab', { hasText: 'Toate' }).tap();
     await p.waitForTimeout(200);
     assert(await p.locator('#view .day-row, #view .card[data-kind=rec]').count() >= 1, 'Toate trebuie să arate înregistrările');
+    await row.locator('.pr-add, .subtab.add').tap();
+    await p.locator('[data-test=create-folder]').waitFor();
+    assert(await p.locator('[data-test=rec-folder-client]').count() === 1, 'Din Clienți');
+    assert(await p.locator('[data-test=rec-folder-case]').count() === 1, 'Din Dosare');
+    await p.locator('[data-test=create-folder] .m-actions .btn.ghost').tap();
+    await gone('[data-test=create-folder]');
   });
 
   await step(`[${label}] [NOU] Selector Client sau Firmă: căutare, + Client nou / + Firmă nouă, dialog Da/Nu`, async () => {
@@ -738,7 +765,7 @@ async function run(vp, label, full) {
   let backupPath = null;
   await step(`[${label}] backup: export JSON, modificare, import cu Da/Nu + checkpoint, restaurare`, async () => {
     await tap('#hdr-menu'); await sheetOpt('Setări');
-    await p.locator('[data-test=settings] details[data-sec=backup] summary').tap();
+    await p.locator('[data-test=settings] details.set-sec[data-sec=backup]').evaluate(el => { el.open = true; });
     const [dl] = await Promise.all([p.waitForEvent('download'), p.locator('[data-test=export]').tap()]);
     backupPath = `/tmp/lso-backup-${label}.json`;
     await dl.saveAs(backupPath);
@@ -752,7 +779,7 @@ async function run(vp, label, full) {
     await save();
     await p.locator('#view .card', { hasText: 'Notă după backup' }).waitFor();
     await tap('#hdr-menu'); await sheetOpt('Setări');
-    await p.locator('[data-test=settings] details[data-sec=backup] summary').waitFor();
+    await p.locator('[data-test=settings] details.set-sec[data-sec=backup]').evaluate(el => { el.open = true; });
     const [fc] = await Promise.all([p.waitForEvent('filechooser'), p.locator('[data-test=import]').tap()]);
     await fc.setFiles(backupPath);
     await p.locator('[data-test=confirm]').waitFor();

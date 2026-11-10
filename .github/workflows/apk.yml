@@ -30,10 +30,10 @@ jobs:
       - name: Pregătește artefactul
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/LEGE-SI-ORDINE-v1.0.3.apk
-          ls -lh dist/LEGE-SI-ORDINE-v1.0.3.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/LEGE-SI-ORDINE-v1.0.4.apk
+          ls -lh dist/LEGE-SI-ORDINE-v1.0.4.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LEGE-SI-ORDINE-v1.0.3-apk
-          path: dist/LEGE-SI-ORDINE-v1.0.3.apk
+          name: LEGE-SI-ORDINE-v1.0.4-apk
+          path: dist/LEGE-SI-ORDINE-v1.0.4.apk
           if-no-files-found: error

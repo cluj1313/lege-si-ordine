@@ -8,6 +8,7 @@ import { pickChoice } from '../ui/pickers.js';
 import { isNative } from '../voice/native-cap.js';
 import * as nativeTts from '../voice/native-tts.js';
 import * as nativeStt from '../voice/native-stt.js';
+import { app } from '../ui/registry.js';
 
 export const LANGS = [
   ['ro-RO', 'Română'], ['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['fr-FR', 'Français'], ['de-DE', 'Deutsch'],
@@ -15,6 +16,17 @@ export const LANGS = [
 ];
 
 export { isNative };
+
+async function yieldMic() {
+  try { if (app.isRecording && app.isRecording()) await app.stopRecording(); } catch {}
+}
+
+function sttErrMsg(code) {
+  const c = String(code || '').toLowerCase();
+  const key = ['noservice', 'nomatch', 'network', 'busy', 'lang', 'perm'].find(k => c.includes(k));
+  return key ? t('sttErr_' + key) : t('dictationError', { e: code || 'err' });
+}
+
 
 const WebSR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
@@ -74,7 +86,7 @@ async function showTtsHelp({ noEngine = false, noLang = false } = {}) {
     { label: t('ok'), cls: 'ghost', onClick: m => m.close() },
   ];
   if (nativeTts.canOpenInstall()) actions.unshift({ label: t('ttsOpenInstall'), cls: 'primary', onClick: async m => { await nativeTts.openInstall(); m.close(); } });
-  openModal({ title: t('ttsHelpTitle'), body: h('p', { class: 'm-msg' }, msg), actions });
+  openModal({ title: t('ttsInstallVoice'), body: h('p', { class: 'm-msg' }, msg), actions });
 }
 
 async function speakWeb(text, lang, rate, voiceName) {
@@ -142,11 +154,13 @@ async function playNativeFrom(i) {
 export async function speak(text) {
   text = String(text || '').trim();
   if (!text) { toast(t('nothingToRead')); return false; }
+  if (speakSt.playing) { await stopSpeak(); return false; }
+  await yieldMic();
+  if (isDictating()) await stopDictation();
   emitSpeak(text);
-  await stopSpeak();
   const s = state.settings;
   const lang = s.voiceLang || 'ro-RO';
-  const rate = s.voiceRate || 1;
+  const rate = s.voiceRate == null ? 1.25 : s.voiceRate;
   const voiceName = s.voiceName || '';
   const ok = nativeTts.hasNativeTts() ? await speakNative(text, lang, rate, voiceName) : await speakWeb(text, lang, rate, voiceName);
   return ok;
@@ -191,7 +205,10 @@ function showDictBubble() {
 }
 function setDictTxt(s) { if (bubble) bubble.querySelector('.dict-txt').textContent = s || t('listening'); }
 
-export async function startDictation(target, { lang, onFinal, onEnd, quiet = false } = {}) {
+export async function startDictation(target, { lang, onFinal, onEnd, quiet = false, keepRecording = false } = {}) {
+  // Transcrierea live din timpul înregistrării folosește același microfon; nu o oprim.
+  if (!keepRecording) await yieldMic();
+  if (!keepRecording && isSpeaking()) await stopSpeak();
   if (rec) await stopDictation();
   if (nativeStt.hasNativeStt()) return startNativeDictation(target, { lang, onFinal, onEnd, quiet });
   if (!WebSR) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
@@ -230,10 +247,11 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
       onState: status => {
         if (status === 'stopped' && rec && rec.kind === 'native' && rec._keep) rec._keep = false;
       },
+      onError: code => { if (!quiet) toast(sttErrMsg(code), 4000); },
     });
   } catch (e) {
     rec = null; if (bubble) { bubble.remove(); bubble = null; }
-    if (!quiet) toast(t('dictationError', { e: (e && e.message) || 'err' }), 3500);
+    if (!quiet) toast(sttErrMsg((e && e.message) || 'noservice'), 4000);
     return false;
   }
   rec._onFinal = onFinal; rec._onEnd = onEnd; rec._last = () => last;
@@ -339,7 +357,7 @@ export async function voiceMenu() {
     if (v == null) return;
     voiceName = v; drawVoice();
   });
-  const rate = h('input', { type: 'range', min: '0.6', max: '1.6', step: '0.1', value: String(s.voiceRate || 1) });
+  const rate = h('input', { type: 'range', min: '0.6', max: '1.6', step: '0.1', value: String(s.voiceRate == null ? 1.25 : s.voiceRate) });
   const body = h('div', {},
     h('label', { class: 'fld' }, h('span', {}, t('voiceLang')), langBtn),
     h('label', { class: 'fld' }, h('span', {}, t('voiceVoice')), voiceBtn),

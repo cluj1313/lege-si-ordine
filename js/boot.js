@@ -1,10 +1,10 @@
 // Pornire: încarcă datele locale, creează taburile la prima rulare, aplică tema, pornește UI-ul și serviciile.
 import { load, state, saveUI, APP_VERSION } from './core/store.js';
 import { seedIfNeeded, migrate } from './core/seed.js';
-import { applyTheme } from './features/settings.js';
+import { applyTheme, maybeRemindUrgents, listenInstallPrompt } from './features/settings.js';
 import { startApp } from './app.js';
 import { checkExpired } from './features/trash.js';
-import { maybeDailyBackup } from './features/backup.js';
+import { maybeDailyBackup, startWeeklyBackup } from './features/backup.js';
 import { startAlarms } from './features/alarms.js';
 import { topModal } from './ui/modal.js';
 import { ui } from './ui/list.js';
@@ -28,10 +28,12 @@ async function boot() {
   if (await seedIfNeeded()) { await saveUI(); await load(); }
   await migrate();
   applyTheme();
+  listenInstallPrompt();
   await startApp();
   document.body.classList.add('ready');
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  setTimeout(async () => { await checkExpired(); await maybeDailyBackup(); }, 600);
+  setTimeout(async () => { await checkExpired(); await maybeDailyBackup(); maybeRemindUrgents(); }, 600);
+  startWeeklyBackup();
   startAlarms();
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !isNative()) {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
