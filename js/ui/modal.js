@@ -108,7 +108,9 @@ export function sheet(title, options) {
 
 export function toast(msg, ms = 2400) {
   const el = h('div', { class: 'toast', role: 'status' }, msg);
-  $('#toasts').append(el);
+  const box = $('#toasts');
+  while (box.children.length >= 2) box.firstChild.remove(); // cel mult 2 mesaje simultan
+  box.append(el);
   requestAnimationFrame(() => el.classList.add('show'));
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, ms);
 }

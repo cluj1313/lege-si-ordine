@@ -3,7 +3,12 @@ import { h, act, fmtDur, fmtTs } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem } from '../core/store.js';
 import { toast, promptDlg } from '../ui/modal.js';
-import { renderList } from '../ui/list.js';
+import { card } from '../ui/list.js';
+import { renderDayGroups } from '../ui/daygroups.js';
+import { recName, recStatuses } from './kinds.js';
+import { sheet } from '../ui/modal.js';
+import { saveSettings } from '../core/store.js';
+import { isoFromDate } from '../core/util.js';
 import { startDictation, stopDictation, canDictate } from '../features/voice.js';
 import { app } from '../ui/registry.js';
 
@@ -47,10 +52,9 @@ export async function stopRecording() {
   const blob = new Blob(R.chunks, { type: mr.mimeType || 'audio/webm' });
   R.mr = null;
   try {
-    const name = t('recDefaultName', { d: fmtTs(R.start) });
     const temp = { tab: R.tabId, kind: 'rec', folder: null };
-    const mid = await putMedia(blob, name, blob.type, ownerOf(temp));
-    await newItem(R.tabId, 'rec', { name, duration, mid, mime: blob.type, transcript: R.transcript.trim() });
+    const mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }), blob.type, ownerOf(temp));
+    await newItem(R.tabId, 'rec', { name: '', duration, mid, mime: blob.type, transcript: R.transcript.trim(), at: R.start, status: recStatuses()[0] || '' });
     toast(t('recSaved'));
   } catch (e) { console.error(e); toast(t('recSaveFail'), 4000); }
   R.busy = false;
@@ -75,13 +79,33 @@ export function renderRecordings(view, tab) {
       h('label', { class: 'fld-check sm' }, liveCb, h('span', {}, canDictate() ? t('recLiveTranscript') : t('recNoTranscript'))))),
     );
   if (recording) view.append(h('div', { class: 'rec-live' }, R.transcript || t('recListening')));
-  const list = h('div', { class: 'list' });
+  const list = h('div', { class: 'days' });
   view.append(list);
-  renderList(list, itemsOf(tab.id), { kind: 'rec', empty: t('recEmpty') });
+  const items = itemsOf(tab.id);
+  const at = it => { const d = dataOf(it); return (d && d.at) || it.created; };
+  renderDayGroups(list, items, {
+    key: tab.id, empty: t('recEmpty'),
+    dateOf: it => isoFromDate(new Date(at(it))),
+    summary: arr => h('span', { class: 'day-chips' }, arr.slice().sort((a, b) => at(a) - at(b)).map(it => h('span', { class: 'chip' }, dataOf(it) ? recName(dataOf(it)) : '🔒'))),
+    renderItem: it => card(it),
+  });
+}
+
+export async function recStatus(it) {
+  const d = dataOf(it); if (!d) return;
+  const v = await sheet(t('fRecStatus'), [...recStatuses().map(s => ({ label: s, value: 's:' + s, icon: d.status === s ? '●' : '○' })), { label: t('recEditStatuses'), value: 'edit', icon: '✎' }]);
+  if (!v) return;
+  if (v === 'edit') {
+    const txt = await promptDlg(t('recEditStatuses'), { value: recStatuses().join('\n'), multiline: true, label: t('recStatusesHint') });
+    if (!txt) return;
+    state.settings.recStatuses = [...new Set(txt.split('\n').map(x => x.trim()).filter(Boolean))];
+    await saveSettings(); toast(t('savedOk')); app.render(); return;
+  }
+  await saveItem(it, { ...d, status: v.slice(2) }); toast(t('savedOk'));
 }
 
 export async function renameRec(it) {
   const d = dataOf(it); if (!d) return;
-  const n = await promptDlg(t('rename'), { value: d.name });
+  const n = await promptDlg(t('rename'), { value: d.name || recName(d) });
   if (n) { await saveItem(it, { ...d, name: n }); toast(t('savedOk')); }
 }

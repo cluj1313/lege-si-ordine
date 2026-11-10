@@ -85,7 +85,7 @@ export function card(it) {
   const meta = h('span', { class: 'r1-meta' });
   if (it.lock) meta.append('🔓');
   if (it.alarmAt && it.alarmAt > Date.now()) meta.append('⏰');
-  if (it.kind === 'rec') meta.append(fmtDur(d.duration));
+  if (it.kind === 'rec') { if (d.status) meta.append(h('span', { class: 'pill rec-st' }, d.status)); meta.append(fmtDur(d.duration)); }
   if (it.kind === 'task' && d.date) meta.append(h('span', { class: 'r1-small' }, fmtDate(d.date).slice(0, 5) + (d.time ? ' ' + d.time : '')));
   if (meta.childNodes.length) r1.append(meta);
   r1.append(h('span', { class: 'chev' }, open ? '▴' : '▾'));
@@ -160,11 +160,12 @@ function recRow2(it, d) {
   const audio = h('audio', { controls: true, preload: 'none', class: 'rec-audio' });
   getMedia(d.mid).then(m => { if (m) audio.src = URL.createObjectURL(m.blob); else audio.replaceWith(h('div', { class: 'r2-meta' }, t('mediaMissing'))); });
   return h('div', { class: 'r2-col' },
-    h('div', { class: 'r2-meta' }, `${fmtTsDate(it.created)} • ${fmtDur(d.duration)}`),
+    h('div', { class: 'r2-meta' }, `${fmtTsDate(d.at || it.created)} • ${fmtDur(d.duration)}`),
     audio,
     d.transcript ? h('div', { class: 'r2-text pre' }, d.transcript) : h('div', { class: 'r2-meta' }, t('noTranscript')),
     h('div', { class: 'r2-actions' },
       h('button', { class: 'btn sm ghost', type: 'button', onclick: () => app.renameRec(it) }, t('rename')),
+      h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-status', onclick: () => app.recStatus(it) }, t('recStatusBtn', { s: d.status || '—' })),
       h('button', { class: 'btn sm ghost', type: 'button', onclick: async () => { const m = await getMedia(d.mid); if (m) shareFile(m.blob, (d.name || 'inregistrare') + extOf(m.mime), d.name); } }, t('share')),
       h('button', { class: 'btn sm danger-ghost', type: 'button', onclick: () => app.deleteItem(it) }, t('delete'))));
 }

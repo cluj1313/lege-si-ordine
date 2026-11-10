@@ -5,6 +5,7 @@ import { state, visibleTabs, liveTabs, saveTab, saveTabsOrder, addTab, trash, it
 import { TAB_KINDS, userTabKinds } from '../tabs/kinds.js';
 import { sheet, promptDlg, confirmDlg, pinDlg, toast, openModal } from './modal.js';
 import { app } from './registry.js';
+import { visibilitySheet } from './pillrow.js';
 
 export const COLORS = ['', '#c9a24a', '#b5523b', '#3f7d5a', '#3b6aa0', '#7a4ea3', '#5a5f6a', '#c2417a'];
 
@@ -19,7 +20,12 @@ export function renderTabBar(bar, activeId, badges = {}) {
     onLongPress(b, () => tabMenu(tab));
     bar.append(b);
   }
-  bar.append(h('button', { class: 'tab-pill add', type: 'button', 'aria-label': t('newTab'), onclick: () => newTabFlow() }, '+'));
+  const add = h('button', { class: 'tab-pill add', type: 'button', 'aria-label': t('newTab'), onclick: () => newTabFlow() }, '+');
+  onLongPress(add, () => visibilitySheet(t('manageVisible'), liveTabs().map(x => ({ id: x.id, name: x.name, visible: x.visible !== false })), async out => {
+    const all = liveTabs(); out.forEach((o, i) => { const tb = all.find(x => x.id === o.id); tb.order = i; tb.visible = o.visible; });
+    await saveTabsOrder(); if (!visibleTabs().some(x => x.id === state.ui.tab)) app.goTab(null);
+  }));
+  bar.append(add);
   const act = bar.querySelector('.tab-pill.active');
   if (act) requestAnimationFrame(() => { const r = act.getBoundingClientRect(), br = bar.getBoundingClientRect(); if (r.left < br.left || r.right > br.right) bar.scrollLeft += r.left - br.left - 16; });
 }

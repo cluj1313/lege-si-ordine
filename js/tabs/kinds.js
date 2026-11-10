@@ -2,6 +2,17 @@
 import { h, fmtDate, toTs, isoToday, fmtTsDate, fmtDur } from '../core/util.js';
 import { t } from '../core/i18n.js';
 
+import { state } from '../core/store.js';
+const hhmm = ts => { if (!ts) return ''; const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+export const DEFAULT_REC_STATUSES = () => [t('recStNew'), t('recStWork'), t('recStDone')];
+export const recStatuses = () => (state.settings.recStatuses && state.settings.recStatuses.length ? state.settings.recStatuses : DEFAULT_REC_STATUSES());
+// Nume afișat: numele dat de utilizator; altfel primele cuvinte din transcriere; altfel „Înregistrare HH:MM”.
+export function recName(d) {
+  if (d.name && d.name.trim()) return d.name.trim();
+  const w = String(d.transcript || '').trim().split(/\s+/).filter(Boolean);
+  if (w.length) return w.slice(0, 6).join(' ') + (w.length > 6 ? '…' : '');
+  return t('recUnnamed', { h: hhmm(d.at) });
+}
 export const STAGES = ['nou', 'lucru', 'programat', 'acte', 'suspendat', 'finalizat'];
 export const stageLabel = s => (STAGES.includes(s) ? t('stage_' + s) : (s || ''));
 export const stagePill = s => s ? h('span', { class: 'pill stage st-' + (STAGES.includes(s) ? s : 'x') }, stageLabel(s)) : null;
@@ -157,13 +168,15 @@ export const KINDS = {
   },
   rec: {
     label: () => t('kindRec'),
-    newData: () => ({ name: '', duration: 0, mid: null, transcript: '', mime: '' }),
-    title: d => d.name || t('untitled'),
+    newData: () => ({ name: '', duration: 0, mid: null, transcript: '', mime: '', at: Date.now(), status: '' }),
+    title: d => recName(d),
+    lead: d => h('span', { class: 'r1-date' }, hhmm(d.at)),
     fields: [
       { k: 'name', type: 'text', label: () => t('fName') },
+      { k: 'status', type: 'select', label: () => t('fRecStatus'), options: () => recStatuses() },
       { k: 'transcript', type: 'textarea', label: () => t('fTranscript'), main: true, rows: 8 },
     ],
-    search: d => [d.name, d.transcript].join(' \n '),
+    search: d => [recName(d), d.status, d.transcript].join(' \n '),
     meta: d => fmtDur(d.duration),
   },
 };
@@ -180,7 +193,8 @@ export const TAB_KINDS = {
   law: { item: 'law', label: () => t('tkLaws') },
   news: { item: 'term', label: () => t('tkNews'), special: true },
   saved: { item: 'note', label: () => t('tkSaved') },
+  mo: { item: 'law', label: () => t('tkMO') },
   folders: { item: 'note', label: () => t('tkFolders'), special: true },
   rec: { item: 'rec', label: () => t('tkRec'), special: true },
 };
-export const userTabKinds = ['note', 'task', 'case', 'client', 'deadline', 'document', 'law', 'folders'];
+export const userTabKinds = ['note', 'task', 'case', 'client', 'deadline', 'document', 'law', 'mo', 'folders'];

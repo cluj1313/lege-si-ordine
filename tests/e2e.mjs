@@ -66,7 +66,7 @@ async function run(vp, label, full) {
       assert(await p.locator('#view').evaluate(v => v.children.length > 0), 'gol: ' + n);
       await noOverflow();
       // text tăiat: niciun element din vizualizare nu iese din ecran
-      const cut = await p.evaluate(() => [...document.querySelectorAll('#view *')].filter(e => { const r = e.getBoundingClientRect(); return r.width && r.right > window.innerWidth + 1 && !e.closest('.subtabs,.folder-strip'); }).map(e => e.className).slice(0, 3));
+      const cut = await p.evaluate(() => [...document.querySelectorAll('#view *')].filter(e => { const r = e.getBoundingClientRect(); return r.width && r.right > window.innerWidth + 1 && !e.closest('.subtabs,.folder-strip,.pill-row,.day-sum'); }).map(e => e.className).slice(0, 3));
       assert(!cut.length, `${n}: elemente în afara ecranului ${cut}`);
       if (full) await p.screenshot({ path: `${SHOTS}${label}-${n.replace(/\s+/g, '-').toLowerCase()}.png` });
     }
@@ -350,22 +350,148 @@ async function run(vp, label, full) {
     await p.locator('.folder-panel .card', { hasText: 'checklist' }).waitFor();
   });
 
-  await step(`[${label}] RECORDINGS: înregistrare (microfon simulat), listă, redare, redenumire`, async () => {
+  await step(`[${label}] [NOU] rând orizontal comun: „+” la capăt, adăugare, foaie de vizibilitate, persistență (Documente)`, async () => {
+    await goTab('Documente');
+    const row = p.locator('[data-test=cat-row]');
+    assert(await row.locator('> :last-child').evaluate(e => e.textContent.trim() === '+' && e.classList.contains('pr-add')), '„+” nu e ultimul');
+    for (const n of ['Dosar penal', 'Corespondență', 'Executare']) {
+      await row.locator('.pr-add').tap();
+      await p.locator('.m-dialog input.inp').fill(n);
+      await p.locator('.m-dialog .m-actions .btn.primary').tap();
+      await p.locator('[data-test=cat-row] .folder-tile.active', { hasText: n }).waitFor();
+    }
+    assert(await row.evaluate(r => r.scrollWidth > r.clientWidth + 10), 'rândul nu derulează orizontal');
+    assert(await row.locator('> :last-child').evaluate(e => e.textContent.trim() === '+'), '„+” nu mai e ultimul după adăugare');
+    await row.locator('.folder-tile', { hasText: 'Dosar penal' }).tap();
+    await tap('[data-test=fab-add]');
+    await p.locator('[data-test=editor] [data-k=title]').fill('Plângere penală Vasile');
+    await save();
+    await p.locator('#view .card', { hasText: 'Plângere penală Vasile' }).waitFor();
+    assert(await p.locator('#view .card').count() === 1, 'categoria nu filtrează');
+    await row.locator('.folder-tile', { hasText: 'Executare' }).tap();
+    await p.waitForTimeout(200);
+    assert(await p.locator('#view .card').count() === 0, 'Executare ar trebui să fie gol');
+    await row.locator('.folder-tile', { hasText: 'Dosar penal' }).tap();
+    await p.locator('#view .card', { hasText: 'Plângere penală Vasile' }).waitFor();
+    await row.locator('.folder-tile', { hasText: 'Toate' }).tap();
+    assert(await p.locator('#view .card').count() >= 3, '„Toate” nu arată tot');
+    await p.screenshot({ path: `${SHOTS}${label}-NOU-documente.png` });
+    await row.locator('.pr-manage').tap();
+    await p.locator('[data-test=visibility] .to-row').first().waitFor();
+    await p.waitForTimeout(400);
+    await p.screenshot({ path: `${SHOTS}${label}-NOU-foaie-vizibilitate.png` });
+    await p.locator('[data-test=visibility] .to-row', { hasText: 'Probe' }).locator('input').tap();
+    // reordonare: „Executare” sus
+    const hFrom = await p.locator('[data-test=visibility] .to-row', { hasText: 'Executare' }).locator('.drag').boundingBox();
+    const hTo = await p.locator('[data-test=visibility] .to-row').first().locator('.drag').boundingBox();
+    await p.mouse.move(hFrom.x + 10, hFrom.y + 10); await p.mouse.down();
+    for (let i = 1; i <= 8; i++) await p.mouse.move(hFrom.x + 10, hFrom.y + 10 - (hFrom.y - hTo.y + 8) * i / 8, { steps: 2 });
+    await p.mouse.up();
+    await p.locator('[data-test=visibility] .m-actions .btn.primary').tap();
+    await gone('[data-test=visibility]');
+    await p.reload(); await p.waitForSelector('.tab-pill.active');
+    await goTab('Documente');
+    const names = await p.locator('[data-test=cat-row] .folder-tile').evaluateAll(els => els.map(e => e.querySelector('.ft-label').textContent));
+    assert(!names.includes('Probe'), 'Probe încă vizibil: ' + names);
+    assert(names[1] === 'Executare', 'ordinea nu s-a păstrat: ' + names);
+    const cats = await p.evaluate(() => new Promise(res => { const r = indexedDB.open('lso_db'); r.onsuccess = () => { const q = r.result.transaction('lso_tabs').objectStore('lso_tabs').getAll(); q.onsuccess = () => res(q.result.find(t => t.name === 'Documente').cats); }; }));
+    assert(cats.find(c => c.name === 'Probe').visible === false && cats.length === 6, 'IndexedDB: ' + JSON.stringify(cats.map(c => c.name)));
+  });
+
+  await step(`[${label}] [NOU] Legi: subcategorii (pastile), filtrare, „+” la capăt; Salvate și Foldere folosesc același rând`, async () => {
+    await goTab('Legi');
+    const row = p.locator('[data-test=cat-row]');
+    const pills = await row.locator('.subtab:not(.add)').evaluateAll(els => els.map(e => e.firstChild.textContent));
+    assert(pills.join('|') === 'Toate|Constituție|Coduri|Legi|Portaluri', 'pastile: ' + pills);
+    await row.locator('.subtab', { hasText: 'Coduri' }).tap();
+    const titles = await p.locator('#view .card .r1t').allTextContents();
+    assert(titles.length === 4 && titles.every(x => /^Cod/.test(x)), 'filtru Coduri: ' + titles);
+    assert(await row.locator('> :last-child').evaluate(e => e.textContent.trim() === '+'), '„+” Legi');
+    await p.screenshot({ path: `${SHOTS}${label}-NOU-legi.png` });
+    await row.locator('.subtab', { hasText: 'Toate' }).tap();
+    await goTab('Salvate');
+    assert(await p.locator('[data-test=saved-row] > :last-child').evaluate(e => e.textContent.trim() === '+'), '„+” Salvate');
+    assert(await p.locator('[data-test=saved-row] .pr-manage').count() === 1, 'vizibilitate Salvate');
+    await goTab('Foldere');
+    assert(await p.locator('[data-test=folder-row] > :last-child').evaluate(e => e.textContent.trim() === '+'), '„+” Foldere');
+  });
+
+  await step(`[${label}] [NOU] Monitorul Oficial pe zile: gol inițial, un rând pe dată, rezumat pe un rând, deschide/închide`, async () => {
+    await goTab('Monitorul Oficial');
+    await p.locator('#view .empty').waitFor();
+    assert(await p.locator('#view .mo-sources a[href="https://www.monitoruloficial.ro/"]').count() === 1, 'link oficial MO');
+    const add = async (title, date) => {
+      await tap('[data-test=fab-add]');
+      await p.locator('[data-test=editor] [data-k=title]').fill(title);
+      const di = p.locator('[data-test=editor] .date-inp'); await di.fill(''); await di.type(date);
+      await save();
+    };
+    await add('Legea nr. 100/2026 privind modificarea Codului de procedură civilă în materia executării silite', '05112026');
+    await add('Hotărârea Guvernului nr. 812/2026', '05112026');
+    await add('Ordonanța de urgență nr. 45/2026', '03112026');
+    const rows = p.locator('#view .day-row');
+    assert(await rows.count() === 2, 'rânduri pe zi: ' + await rows.count());
+    const d0 = await rows.nth(0).locator('.day-date').textContent();
+    assert(d0 === '05/11/2026', 'data/ordinea: ' + d0);
+    const geo = await rows.nth(0).evaluate(r => { const s = r.querySelector('.day-sum'); return { h: r.getBoundingClientRect().height, right: r.getBoundingClientRect().right, ws: getComputedStyle(s).whiteSpace, sh: s.getBoundingClientRect().height }; });
+    assert(geo.ws === 'nowrap' && geo.sh < 30 && geo.right <= vp.width, 'rezumatul nu e pe un rând: ' + JSON.stringify(geo));
+    assert(await p.locator('#view .day-group .card').count() === 0, 'zilele trebuie să fie închise inițial');
+    await rows.nth(0).tap();
+    await p.locator('#view .day-group.open .card').nth(1).waitFor();
+    assert(await p.locator('#view .day-group.open .card').count() === 2, 'nu s-au deschis toate elementele zilei');
+    await p.screenshot({ path: `${SHOTS}${label}-NOU-monitorul-oficial.png` });
+    await p.locator('#view .day-row').nth(0).tap();
+    await p.waitForTimeout(200);
+    assert(await p.locator('#view .day-group.open').count() === 0, 'nu s-a închis');
+  });
+
+  await step(`[${label}] [NOU] RECORDINGS pe zile: rând pe dată cu cipuri, deschidere cu ora și numele, stare, redenumire, nume implicit`, async () => {
     await goTab('RECORDINGS');
     await p.locator('.rec-big').tap();
     await p.locator('.rec-big.on').waitFor();
     await p.waitForTimeout(2200);
     await p.locator('.rec-big.on').tap();
-    await p.locator('#view .card[data-kind=rec]').first().waitFor({ timeout: 15000 });
-    await p.locator('#view .card[data-kind=rec] .r1').first().tap();
-    await p.locator('#view .card[data-kind=rec] audio').waitFor();
-    const src = await p.locator('#view .card[data-kind=rec] audio').getAttribute('src');
-    assert(src && src.startsWith('blob:'), 'audio fără sursă');
+    const day = p.locator('#view .day-row').first();
+    await day.waitFor({ timeout: 15000 });
+    const now = new Date(); const pad = n => String(n).padStart(2, '0');
+    assert(await day.locator('.day-date').textContent() === `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`, 'data rândului');
+    const chip = await day.locator('.chip').first().textContent();
+    assert(/^Înregistrare \d{2}:\d{2}$/.test(chip), 'nume implicit: ' + chip);
+    await day.tap();
+    const c = p.locator('#view .day-group.open .card[data-kind=rec]').first();
+    await c.waitFor();
+    assert(/^\d{2}:\d{2}$/.test(await c.locator('.r1-date').textContent()), 'ora lipsă');
+    assert((await c.locator('.rec-st').textContent()) === 'Nouă', 'stare implicită');
+    await c.locator('.r1').tap();
+    await c.locator('audio').waitFor();
+    assert((await c.locator('audio').getAttribute('src') || '').startsWith('blob:'), 'audio');
+    await c.locator('[data-test=rec-status]').tap();
+    await sheetOpt('În lucru');
+    await p.locator('#view .card[data-kind=rec] .rec-st', { hasText: 'În lucru' }).waitFor();
+    // editare stări
+    await p.locator('#view .card[data-kind=rec] [data-test=rec-status]').tap();
+    await sheetOpt('Editează stările');
+    const ta = p.locator('.m-dialog textarea'); await ta.fill('Nouă\nÎn lucru\nFinalizată\nArhivată');
+    await p.locator('.m-dialog .m-actions .btn.primary').tap();
+    await p.waitForTimeout(300);
+    await p.locator('#view .card[data-kind=rec] [data-test=rec-status]').tap();
+    await sheetOpt('Arhivată');
+    await p.locator('#view .card[data-kind=rec] .rec-st', { hasText: 'Arhivată' }).waitFor();
+    // nume din transcriere când nu are nume
+    await p.locator('#view .card[data-kind=rec] .r2').tap({ position: { x: 20, y: 8 } });
+    await p.locator('[data-test=editor] textarea[data-k=transcript]').fill('Declarația martorului principal despre contractul de vânzare');
+    await save();
+    await p.locator('#view .card[data-kind=rec] .r1t', { hasText: 'Declarația martorului principal despre contractul de…' }).waitFor();
     await p.locator('#view .card[data-kind=rec] button', { hasText: 'Redenumește' }).tap();
     await p.locator('.m-dialog input.inp').fill('Audiere martor');
     await p.locator('.m-dialog .m-actions .btn.primary').tap();
     await p.locator('#view .card[data-kind=rec]', { hasText: 'Audiere martor' }).waitFor();
-    await p.screenshot({ path: `${SHOTS}${label}-recordings-cu-inregistrare.png` });
+    await p.screenshot({ path: `${SHOTS}${label}-NOU-recordings-deschis.png` });
+    await p.locator('#view .day-row').first().tap();
+    await p.waitForTimeout(200);
+    assert(await p.locator('#view .day-group.open').count() === 0, 'ziua nu s-a închis');
+    assert(await p.locator('#view .day-row .chip', { hasText: 'Audiere martor' }).count() === 1, 'cip după redenumire');
+    await p.screenshot({ path: `${SHOTS}${label}-NOU-recordings.png` });
   });
 
   await step(`[${label}] selecție multiplă: selectare și mutare în Coș cu Da/Nu`, async () => {

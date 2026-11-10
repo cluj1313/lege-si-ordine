@@ -65,6 +65,12 @@ export async function openEditor(tabId, it = null, opts = {}) {
     } else if (f.type === 'time') {
       const tf = timeField(data[f.k] || '', { label }); el = tf.el;
       getters.push(() => { if (!tf.valid()) { tf.inp.classList.add('bad'); toast(t('badTime')); return false; } data[f.k] = tf.get(); return true; });
+    } else if (f.type === 'select') {
+      const opts = f.options();
+      const sel = h('select', { class: 'inp', 'data-k': f.k }, h('option', { value: '' }, '—'), opts.map(o => h('option', { value: o, selected: data[f.k] === o }, o)));
+      if (data[f.k] && !opts.includes(data[f.k])) sel.append(h('option', { value: data[f.k], selected: true }, data[f.k]));
+      el = h('label', { class: 'fld' }, h('span', {}, label), sel);
+      getters.push(() => { data[f.k] = sel.value; return true; });
     } else if (f.type === 'check') {
       const cb = h('input', { type: 'checkbox', 'data-k': f.k }); cb.checked = !!data[f.k];
       el = h('label', { class: 'fld-check' }, cb, h('span', {}, label));
@@ -120,7 +126,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
     if (alarmAt && alarmAt < Date.now()) toast(t('alarmPast'), 3500);
     let rec;
     if (it) { delete it.snoozeAt; delete it.firedAt; it.alarmAt = alarmAt && alarmAt > Date.now() ? alarmAt : null; rec = await saveItem(it, data); }
-    else rec = await newItem(tab.id, kind, data, { folder: opts.folder || null, sub: opts.sub || null, alarmAt: alarmAt && alarmAt > Date.now() ? alarmAt : null });
+    else rec = await newItem(tab.id, kind, data, { folder: opts.folder || null, sub: opts.sub || null, cat: opts.cat || null, alarmAt: alarmAt && alarmAt > Date.now() ? alarmAt : null });
     for (const mid of removed) await delMedia(mid);
     saved = true; dirty = false;
     toast(t('savedOk'));
@@ -238,7 +244,7 @@ export async function moveItem(it) {
   if (!v) return false;
   const dest = tabById(v);
   if (dest.lock && !isOpen(dest)) { const ok = await pinDlg(t('unlockNamed', { n: dest.name }), { verify: async pin => (await import('../core/store.js')).unlockTemp(dest, pin) }); if (!ok) return false; }
-  await relocate(it, { tab: dest.id, folder: null, sub: dest.kind === 'saved' ? 'salvate' : null });
+  await relocate(it, { tab: dest.id, folder: null, cat: null, sub: dest.kind === 'saved' ? 'salvate' : null });
   toast(t('movedTo', { n: dest.name }));
   return true;
 }

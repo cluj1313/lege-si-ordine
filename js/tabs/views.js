@@ -1,14 +1,20 @@
 // Ecranele taburilor: listă generică, Salvate (subtaburi), Foldere, Ultimele noutăți.
 import { h, act, onLongPress, fmtDate } from '../core/util.js';
 import { t } from '../core/i18n.js';
+import { locksChain } from '../core/store.js';
 import { state, itemsOf, dataOf, canView, isOpen, newItem, saveItem, saveTab, unlockTemp, relock, descendants, item as getItem,
-  lockWithPin, unlockPermanent, trash, saveUI } from '../core/store.js';
+  lockWithPin, unlockPermanent, trash, saveUI, saveMeta } from '../core/store.js';
 import { renderList, card, ui } from '../ui/list.js';
 import { pinDlg, promptDlg, sheet, toast, confirmDlg } from '../ui/modal.js';
 import { timeField } from '../ui/datetime.js';
 import { app } from '../ui/registry.js';
 import { waLink, mailLink } from '../features/share.js';
 import { db } from '../core/db.js';
+import { catRow, curCat } from './cats.js';
+import { pillRow, visibilitySheet } from '../ui/pillrow.js';
+import { renderDayGroups } from '../ui/daygroups.js';
+import { KINDS } from './kinds.js';
+import { isoFromDate } from '../core/util.js';
 
 export function renderLocked(view, obj, name) {
   view.append(h('div', { class: 'locked-screen' },
@@ -20,11 +26,35 @@ export function renderLocked(view, obj, name) {
     } }, t('unlock'))));
 }
 
+export const hasCats = tab => tab.kind === 'law' || tab.kind === 'document';
 export function renderGeneric(view, tab) {
   if (tab.kind === 'law') view.append(h('div', { class: 'hint' }, t('lawHint')));
+  let items = itemsOf(tab.id, { folder: null });
+  if (hasCats(tab)) {
+    view.append(catRow(tab, tab.kind === 'document' ? 'folder' : 'pill'));
+    const c = curCat(tab);
+    if (c !== 'all') items = items.filter(i => i.cat === c);
+  }
   const list = h('div', { class: 'list' });
   view.append(list);
-  renderList(list, itemsOf(tab.id, { folder: null }), { kind: tab.kind === 'note' ? 'note' : tab.kind });
+  renderList(list, items, { kind: tab.kind === 'note' ? 'note' : tab.kind });
+}
+
+// ---- Monitorul Oficial: organizat pe zile (data publicării) ----
+export function renderMO(view, tab) {
+  const all = itemsOf(tab.id);
+  const official = all.filter(i => i.official && canView(i));
+  view.append(h('div', { class: 'hint' }, t('moHint')));
+  if (official.length) view.append(h('div', { class: 'mo-sources' }, official.map(i => { const d = dataOf(i); return h('a', { class: 'pill src', href: d.url, target: '_blank', rel: 'noopener noreferrer' }, d.title.replace(/ –.*$/, '') + ' ↗'); })));
+  const mine = all.filter(i => !i.official);
+  const list = h('div', { class: 'days' });
+  view.append(list);
+  renderDayGroups(list, mine, {
+    key: tab.id, empty: t('moEmpty'),
+    dateOf: it => { const d = dataOf(it); return (d && d.actDate) || isoFromDate(new Date(it.created)); },
+    summary: items => items.map(i => (canView(i) ? KINDS.law.title(dataOf(i)) : '🔒')).join(' · '),
+    renderItem: it => card(it),
+  });
 }
 
 // ---- Salvate: subtaburi Salvate, Descărcate, + ----
@@ -33,20 +63,17 @@ export function savedSubs(tab) {
 }
 export function renderSaved(view, tab) {
   const subs = savedSubs(tab);
-  let cur = state.ui.sub[tab.id] || subs[0].id;
+  const vis = subs.filter(x => x.visible !== false);
+  let cur = state.ui.sub[tab.id] || vis[0]?.id || subs[0].id;
   if (!subs.find(s => s.id === cur)) cur = subs[0].id;
-  const bar = h('div', { class: 'subtabs' });
-  subs.forEach(s => {
-    const b = h('button', { class: 'pill subtab' + (s.id === cur ? ' active' : ''), type: 'button', onclick: () => { state.ui.sub[tab.id] = s.id; saveUI(); app.render(); } },
-      s.name, h('span', { class: 'cnt' }, String(itemsOf(tab.id, { sub: s.id }).length)));
-    if (!['salvate', 'descarcate'].includes(s.id)) onLongPress(b, () => subMenu(tab, s));
-    bar.append(b);
-  });
-  bar.append(h('button', { class: 'pill subtab add', type: 'button', 'aria-label': t('addSubtab'), onclick: async () => {
-    const n = await promptDlg(t('addSubtab')); if (!n) return;
-    tab.subs = [...subs, { id: 's' + Date.now().toString(36), name: n }]; await saveTab(tab); app.render();
-  } }, '+'));
-  view.append(bar);
+  view.append(pillRow({
+    items: vis.map(s => ({ id: s.id, name: s.name, count: itemsOf(tab.id, { sub: s.id }).length, fixed: ['salvate', 'descarcate'].includes(s.id) })),
+    activeId: cur, test: 'saved-row',
+    onPick: s => { state.ui.sub[tab.id] = s.id; saveUI(); app.render(); },
+    onAdd: async () => { const n = await promptDlg(t('addSubtab')); if (!n) return; tab.subs = [...subs, { id: 's' + Date.now().toString(36), name: n, visible: true }]; await saveTab(tab); },
+    onManage: () => visibilitySheet(t('manageVisible'), subs, async out => { tab.subs = out.map(o => ({ ...subs.find(s => s.id === o.id), visible: o.visible })); await saveTab(tab); }),
+    onItemMenu: s => subMenu(tab, subs.find(x => x.id === s.id)),
+  }));
   const list = h('div', { class: 'list' });
   view.append(list);
   renderList(list, itemsOf(tab.id, { sub: cur }), { kind: 'note', empty: cur === 'descarcate' ? t('emptyDownloaded') : t('emptySaved') });
@@ -61,7 +88,7 @@ async function subMenu(tab, s) {
 }
 
 // ---- Foldere ----
-const folderName = f => (canView(f) ? dataOf(f).name : t('lockedItem'));
+const folderName = f => { const d = dataOf(f); return d && locksChain(f).every(isOpen) ? d.name : t('lockedItem'); };
 const countIn = f => itemsOf(f.tab, { folder: f.id }).length;
 export function currentFolder(tab) {
   const id = state.ui.folder[tab.id];
@@ -88,16 +115,18 @@ export function renderFolders(view, tab) {
   if (cur && cur.lock && !isOpen(cur)) cur = null;
   const rootOf = f => { let x = f; while (x && x.folder) x = getItem(x.folder); return x; };
   const activeRoot = cur ? rootOf(cur) : null;
-  const strip = h('div', { class: 'folder-strip' + (roots.length > 3 ? ' scroll' : '') });
-  roots.forEach(f => {
-    const b = h('button', { class: 'folder-tile' + (activeRoot && activeRoot.id === f.id ? ' active' : ''), type: 'button', 'data-id': f.id, onclick: () => enterFolder(tab, f) },
-      h('span', { class: 'ft-ic' }, h('img', { src: 'icons/folder.png', alt: '' }), f.lock ? h('i', { class: 'ft-lock' }, '🔒') : null),
-      h('span', { class: 'ft-name' }, folderName(f), h('span', { class: 'cnt' }, String(countIn(f)))));
-    onLongPress(b, () => folderMenu(tab, f));
-    strip.append(b);
-  });
-  strip.append(h('button', { class: 'folder-add', type: 'button', 'aria-label': t('newFolder'), onclick: () => newFolder(tab, null) }, '+'));
-  view.append(strip);
+  const allRoots = roots;
+  view.append(pillRow({
+    items: allRoots.filter(f => !f.hidden).map(f => ({ id: f.id, name: folderName(f), count: countIn(f), locked: !!f.lock })),
+    activeId: activeRoot && activeRoot.id, variant: 'folder', test: 'folder-row',
+    onPick: f => enterFolder(tab, getItem(f.id)),
+    onAdd: () => newFolder(tab, null),
+    onManage: () => visibilitySheet(t('manageVisible'), allRoots.map(f => ({ id: f.id, name: folderName(f), visible: !f.hidden })), async out => {
+      for (const [i, o] of out.entries()) { const f = getItem(o.id); f.order = i; f.hidden = !o.visible; await saveMeta(f); }
+      if (activeRoot && activeRoot.hidden) state.ui.folder[tab.id] = null;
+    }),
+    onItemMenu: f => folderMenu(tab, getItem(f.id)),
+  }));
 
   const panel = h('div', { class: 'folder-panel' });
   const crumbs = h('div', { class: 'crumbs' });

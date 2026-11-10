@@ -1,6 +1,6 @@
 // Pornire: încarcă datele locale, creează taburile la prima rulare, aplică tema, pornește UI-ul și serviciile.
 import { load, state, saveUI, APP_VERSION } from './core/store.js';
-import { seedIfNeeded } from './core/seed.js';
+import { seedIfNeeded, migrate } from './core/seed.js';
 import { applyTheme } from './features/settings.js';
 import { startApp } from './app.js';
 import { checkExpired } from './features/trash.js';
@@ -10,6 +10,7 @@ import { startAlarms } from './features/alarms.js';
 async function boot() {
   await load();
   if (await seedIfNeeded()) { await saveUI(); await load(); }
+  await migrate();
   applyTheme();
   await startApp();
   document.body.classList.add('ready');

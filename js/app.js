@@ -8,8 +8,10 @@ import { renderTabBar } from './ui/tabsbar.js';
 import { ui, ensureOpen } from './ui/list.js';
 import { openEditor, openEditors, moveItem } from './ui/editor.js';
 import { confirmDlg, toast, sheet, closeAll, modalsOpen } from './ui/modal.js';
-import { renderGeneric, renderSaved, renderFolders, renderNews, renderLocked, currentFolder, newFolder, newsResults } from './tabs/views.js';
-import { renderRecordings, startRecording, renameRec, isRecording, stopRecording } from './tabs/recordings.js';
+import { renderGeneric, renderSaved, renderFolders, renderNews, renderLocked, currentFolder, newFolder, newsResults, renderMO, hasCats } from './tabs/views.js';
+import { curCat } from './tabs/cats.js';
+import { isoToday } from './core/util.js';
+import { renderRecordings, startRecording, renameRec, recStatus, isRecording, stopRecording } from './tabs/recordings.js';
 import { openSearch } from './features/search.js';
 import { openTrash } from './features/trash.js';
 import { openSettings } from './features/settings.js';
@@ -45,6 +47,7 @@ export function render() {
   else if (tab.kind === 'folders') renderFolders(view, tab);
   else if (tab.kind === 'saved') renderSaved(view, tab);
   else if (tab.kind === 'rec') renderRecordings(view, tab);
+  else if (tab.kind === 'mo') renderMO(view, tab);
   else renderGeneric(view, tab);
   renderFab(tab);
   renderSelBar();
@@ -122,7 +125,9 @@ async function fabAdd(tab) {
     openEditor(tab.id, null, { sub });
   } else if (tab.kind === 'rec') {
     isRecording() ? stopRecording() : startRecording(tab.id);
-  } else openEditor(tab.id, null);
+  } else if (tab.kind === 'mo') openEditor(tab.id, null, { kind: 'law', preset: { actDate: isoToday(), source: 'Monitorul Oficial' } });
+  else if (hasCats(tab)) { const c = curCat(tab); openEditor(tab.id, null, { cat: c === 'all' ? null : c }); }
+  else openEditor(tab.id, null);
 }
 
 async function voiceFab(tab) {
@@ -207,7 +212,7 @@ async function onHidden() {
 }
 
 export async function startApp() {
-  Object.assign(app, { render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, startRecording });
+  Object.assign(app, { render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, recStatus, startRecording });
   header();
   newsCache = await newsResults();
   onChange(() => { if (!rendering) render(); });

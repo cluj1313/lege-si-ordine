@@ -3,6 +3,20 @@ import { db } from './db.js';
 import { state, addTab, newItem } from './store.js';
 import { isoFromDate } from './util.js';
 import { t } from './i18n.js';
+import { DEFAULT_CATS, mkCats, lawCatFor } from '../tabs/cats.js';
+import { saveTab, saveMeta, dataOf } from './store.js';
+
+// Migrare pentru date create de versiuni anterioare (nu șterge nimic).
+export async function migrate() {
+  for (const tab of state.tabs) {
+    if (tab.kind === 'law' && /monitorul oficial/i.test(tab.name)) { tab.kind = 'mo'; await saveTab(tab); }
+    if ((tab.kind === 'law' || tab.kind === 'document') && !tab.cats) {
+      tab.cats = mkCats(DEFAULT_CATS[tab.kind]());
+      await saveTab(tab);
+      if (tab.kind === 'law') for (const it of state.items.values()) if (it.tab === tab.id && it.official && !it.cat) { it.cat = lawCatFor(tab.cats, dataOf(it)?.title || ''); await saveMeta(it); }
+    }
+  }
+}
 
 const day = n => { const d = new Date(); d.setDate(d.getDate() + n); return isoFromDate(d); };
 
@@ -30,16 +44,17 @@ export async function seedIfNeeded() {
   T.case = await addTab(t('tabCases'), 'case');
   T.client = await addTab(t('tabClients'), 'client');
   T.dead = await addTab(t('tabDeadlines'), 'deadline');
-  T.doc = await addTab(t('tabDocuments'), 'document');
-  T.law = await addTab(t('tabLaws'), 'law');
-  T.mo = await addTab(t('tabMO'), 'law');
+  T.doc = await addTab(t('tabDocuments'), 'document', { cats: mkCats(DEFAULT_CATS.document()) });
+  T.law = await addTab(t('tabLaws'), 'law', { cats: mkCats(DEFAULT_CATS.law()) });
+  T.mo = await addTab(t('tabMO'), 'mo');
   T.news = await addTab(t('tabNews'), 'news');
   T.saved = await addTab(t('tabSaved'), 'saved', { subs: [{ id: 'salvate', name: t('subSaved') }, { id: 'descarcate', name: t('subDownloaded') }] });
   T.fold = await addTab(t('tabFolders'), 'folders');
   T.rec = await addTab(t('tabRec'), 'rec');
 
-  for (const l of OFFICIAL_LAWS) await newItem(T.law.id, 'law', l, { official: true });
+  for (const l of OFFICIAL_LAWS) await newItem(T.law.id, 'law', l, { official: true, cat: lawCatFor(T.law.cats, l.title) });
   for (const l of OFFICIAL_MO) await newItem(T.mo.id, 'law', l, { official: true });
+  await newItem(T.doc.id, 'document', { title: 'Împuternicire avocațială (exemplu)', caseTitle: 'Popescu vs. Construcții Nord SRL (exemplu)', notes: '', files: [] }, { ...{ sample: true }, cat: T.doc.cats[0].id });
   const f1 = await newItem(T.fold.id, 'folder', { name: 'Folder 1' }, { order: 1 });
   await newItem(T.fold.id, 'folder', { name: 'Folder 2' }, { order: 2 });
   await newItem(T.fold.id, 'folder', { name: 'Folder 3' }, { order: 3 });
@@ -55,7 +70,7 @@ export async function seedIfNeeded() {
   await newItem(T.client.id, 'client', { name: 'Maria Ionescu (exemplu)', represents: 'contestatoare', caseTitle: 'Ionescu – contestație fiscală (exemplu)', date: day(8), time: '11:00', stage: 'acte', phone: '', email: '', address: '', notes: '', files: [] }, S);
   await newItem(T.dead.id, 'deadline', { title: 'Termen judecată Popescu (exemplu)', caseTitle: 'Popescu vs. Construcții Nord SRL (exemplu)', court: 'Judecătoria Sectorului 1 (exemplu)', date: day(2), time: '09:30', alarm: false, notes: '' }, S);
   await newItem(T.dead.id, 'deadline', { title: 'Depunere concluzii scrise (exemplu)', caseTitle: 'Ionescu – contestație fiscală (exemplu)', court: '', date: day(5), time: '12:00', alarm: false, notes: '' }, S);
-  await newItem(T.doc.id, 'document', { title: 'Cerere de chemare în judecată (exemplu)', caseTitle: 'Popescu vs. Construcții Nord SRL (exemplu)', notes: 'Atașează aici poze sau fișiere cu nume.', files: [] }, S);
+  await newItem(T.doc.id, 'document', { title: 'Cerere de chemare în judecată (exemplu)', caseTitle: 'Popescu vs. Construcții Nord SRL (exemplu)', notes: 'Atașează aici poze sau fișiere cu nume.', files: [] }, { ...S, cat: T.doc.cats[1].id });
   await newItem(T.fold.id, 'note', { title: 'Notă internă – checklist audieri (exemplu)', text: '1. Lista martorilor\n2. Întrebări\n3. Documente de prezentat', files: [] }, { ...S, folder: f1.id });
   await newItem(T.news.id, 'term', { group: 'w', text: 'contract' }, S);
   await newItem(T.news.id, 'term', { group: 'p', text: 'drept de retenție' }, S);
