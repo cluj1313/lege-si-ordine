@@ -1,11 +1,13 @@
-// RECORDINGS 🔴: înregistrare directă (MediaRecorder). Bifa „Transcrie în text tot ce este audio” (lso_rec_transcribe):
-// pe Android, recunoașterea vorbirii nativă continuă ține microfonul (un singur utilizator permis) și scrie textul live;
-// pe web, MediaRecorder + Web Speech în paralel. Nebifat: doar audio, ca înainte.
+// RECORDINGS 🔴: audio-ul se înregistrează MEREU. Bifa „Transcriere live în timpul înregistrării” (lso_rec_transcribe,
+// implicit pusă) adaugă textul live: pe telefon, înregistrarea nativă (LsoVoice.recStart → .aac) trimite aceleași
+// eșantioane la recunoaștere (Android 13+, EXTRA_AUDIO_SOURCE); altfel recunoașterea ascultă microfonul în paralel, iar
+// dacă ar afecta înregistrarea, doar transcrierea live se oprește. Pe web: MediaRecorder + Web Speech.
+// Fiecare înregistrare cu audio are butonul „Transcrie” (transcriere ulterioară a întregului fișier, local pe telefon).
 import { h, act, fmtDur, fmtTs } from '../core/util.js';
 import { t } from '../core/i18n.js';
-import { state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, canView, saveUI, saveMeta, descendants, item as getItem, liveTabs } from '../core/store.js';
+import { getMedia, state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, canView, saveUI, saveMeta, descendants, item as getItem, liveTabs } from '../core/store.js';
 import { toast, promptDlg, openModal } from '../ui/modal.js';
-import { card, sortByTab } from '../ui/list.js';
+import { card, sortByTab, extOf } from '../ui/list.js';
 import { renderDayGroups } from '../ui/daygroups.js';
 import { recName, recTitle, recStatuses, recArchivedStatus } from './kinds.js';
 import { sheet } from '../ui/modal.js';
@@ -19,13 +21,14 @@ import * as nativeStt from '../voice/native-stt.js';
 import { pickField } from '../ui/pickers.js';
 import { app } from '../ui/registry.js';
 
-const R = { on: false, mode: 'audio', mr: null, chunks: [], start: 0, timer: null, transcript: '', partial: '', tabId: null, stream: null, busy: false, folder: null };
+const R = { on: false, mode: 'audio', live: '', liveOff: false, mr: null, chunks: [], start: 0, timer: null, transcript: '', partial: '', tabId: null, stream: null, busy: false, folder: null };
 export const isRecording = () => R.on;
 const TR_KEY = 'lso_rec_transcribe';
-export const transcribeOn = () => { try { return localStorage.getItem(TR_KEY) === '1'; } catch { return false; } };
+export const transcribeOn = () => { try { return localStorage.getItem(TR_KEY) !== '0'; } catch { return true; } };
 const setTranscribe = on => { try { localStorage.setItem(TR_KEY, on ? '1' : '0'); } catch {} };
 const addText = txt => { txt = String(txt || '').trim(); if (txt) R.transcript += (R.transcript ? ' ' : '') + txt; };
 const liveText = () => [R.transcript, R.partial].filter(Boolean).join(' ');
+const liveBoxText = () => { const x = liveText(); return R.liveOff ? (x ? x + ' — ' : '') + t('recLiveOff') : (x || t('recListening')); };
 
 function pickMime() {
   if (!window.MediaRecorder) return '';
@@ -86,23 +89,26 @@ export async function startRecording(tabId) {
   if (isSpeaking()) await stopSpeak();
   if (isDictating()) await stopDictation();
   const wantText = transcribeOn();
-  // Telefon + bifă: transcriere nativă continuă (textul are prioritate față de fișierul audio).
-  if (wantText && isNative() && nativeStt.hasNativeTranscribe()) {
+  R.live = ''; R.liveOff = false;
+  // Telefon + bifă: înregistrare nativă (audio în fișier) + transcriere live din aceleași eșantioane.
+  if (wantText && isNative() && nativeStt.hasNativeRec()) {
     R.busy = true;
     if (!(await nativeStt.ensurePermission())) { R.busy = false; toast(t('micDenied'), 4000); return; }
-    R.mode = 'text'; beginCommon(tabId);
     try {
-      await nativeStt.transcribeStart({
-        language: state.settings.voiceLang || 'ro-RO',
+      await nativeStt.recStart({
+        language: state.settings.voiceLang || 'ro-RO', live: true,
         onPartial: txt => { R.partial = txt; updateLive(); },
         onFinal: txt => { addText(txt || R.partial); R.partial = ''; updateLive(); },
-        onError: code => toast(sttErrMsg(code), 4000),
+        onMode: m => { R.live = m; },
+        onError: code => { R.liveOff = true; R.live = 'off'; updateLive(); if (!/^live-off/.test(code)) console.warn('live', code); },
       });
+      R.mode = 'native'; beginCommon(tabId);
+      R.busy = false; app.render(); return;
     } catch (e) {
-      clearInterval(R.timer); R.on = false; R.busy = false;
-      toast(sttErrMsg((e && e.message) || 'noservice'), 4000); app.render(); return;
+      // nu a pornit înregistrarea nativă: continuăm cu înregistrarea din WebView (audio, fără live)
+      R.busy = false; R.liveOff = true;
+      console.warn('recStart', e && e.message);
     }
-    R.busy = false; app.render(); return;
   }
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { toast(t('recMissing'), 4000); return; }
   R.busy = true;
@@ -116,24 +122,42 @@ export async function startRecording(tabId) {
   R.mr.start(1000);
   beginCommon(tabId);
   R.busy = false;
-  if (wantText) {
+  // Pe telefon microfonul e ocupat de înregistrare: textul se obține după, cu „Transcrie”.
+  if (wantText && !isNative() && !R.liveOff) {
     const ok = await startDictation(null, { quiet: true, keepRecording: true,
       onInterim: txt => { R.partial = txt; updateLive(); },
       onFinal: txt => { addText(txt); R.partial = ''; updateLive(); } });
-    if (!ok) toast(t('dictationMissing'), 4000);
-  }
+    if (!ok) { R.liveOff = true; updateLive(); }
+  } else if (wantText) R.liveOff = true;
   app.render();
 }
 
 export async function stopRecording() {
   if (!R.on || R.busy) return;
   R.busy = true;
-  const duration = (Date.now() - R.start) / 1000;
+  let duration = (Date.now() - R.start) / 1000;
   clearInterval(R.timer);
-  let mid = null, mime = '';
-  if (R.mode === 'text') {
-    const last = await nativeStt.transcribeStop();
-    addText(R.partial || last); R.partial = '';
+  let mid = null, mime = '', pendingFile = '';
+  const extra = [];
+  const temp = { tab: R.tabId, kind: 'rec', folder: null };
+  if (R.mode === 'native') {
+    const r = await nativeStt.recStop();
+    addText(R.partial || r.last); R.partial = '';
+    if (r.seconds > 0) duration = r.seconds;
+    const files = Array.isArray(r.files) ? r.files : [];
+    for (const [i, f] of files.entries()) {
+      try {
+        const blob = await nativeStt.fileBlob(f.path, f.mime);
+        const id = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }) + extOf(f.mime), f.mime, ownerOf(temp));
+        if (i === 0) { mid = id; mime = f.mime; } else extra.push({ mid: id, mime: f.mime, duration: f.duration });
+        await nativeStt.recDelete(f.path);
+      } catch (e) {
+        // fișierul rămâne pe telefon și se atașează automat la următoarea deschidere (nu se pierde)
+        console.error(e);
+        if (i === 0) pendingFile = f.name;
+      }
+    }
+    if (!files.length) console.warn('recStop: niciun fișier');
   } else {
     const mr = R.mr;
     const done = new Promise(res => { mr.onstop = res; });
@@ -144,30 +168,128 @@ export async function stopRecording() {
     const blob = new Blob(R.chunks, { type: mr.mimeType || 'audio/webm' });
     R.mr = null;
     try {
-      const temp = { tab: R.tabId, kind: 'rec', folder: null };
       mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }), blob.type, ownerOf(temp));
       mime = blob.type;
     } catch (e) { console.error(e); }
   }
   R.on = false;
   try {
-    if (R.mode === 'audio' && !mid) throw new Error('media');
+    if (!mid && !pendingFile) throw new Error('media');
     const folder = R.folder || null;
     const status = folder ? recArchivedStatus() : (recStatuses()[0] || '');
-    await newItem(R.tabId, 'rec', { name: '', duration, mid, mime, transcript: R.transcript.trim(), at: R.start, status }, { folder });
-    toast(t('recSaved'));
+    const data = { name: '', duration, mid, mime, transcript: R.transcript.trim(), at: R.start, status };
+    if (pendingFile) data.pendingFile = pendingFile;
+    await newItem(R.tabId, 'rec', data, { folder });
+    for (const x of extra) await newItem(R.tabId, 'rec', { name: t('recPart2'), duration: x.duration || 0, mid: x.mid, mime: x.mime, transcript: '', at: R.start + 1, status }, { folder });
+    toast(pendingFile ? t('recSavedPending') : t('recSaved'), pendingFile ? 4000 : 2400);
   } catch (e) { console.error(e); toast(t('recSaveFail'), 4000); }
   R.busy = false;
   app.render();
 }
 
+// Fișiere audio rămase pe telefon (aplicația închisă în timpul înregistrării sau import eșuat): le atașăm / salvăm.
+let orphansChecked = false;
+export async function recoverOrphans(tab) {
+  if (orphansChecked || R.on || !isNative() || !nativeStt.hasNativeRec()) return 0;
+  orphansChecked = true;
+  const files = await nativeStt.recOrphans();
+  let n = 0;
+  for (const f of files) {
+    try {
+      const blob = await nativeStt.fileBlob(f.path, f.mime);
+      const host = [...state.items.values()].find(i => i.kind === 'rec' && !i.trashedAt && dataOf(i)?.pendingFile === f.name);
+      if (host) {
+        const d = dataOf(host);
+        const mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(f.at) }) + extOf(f.mime), f.mime, ownerOf(host));
+        const nd = { ...d, mid, mime: f.mime, duration: d.duration || f.duration };
+        delete nd.pendingFile;
+        await saveItem(host, nd);
+      } else {
+        const temp = { tab: tab.id, kind: 'rec', folder: null };
+        const mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(f.at) }) + extOf(f.mime), f.mime, ownerOf(temp));
+        await newItem(tab.id, 'rec', { name: t('recRecoveredName'), duration: f.duration || 0, mid, mime: f.mime, transcript: '', at: f.at || Date.now(), status: recStatuses()[0] || '' });
+      }
+      await nativeStt.recDelete(f.path);
+      n++;
+    } catch (e) { console.error('orphan', e); }
+  }
+  if (n) { toast(t('recRecovered', { n }), 4000); app.render(); }
+  return n;
+}
+
+// „Transcrie”: tot audio-ul din fișierul înregistrării → text (local, pe telefon), apoi corectezi și salvezi.
+export async function transcribeRec(it) {
+  const d = dataOf(it); if (!d || !d.mid) return;
+  if (R.on) { toast(t('recTrBusy'), 3000); return; }
+  if (!isNative() || !nativeStt.hasFileTranscribe()) { toast(t('recTrPhoneOnly'), 5000); return; }
+  const caps = await nativeStt.recCaps();
+  if (caps.inject === false) { toast(t('recTrSdk'), 6000); return; }
+  if (!(await nativeStt.ensurePermission())) { toast(t('micDenied'), 4000); return; }
+  const status = h('div', { class: 'r2-meta', 'data-test': 'tr-status' }, t('recTrPreparing'));
+  const bar = h('div', { class: 'tr-bar' }, h('span', { class: 'tr-fill', style: 'width:0%' }));
+  const ta = h('textarea', { class: 'inp', rows: 9, readonly: true, 'data-test': 'tr-text', placeholder: t('recTrPh') });
+  const note = h('div', { class: 'r2-meta' }, d.transcript ? t('recTrReplaceNote') : '');
+  let text = '', partial = '', running = true, path = '', closed = false;
+  const show = () => { if (running) ta.value = [text, partial].filter(Boolean).join(' '); };
+  const finishUi = (msg) => {
+    running = false;
+    status.textContent = msg;
+    ta.readOnly = false;
+    ta.value = [text, partial].filter(Boolean).join(' ').trim();
+    const stopBtn = m.el.querySelector('[data-test=tr-stop]'); if (stopBtn) stopBtn.textContent = t('cancel');
+    const saveBtn = m.el.querySelector('[data-test=tr-save]'); if (saveBtn) saveBtn.disabled = false;
+  };
+  const m = openModal({
+    title: t('recTranscribeBtn'), body: h('div', { class: 'tr-box' }, status, bar, ta, note), dismissable: false,
+    actions: [
+      { label: t('recTrStop'), cls: 'ghost', onClick: async mm => { if (running) { await nativeStt.fileTranscribeStop(); return; } mm.close(); } },
+      { label: t('save'), cls: 'primary', onClick: async mm => {
+        const cur = dataOf(it) || d;
+        await saveItem(it, { ...cur, transcript: ta.value.trim() });
+        toast(t('savedOk')); mm.close(); app.render();
+      } },
+    ],
+    onClose: () => { closed = true; if (running) nativeStt.fileTranscribeStop(); },
+  });
+  m.el.dataset.test = 'tr-modal';
+  const [stopB, saveB] = m.el.querySelectorAll('.m-actions .btn');
+  stopB.dataset.test = 'tr-stop'; saveB.dataset.test = 'tr-save'; saveB.disabled = true;
+  try {
+    const media = await getMedia(d.mid);
+    if (!media) { finishUi(t('mediaMissing')); return; }
+    path = await nativeStt.blobToNative(media.blob, 'tr_' + it.id + extOf(media.mime || d.mime || ''));
+    if (closed) return;
+    status.textContent = t('recTrRunning');
+    const res = await nativeStt.fileTranscribe({
+      path, language: state.settings.voiceLang || 'ro-RO',
+      onPartial: txt => { partial = txt; show(); },
+      onFinal: txt => { txt = String(txt || partial).trim(); partial = ''; if (txt) text += (text ? ' ' : '') + txt; show(); },
+      onProgress: p => { bar.firstChild.style.width = Math.round(p * 100) + '%'; status.textContent = t('recTrRunningP', { p: Math.round(p * 100) }); },
+    });
+    if (res.ok) { bar.firstChild.style.width = '100%'; finishUi(text || partial ? t('recTrDone') : t('recTrEmpty')); }
+    else finishUi(trErr(res.code));
+  } catch (e) {
+    console.error(e); finishUi(trErr('noservice'));
+  } finally {
+    if (path) nativeStt.recDelete(path);
+  }
+}
+const trErr = code => {
+  const c = String(code || '');
+  if (c.includes('unsupported')) return t('recTrUnsupported');
+  if (c.includes('sdk')) return t('recTrSdk');
+  if (c.includes('decode')) return t('recTrDecode');
+  return sttErrMsg(c);
+};
+
 function updateLive() {
   const tm = document.querySelector('.rec-timer'); if (tm) tm.textContent = fmtDur((Date.now() - R.start) / 1000);
-  const tr = document.querySelector('.rec-live'); if (tr) tr.textContent = liveText() || t('recListening');
+  const tr = document.querySelector('.rec-live'); if (tr) tr.textContent = liveBoxText();
 }
 
 export function renderRecordings(view, tab) {
   ensureRecFolders(tab).then(created => { if (created && !R.on) app.render(); });
+  if (!orphansChecked) recoverOrphans(tab).catch(e => console.error(e));
   const recording = R.on;
   const big = h('button', { class: 'rec-big' + (recording ? ' on' : ''), type: 'button', 'aria-label': recording ? t('recStop') : t('recStart'),
     onclick: e => act(e.currentTarget, () => (recording ? stopRecording() : startRecording(tab.id))) }, h('span', { class: 'rec-core' }));
@@ -179,7 +301,7 @@ export function renderRecordings(view, tab) {
       h('div', { class: 'rec-timer' }, recording ? fmtDur((Date.now() - R.start) / 1000) : '0:00'),
       h('label', { class: 'fld-check sm' }, liveCb, h('span', {}, t('recLiveTranscript'))))),
     );
-  if (recording && transcribeOn()) view.append(h('div', { class: 'rec-live', 'data-test': 'rec-live' }, liveText() || t('recListening')));
+  if (recording && transcribeOn()) view.append(h('div', { class: 'rec-live' + (R.liveOff ? ' off' : ''), 'data-test': 'rec-live' }, liveBoxText()));
   view.append(recFolderRow(tab));
   const list = h('div', { class: 'days' });
   view.append(list);

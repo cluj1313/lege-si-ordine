@@ -51,9 +51,23 @@ Cheile de semnare și `local.properties` nu se încarcă pe GitHub. În repo exi
   - „Ai un cod?” în Setări › Versiune (Super Class, `lso_super`).
 - **Backup:** cheile de mai sus stau în localStorage/sessionStorage și **nu intră** în backup (backup-ul exportă doar IndexedDB). În depozit nu există nicio parolă, niciun token și niciun piper; testele folosesc valori false și servere simulate.
 
-## RECORDINGS: „Transcrie în text tot ce este audio” (v1.0.6)
+## RECORDINGS: audio mereu + „Transcriere live în timpul înregistrării” + „Transcrie” (v1.0.7)
 
-- **Bifă nebifată (implicit):** se înregistrează doar audio, ca înainte.
-- **Bifă bifată pe Android:** recunoașterea vorbirii nativă (ro-RO) ține microfonul și se repornește singură la fiecare pauză. Textul apare live și se salvează în înregistrare. Android permite un singur utilizator al microfonului, așa că în acest mod se păstrează textul, fără fișier audio. Ecranul rămâne aprins cât durează.
-- **Bifă bifată în browser (Chrome):** audio + text în paralel.
-- Preferința se păstrează în `lso_rec_transcribe`.
+- **Audio-ul se înregistrează MEREU**, indiferent de bifă. Fără înregistrarea convorbirilor telefonice.
+- **Bifa „Transcriere live în timpul înregistrării”** (implicit pusă, `lso_rec_transcribe`):
+  - pe Android, `LsoVoice.recStart` înregistrează nativ (AudioRecord 16 kHz mono → AAC/ADTS `.aac`, scris cadru cu cadru, rezistă la oprire bruscă; rezervă WAV);
+  - **Android 13+ (API 33):** aceleași eșantioane merg la recunoaștere prin `RecognizerIntent.EXTRA_AUDIO_SOURCE` + sesiune segmentată (`PcmInjector`). Se verifică dacă serviciul chiar citește audio-ul injectat (recunoaștere pe dispozitiv → Google → implicit); dacă niciunul nu acceptă, recunoașterea ascultă microfonul în paralel;
+  - **Android < 13 sau serviciu fără injectare:** recunoaștere pe microfon în paralel, păzită: dacă înregistrarea primește zero digital ~1,5 s (microfon luat), transcrierea live se oprește, audio continuă;
+  - în browser: MediaRecorder + Web Speech.
+- **Bifă scoasă:** doar audio (MediaRecorder, ca înainte).
+- **„Transcrie”** pe fiecare înregistrare cu audio: fișierul e decodat local (`AudioDecoder`, MediaExtractor/MediaCodec → PCM 16 kHz) și trimis la recunoaștere prin `EXTRA_AUDIO_SOURCE` (Android 13+). Textul apare live într-o fereastră, se poate corecta și se salvează în înregistrare (editabil și din editor). Fără cloud propriu, fără chei.
+- **Recuperare:** fișierele rămase în `files/lso_rec` (aplicația închisă în timpul înregistrării) se importă automat la următoarea deschidere a RECORDINGS.
+- Înregistrările vechi din v1.0.6 făcute doar ca text rămân neschimbate.
+
+## Citire cu bara sub cuvânt (v1.0.7, preluat din Notis)
+
+- Meniul Voce › **Citire** citește tot ce se vede pe ecran (lista tabului sau documentul deschis), de la primul element vizibil până la final. Pachetul NOTIS: `lege-si-ordine-docs/notis-citire-voce.md`.
+- Fiecare cuvânt devine `span.w` (`.cur` / `.past`), iar o bară aurie (`.kbar`) se mută sub cuvântul rostit (`js/features/reader.js`: `hl`, `moveBar`). Cuvintele se restaurează la oprire.
+- Câmpurile documentului (input/textarea) sunt citite printr-o „oglindă” peste câmp; textul urcă lin și rândul citit rămâne în treimea de sus a containerului (`scrollFollowWord`, NEW din pachet). Derularea manuală suspendă urmărirea ~4 s.
+- Motoare: Android → `LsoVoice.ttsSpeak` + evenimentul `ttsEv` (`onRangeStart`); browser → `speechSynthesis` cu `onboundary`; fără evenimente în 700 ms, temporizator după durata estimată.
+- Al doilea tap pe butonul de voce (sau „Oprește”) oprește. Fără Pauză, ca în Notis. Vocile Piper nu sunt incluse (doar vocea telefonului).

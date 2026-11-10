@@ -1,6 +1,6 @@
 // Adapter recunoaștere vorbire nativă. Preferă LsoVoice (alegerea motorului
 // Google, evită com.google.android.as, dialog RECOGNIZE_SPEECH după eșec).
-import { plugin } from './native-cap.js';
+import { plugin, cap } from './native-cap.js';
 
 export function lsoVoice() { return plugin('LsoVoice') || null; }
 export function sttEngine() { return lsoVoice() || plugin('SpeechRecognition') || null; }
@@ -105,3 +105,75 @@ export async function transcribeStop() {
   if (trHandle) { try { await trHandle.remove(); } catch {} trHandle = null; }
   return last;
 }
+
+// ---- v1.0.7 RECORDINGS: audio MEREU (LsoVoice.recStart/recStop) + transcriere live / ulterioară ----
+// Pe Android 13+ recunoașterea primește aceleași eșantioane ca fișierul (EXTRA_AUDIO_SOURCE); altfel ascultă
+// microfonul în paralel, iar dacă înregistrarea ar fi afectată, transcrierea live se oprește (audio continuă).
+export const hasNativeRec = () => !!(lsoVoice() && lsoVoice().recStart);
+export const hasFileTranscribe = () => !!(lsoVoice() && lsoVoice().fileTranscribeStart);
+export async function recCaps() { try { return (await lsoVoice().recCaps()) || {}; } catch { return {}; } }
+let recHandle = null;
+export async function recStart({ language, live, onPartial, onFinal, onMode, onError } = {}) {
+  const P = lsoVoice();
+  if (recHandle) { try { await recHandle.remove(); } catch {} recHandle = null; }
+  recHandle = await P.addListener('transcribe', ev => {
+    const k = ev && ev.kind, txt = String((ev && ev.text) || '').trim();
+    if (k === 'partial' && txt) onPartial && onPartial(txt);
+    else if (k === 'final') onFinal && onFinal(txt);
+    else if (k === 'mode') onMode && onMode(txt);
+    else if (k === 'err') onError && onError(txt || 'noservice');
+  });
+  try { return await P.recStart({ language, live: !!live }); }
+  catch (e) { try { await recHandle.remove(); } catch {} recHandle = null; throw e; }
+}
+export async function recStop() {
+  let r = {};
+  try { r = (await lsoVoice().recStop()) || {}; } catch {}
+  if (recHandle) { try { await recHandle.remove(); } catch {} recHandle = null; }
+  return r;
+}
+export async function recOrphans() { try { return ((await lsoVoice().recOrphans()) || {}).files || []; } catch { return []; } }
+export async function recDelete(path) { try { await lsoVoice().recDelete({ path }); } catch {} }
+// fișierul nativ → Blob (serverul local Capacitor), fără base64 prin punte
+export async function fileBlob(path, mime) {
+  const C = cap();
+  const url = C && C.convertFileSrc ? C.convertFileSrc(path) : path;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('fetch ' + r.status);
+  const b = await r.blob();
+  if (!b.size) throw new Error('empty');
+  return mime && b.type !== mime ? new Blob([b], { type: mime }) : b;
+}
+const b64 = blob => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = () => rej(fr.error); fr.readAsDataURL(blob); });
+// Blob → fișier temporar nativ (pe bucăți de 512 KB)
+export async function blobToNative(blob, name) {
+  const P = lsoVoice(); const CH = 512 * 1024; let path = '';
+  for (let off = 0; off < blob.size || off === 0; off += CH) {
+    const r = await P.tmpWrite({ name, data: await b64(blob.slice(off, off + CH)), append: off > 0 });
+    path = r.path;
+    if (!blob.size) break;
+  }
+  return path;
+}
+let ftHandle = null;
+// Transcrie un fișier audio. Întoarce { ok, code }. onFinal primește bucățile finale, onPartial textul provizoriu.
+export async function fileTranscribe({ path, language, onPartial, onFinal, onProgress, onMode } = {}) {
+  const P = lsoVoice();
+  if (ftHandle) { try { await ftHandle.remove(); } catch {} ftHandle = null; }
+  let resolve; const done = new Promise(r => { resolve = r; });
+  ftHandle = await P.addListener('filetr', ev => {
+    const k = ev && ev.kind, txt = String((ev && ev.text) || '').trim();
+    if (k === 'partial' && txt) onPartial && onPartial(txt);
+    else if (k === 'final') onFinal && onFinal(txt);
+    else if (k === 'progress') onProgress && onProgress(Number(ev.p) || 0);
+    else if (k === 'mode') onMode && onMode(txt);
+    else if (k === 'done') resolve({ ok: true });
+    else if (k === 'err') resolve({ ok: false, code: txt || 'noservice' });
+  });
+  try { await P.fileTranscribeStart({ path, language }); }
+  catch (e) { resolve({ ok: false, code: String((e && (e.message || e.code)) || 'noservice').replace(/^Error: /, '') }); }
+  const out = await done;
+  if (ftHandle) { try { await ftHandle.remove(); } catch {} ftHandle = null; }
+  return out;
+}
+export async function fileTranscribeStop() { try { await lsoVoice().fileTranscribeStop(); } catch {} }

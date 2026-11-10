@@ -1287,7 +1287,7 @@ async function run(vp, label, full) {
   await step(`[${label}] [v1.0.6] Contor anonim: ping o dată pe zi la serverul simulat (id anonim, versiune, sursă); bifă în Confidențialitate`, async () => {
     assert(mock.pings.length >= 1, 'niciun ping');
     const pg = mock.pings[0];
-    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.0.6' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
+    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.0.7' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
     assert((await ls('lso_ping_day')) === new Date().toISOString().slice(0, 10));
     await openSet();
     await tap('[data-sec=privacy] summary');
@@ -1359,69 +1359,333 @@ async function run(vp, label, full) {
     assert(liveLeaks.length === 0, 'cereri reale: ' + liveLeaks.join(', '));
   });
 
-  await step(`[${label}] [v1.0.6] RECORDINGS: bifa „Transcrie în text tot ce este audio” (implicit oprită, salvată), fără mențiuni de apeluri`, async () => {
+  await step(`[${label}] [v1.0.7] RECORDINGS: bifa „Transcriere live în timpul înregistrării” (implicit pusă, salvată), aspect ca în imagine, fără apeluri`, async () => {
     await goTab('RECORDINGS');
     const cb = p.locator('[data-test=rec-transcribe]');
     await cb.waitFor();
-    assert(!(await cb.isChecked()) && !(await cb.isDisabled()), 'bifa trebuie să fie activă și nebifată');
+    if ((await ls('lso_rec_transcribe')) == null) assert(await cb.isChecked(), 'bifa trebuie să fie pusă implicit');
+    await cb.check();
     const lbl = await p.locator('.rec-head .fld-check').textContent();
-    assert(lbl.trim() === 'Transcrie în text tot ce este audio', lbl);
+    assert(lbl.trim() === 'Transcriere live în timpul înregistrării', lbl);
+    assert(!/Transcrie în text tot ce este audio/.test(await p.locator('#view').textContent()), 'textul vechi încă apare');
+    assert((await p.locator('.rec-state').textContent()).trim() === 'Atinge pentru a înregistra', 'starea');
+    assert((await p.locator('.rec-timer').textContent()).trim() === '0:00', 'cronometrul');
+    const geo = await p.evaluate(() => { const b = document.querySelector('.rec-big').getBoundingClientRect(), c = document.querySelector('[data-test=rec-transcribe]'), r = c.getBoundingClientRect(), tm = document.querySelector('.rec-timer').getBoundingClientRect(); return { bigW: b.width, cbW: r.width, cbBelowTimer: r.top >= tm.bottom - 1, cbRight: r.left > b.right, bg: getComputedStyle(c).backgroundColor }; });
+    assert(geo.bigW >= 80 && geo.cbW >= 24 && geo.cbBelowTimer && geo.cbRight, 'aspect: ' + JSON.stringify(geo));
+    assert(geo.bg !== 'rgba(0, 0, 0, 0)', 'bifa pusă trebuie să fie aurie: ' + geo.bg);
     const all = await p.locator('#view').textContent();
     assert(!/convorbir|telefonic|apel/i.test(all), 'mențiune de apel: ' + all.slice(0, 200));
-    await cb.check(); assert((await ls('lso_rec_transcribe')) === '1');
+    await p.screenshot({ path: `${SHOTS}${label}-v107-recordings-bifa.png`, clip: { x: 0, y: 0, width: vp.width, height: 330 } });
+    await cb.uncheck(); assert((await ls('lso_rec_transcribe')) === '0');
     await p.reload(); await p.waitForSelector('.tab-pill');
-    assert(await p.locator('[data-test=rec-transcribe]').isChecked(), 'bifa nu s-a păstrat');
-    await p.locator('[data-test=rec-transcribe]').uncheck(); assert((await ls('lso_rec_transcribe')) === '0');
+    assert(!(await p.locator('[data-test=rec-transcribe]').isChecked()), 'bifa scoasă nu s-a păstrat');
+    await p.locator('[data-test=rec-transcribe]').check(); assert((await ls('lso_rec_transcribe')) === '1');
   });
 
-  await step(`[${label}] [v1.0.6] RECORDINGS pe telefon (STT nativ SIMULAT): textul se adună live în timpul înregistrării și se salvează`, async () => {
+  await step(`[${label}] [v1.0.7] RECORDINGS în browser: „Transcrie” pe o înregistrare cu audio → mesaj clar (se face în aplicația de pe telefon)`, async () => {
+    await goTab('RECORDINGS');
+    await p.locator('[data-test=rec-transcribe]').uncheck();
+    await p.locator('.rec-big').tap(); await p.locator('.rec-big.on').waitFor();
+    await p.waitForTimeout(1200);
+    await p.locator('.rec-big.on').tap(); await p.locator('.rec-big:not(.on)').waitFor();
+    await p.waitForTimeout(500);
+    const rows = p.locator('#view .day-row');
+    if (!(await p.locator('#view .day-group.open').count())) await rows.first().tap();
+    const c = p.locator('#view .day-group.open .card[data-kind=rec]').first();
+    await c.waitFor();
+    if (!(await c.locator('.r2').count())) await c.locator('.r1').tap();
+    await c.locator('[data-test=rec-transcribe-file]').waitFor();
+    await c.locator('[data-test=rec-transcribe-file]').tap();
+    await p.locator('.toast', { hasText: 'aplicația de pe telefon' }).waitFor();
+    await p.locator('[data-test=rec-transcribe]').check();
+  });
+
+  // Telefon simulat: LsoVoice cu înregistrare nativă (recStart/recStop), transcriere live injectată și transcriere din fișier.
+  const nativePage = async (opts = {}) => {
     const np = await p.context().newPage();
-    await np.addInitScript(() => {
-      const L = {}; const st = window.__stt = { started: 0, stopped: 0, gum: 0, lang: '' };
-      const emit = (kind, text) => (L.transcribe || []).forEach(f => f({ kind, text }));
-      window.__emit = emit;
+    await np.addInitScript(o => {
+      const L = {}; const st = window.__stt = { recStart: [], recStop: 0, gum: 0, deleted: [], tmp: [], ft: [], ftStop: 0, orphans: o.orphans || [] };
+      const emit = (n, ev) => (L[n] || []).forEach(f => f(ev));
+      window.__emit = (kind, text) => emit('transcribe', { kind, text });
+      window.__ft = ev => emit('filetr', ev);
+      const bytes = new Uint8Array(4000); for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 37) & 255; bytes[0] = 0xFF; bytes[1] = 0xF1;
+      const files = {};
+      const mk = (path) => { files[path] = URL.createObjectURL(new Blob([bytes], { type: 'audio/aac' })); return path; };
+      (o.orphans || []).forEach(f => mk(f.path));
       const LsoVoice = {
         available: async () => ({ available: true }),
         checkPermissions: async () => ({ mic: 'granted', speechRecognition: 'granted' }),
         requestPermissions: async () => ({ mic: 'granted', speechRecognition: 'granted' }),
         addListener: async (n, f) => { (L[n] = L[n] || []).push(f); return { remove: async () => { L[n] = (L[n] || []).filter(x => x !== f); } }; },
         removeAllListeners: async () => {},
-        transcribeStart: async o => { st.started++; st.lang = o.language; },
-        transcribeStop: async () => { st.stopped++; return { last: '' }; },
+        recCaps: async () => ({ sdk: o.sdk || 34, inject: (o.sdk || 34) >= 33 }),
+        recStart: async a => { st.recStart.push(a); st.curPath = mk('/data/user/0/ro.legesiordine.app/files/lso_rec/rec_' + Date.now() + '.aac'); return { path: st.curPath, inject: true, sdk: 34 }; },
+        recStop: async () => { st.recStop++; const name = st.curPath.split('/').pop(); return { files: [{ path: st.curPath, name, mime: 'audio/aac', duration: 3.2, size: 4000 }], last: '', mode: 'inject', seconds: 3.2 }; },
+        recOrphans: async () => ({ files: st.orphans.splice(0) }),
+        recDelete: async ({ path }) => { st.deleted.push(path); return { deleted: true }; },
+        tmpWrite: async a => { st.tmp.push({ name: a.name, len: a.data.length, append: a.append }); return { path: '/data/user/0/ro.legesiordine.app/cache/lso_tr/' + a.name }; },
+        fileTranscribeStart: async a => { st.ft.push(a); },
+        fileTranscribeStop: async () => { st.ftStop++; window.__ft({ kind: 'done', text: '', p: 1 }); },
         ttsState: async () => ({ ready: true }), getSupportedVoices: async () => ({ voices: [] }),
       };
       const gum = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
       if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia = c => { st.gum++; return gum(c); };
-      window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', Plugins: { LsoVoice, LocalNotifications: { checkPermissions: async () => ({ display: 'granted' }), createChannel: async () => {}, schedule: async () => ({}), getPending: async () => ({ notifications: [] }), cancel: async () => {}, getDeliveredNotifications: async () => ({ notifications: [] }), removeDeliveredNotifications: async () => {}, addListener: async () => ({ remove() {} }), checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }) } } };
-    });
+      const LN = { checkPermissions: async () => ({ display: 'granted' }), createChannel: async () => {}, schedule: async () => ({}), getPending: async () => ({ notifications: [] }), cancel: async () => {}, getDeliveredNotifications: async () => ({ notifications: [] }), removeDeliveredNotifications: async () => {}, addListener: async () => ({ remove() {} }), checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }) };
+      window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', convertFileSrc: path => files[path] || path, Plugins: { LsoVoice, LocalNotifications: LN } };
+    }, opts);
     await np.goto(BASE); await np.waitForSelector('.tab-pill');
     await np.locator('.tab-pill', { hasText: 'RECORDINGS' }).first().tap();
+    return np;
+  };
+  const recsOf = np => np.evaluate(() => [...window.LSO.state.items.values()].filter(i => i.kind === 'rec' && !i.trashedAt).sort((a, b) => b.created - a.created).map(i => ({ id: i.id, data: i.data })));
+  const mediaOf = (np, mid) => np.evaluate(mid => new Promise(res => { const r = indexedDB.open('lso_db'); r.onsuccess = () => { const names = [...r.result.objectStoreNames]; const s = names.find(n => /media/.test(n)); const q = r.result.transaction(s).objectStore(s).get(mid); q.onsuccess = () => res(q.result ? { size: q.result.size, mime: q.result.mime, name: q.result.name } : null); }; }), mid);
+
+  await step(`[${label}] [v1.0.7] RECORDINGS pe telefon (SIMULAT): audio + transcriere live simultan; fișierul .aac și textul se salvează`, async () => {
+    const np = await nativePage();
     await np.locator('[data-test=rec-transcribe]').check();
-    const before = (await np.evaluate(() => [...window.LSO.state.items.values()].filter(i => i.kind === 'rec').length));
+    const before = (await recsOf(np)).length;
     await np.locator('.rec-big').tap(); await np.locator('.rec-big.on').waitFor();
     let st = await np.evaluate(() => window.__stt);
-    assert(st.started === 1 && st.lang === 'ro-RO' && st.gum === 0, 'pornire STT: ' + JSON.stringify(st));
-    const live = () => np.locator('[data-test=rec-live]').textContent();
+    assert(st.recStart.length === 1 && st.recStart[0].live === true && st.recStart[0].language === 'ro-RO' && st.gum === 0, 'pornire: ' + JSON.stringify(st.recStart) + ' gum ' + st.gum);
+    await np.evaluate(() => window.__emit('mode', 'inject:ondevice'));
     await np.evaluate(() => window.__emit('partial', 'bună ziua'));
     await np.waitForFunction(() => document.querySelector('[data-test=rec-live]').textContent === 'bună ziua');
-    await np.evaluate(() => window.__emit('final', '')); // final gol → se păstrează ultimul parțial
+    await np.evaluate(() => window.__emit('final', ''));
     await np.evaluate(() => window.__emit('partial', 'dosarul'));
     await np.waitForFunction(() => document.querySelector('[data-test=rec-live]').textContent === 'bună ziua dosarul');
     await np.evaluate(() => window.__emit('final', 'dosarul numărul 12'));
     await np.evaluate(() => window.__emit('partial', 'termen luni'));
     await np.waitForTimeout(300);
-    assert((await live()) === 'bună ziua dosarul numărul 12 termen luni', 'live: ' + await live());
-    await np.screenshot({ path: `${SHOTS}${label}-v106-recordings-transcriere-live.png` });
+    const live = await np.locator('[data-test=rec-live]').textContent();
+    assert(live === 'bună ziua dosarul numărul 12 termen luni', 'live: ' + live);
+    assert(await np.locator('[data-test=rec-transcribe]').isDisabled(), 'bifa trebuie blocată în timpul înregistrării');
+    await np.screenshot({ path: `${SHOTS}${label}-v107-recordings-audio-si-live.png` });
+    await np.locator('.rec-big.on').tap(); await np.locator('.rec-big:not(.on)').waitFor();
+    await np.waitForTimeout(500);
+    st = await np.evaluate(() => window.__stt);
+    assert(st.recStop === 1, 'oprire');
+    const recs = await recsOf(np);
+    assert(recs.length === before + 1, 'înregistrarea nu s-a salvat');
+    const d = recs[0].data;
+    assert(d.transcript === 'bună ziua dosarul numărul 12 termen luni', 'text: ' + d.transcript);
+    assert(d.mid && d.mime === 'audio/aac' && Math.abs(d.duration - 3.2) < 0.01 && !d.pendingFile, 'audio: ' + JSON.stringify(d));
+    const m = await mediaOf(np, d.mid);
+    assert(m && m.size === 4000 && m.mime === 'audio/aac' && /\.aac$/.test(m.name), 'media: ' + JSON.stringify(m));
+    assert(st.deleted.length === 1 && /lso_rec\/rec_\d+\.aac$/.test(st.deleted[0]), 'fișierul nativ trebuie șters după import: ' + JSON.stringify(st.deleted));
+    await np.close();
+  });
+
+  await step(`[${label}] [v1.0.7] Transcrierea live nu merge pe telefon (SIMULAT) → mesaj în chenar, audio-ul se salvează oricum`, async () => {
+    const np = await nativePage();
+    await np.locator('.rec-big').tap(); await np.locator('.rec-big.on').waitFor();
+    await np.evaluate(() => window.__emit('err', 'live-off:silenced'));
+    await np.waitForFunction(() => /Transcrierea live nu merge/.test(document.querySelector('[data-test=rec-live]').textContent));
+    await np.screenshot({ path: `${SHOTS}${label}-v107-recordings-live-indisponibil.png` });
     await np.locator('.rec-big.on').tap(); await np.locator('.rec-big:not(.on)').waitFor();
     await np.waitForTimeout(400);
+    const d = (await recsOf(np))[0].data;
+    assert(d.mid && d.mime === 'audio/aac' && d.transcript === '', 'audio fără text: ' + JSON.stringify(d));
+    await np.close();
+  });
+
+  await step(`[${label}] [v1.0.7] „Transcrie” pe telefon (SIMULAT): tot fișierul audio → text live, editabil, Salvează îl pune la înregistrare`, async () => {
+    const np = await nativePage();
+    const target = (await recsOf(np)).find(r => r.data.mid && r.data.mime === 'audio/aac');
+    assert(target, 'lipsește înregistrarea audio din pasul anterior');
+    await np.evaluate(id => { window.LSO.state.ui.sub = window.LSO.state.ui.sub || {}; }, target.id);
+    const card = np.locator(`.card[data-id="${target.id}"]`);
+    if (!(await card.count())) await np.locator('#view .day-row').first().tap();
+    await card.waitFor();
+    if (!(await card.locator('.r2').count())) await card.locator('.r1').tap();
+    const actsOneLine = await card.locator('.rec-actions').evaluate(el => { const t = [...el.querySelectorAll('button')].map(b => b.getBoundingClientRect().top); return Math.max(...t) - Math.min(...t) <= 2; });
+    assert(actsOneLine, 'acțiunile nu mai sunt pe o linie');
+    await card.locator('[data-test=rec-transcribe-file]').tap();
+    await np.locator('[data-test=tr-modal]').waitFor();
+    await np.waitForFunction(() => window.__stt.ft.length === 1);
+    let st = await np.evaluate(() => window.__stt);
+    assert(st.tmp.length >= 1 && st.tmp[0].len > 0 && /\.aac$/.test(st.tmp[0].name) && /lso_tr\//.test(st.ft[0].path) && st.ft[0].language === 'ro-RO', 'fișier temporar: ' + JSON.stringify(st.tmp) + JSON.stringify(st.ft));
+    assert(await np.locator('[data-test=tr-save]').isDisabled(), 'Salvează trebuie inactiv cât rulează');
+    await np.evaluate(() => { window.__ft({ kind: 'progress', p: 0.4 }); window.__ft({ kind: 'partial', text: 'instanța a' }); });
+    await np.waitForFunction(() => document.querySelector('[data-test=tr-text]').value === 'instanța a');
+    await np.evaluate(() => { window.__ft({ kind: 'final', text: 'instanța a amânat' }); window.__ft({ kind: 'partial', text: 'pronunțarea' }); window.__ft({ kind: 'progress', p: 0.8 }); });
+    await np.waitForFunction(() => document.querySelector('[data-test=tr-text]').value === 'instanța a amânat pronunțarea');
+    assert(/80%/.test(await np.locator('[data-test=tr-status]').textContent()), 'progres');
+    await np.evaluate(() => { window.__ft({ kind: 'final', text: 'pronunțarea pe 24/11/2026' }); window.__ft({ kind: 'done', p: 1 }); });
+    await np.waitForFunction(() => !document.querySelector('[data-test=tr-text]').readOnly);
+    assert(!(await np.locator('[data-test=tr-save]').isDisabled()), 'Salvează activ la final');
+    assert(/Gata/.test(await np.locator('[data-test=tr-status]').textContent()), 'mesaj final');
+    await np.screenshot({ path: `${SHOTS}${label}-v107-transcrie-fisier.png` });
+    await np.locator('[data-test=tr-text]').fill('Instanța a amânat pronunțarea pe 24/11/2026.');
+    await np.locator('[data-test=tr-save]').tap();
+    await np.locator('[data-test=tr-modal]').waitFor({ state: 'detached' });
+    await np.waitForTimeout(300);
+    const d = (await recsOf(np)).find(r => r.id === target.id).data;
+    assert(d.transcript === 'Instanța a amânat pronunțarea pe 24/11/2026.' && d.mid === target.data.mid, 'salvat: ' + JSON.stringify(d));
     st = await np.evaluate(() => window.__stt);
-    assert(st.stopped === 1, 'STT neoprit');
-    const recs = await np.evaluate(() => [...window.LSO.state.items.values()].filter(i => i.kind === 'rec').sort((a, b) => b.created - a.created));
-    assert(recs.length === before + 1, 'înregistrarea nu s-a salvat');
-    const saved = (await idbItems()).find(i => i.id === recs[0].id);
-    const d = recs[0].data || saved.data;
-    assert(d && d.transcript === 'bună ziua dosarul numărul 12 termen luni', 'transcriere salvată: ' + JSON.stringify(d));
-    await np.locator('[data-test=rec-transcribe]').uncheck();
+    assert(st.deleted.some(x => /lso_tr\//.test(x)), 'temporarul nu s-a șters');
+    await card.locator('[data-test=rec-transcript]').waitFor();
+    // serviciu fără suport pentru fișiere → mesaj clar, nimic pierdut
+    await card.locator('[data-test=rec-transcribe-file]').tap();
+    await np.locator('[data-test=tr-modal]').waitFor();
+    await np.waitForFunction(() => window.__stt.ft.length === 2);
+    await np.evaluate(() => window.__ft({ kind: 'err', text: 'unsupported' }));
+    await np.waitForFunction(() => /nu acceptă fișiere audio/.test(document.querySelector('[data-test=tr-status]').textContent));
+    await np.locator('[data-test=tr-stop]').tap();
+    await np.locator('[data-test=tr-modal]').waitFor({ state: 'detached' });
+    const d2 = (await recsOf(np)).find(r => r.id === target.id).data;
+    assert(d2.transcript === d.transcript && d2.mid === d.mid, 'nu trebuie schimbat nimic');
+    await np.close();
+  });
+
+  await step(`[${label}] [v1.0.7] Recuperare (SIMULAT): un fișier audio rămas după o închidere bruscă se importă automat ca înregistrare`, async () => {
+    const at = Date.now() - 3600e3;
+    const np = await nativePage({ orphans: [{ path: '/data/user/0/ro.legesiordine.app/files/lso_rec/rec_' + at + '.aac', name: 'rec_' + at + '.aac', mime: 'audio/aac', duration: 61.4, at, size: 4000 }] });
+    await np.locator('.toast', { hasText: 'recuperat 1' }).waitFor();
+    const r = (await recsOf(np)).find(x => x.data.at === at);
+    assert(r && r.data.mid && r.data.name === 'Înregistrare recuperată' && Math.abs(r.data.duration - 61.4) < 0.01, 'recuperată: ' + JSON.stringify(r));
+    const st = await np.evaluate(() => window.__stt);
+    assert(st.deleted.some(x => x.endsWith('rec_' + at + '.aac')), 'fișierul recuperat nu s-a șters');
+    await np.close();
+  });
+
+  await step(`[${label}] [v1.0.7] Android < 13 (SIMULAT): „Transcrie” explică cerința, înregistrările vechi doar-text rămân intacte (fără buton)`, async () => {
+    const np = await nativePage({ sdk: 30 });
+    // o înregistrare veche din v1.0.6 făcută doar ca text (fără audio), scrisă direct în baza de date
+    await np.evaluate(() => new Promise(res => { const r = indexedDB.open('lso_db'); r.onsuccess = () => { const os = r.result.transaction('lso_items', 'readwrite').objectStore('lso_items'); const q = os.getAll(); q.onsuccess = () => { const src = q.result.find(i => i.kind === 'rec' && i.data && !i.trashedAt); const c = JSON.parse(JSON.stringify(src)); c.id = 'oldv106text'; c.data = { ...c.data, mid: null, mime: '', transcript: 'text vechi din v1.0.6', name: 'Veche' }; os.put(c).onsuccess = () => res(); }; }; }));
+    await np.reload(); await np.waitForSelector('.tab-pill');
+    await np.locator('.tab-pill', { hasText: 'RECORDINGS' }).first().tap();
+    const tabId = await np.evaluate(() => [...window.LSO.state.tabs].find(t => t.kind === 'rec').id);
+    const target = (await recsOf(np)).find(r => r.data.mid);
+    const card = np.locator(`.card[data-id="${target.id}"]`);
+    if (!(await card.count())) await np.locator('#view .day-row').first().tap();
+    await card.waitFor();
+    if (!(await card.locator('.r2').count())) await card.locator('.r1').tap();
+    await card.locator('[data-test=rec-transcribe-file]').tap();
+    await np.locator('.toast', { hasText: 'Android 13' }).waitFor();
+    const old = (await recsOf(np)).find(r => !r.data.mid && r.data.transcript);
+    assert(old, 'înregistrarea veche doar-text (v1.0.6) trebuie să existe în continuare');
+    const oc = np.locator(`.card[data-id="${old.id}"]`);
+    if (await oc.count()) { if (!(await oc.locator('.r2').count())) await oc.locator('.r1').tap(); assert(await oc.locator('[data-test=rec-transcribe-file]').count() === 0, 'fără buton pe înregistrările fără audio'); }
+    assert(tabId, 'tab');
+    await np.close();
+  });
+
+  // v1.0.7 Citire: speechSynthesis SIMULAT (evenimente start / boundary pe cuvinte / end), fără sunet real.
+  const mockTts = (wordMs = 120) => p.evaluate(ms => {
+    const st = window.__tts = { utts: [], cancels: 0, wordMs: ms, timers: [] };
+    const clear = () => { st.timers.forEach(clearTimeout); st.timers = []; };
+    const mock = {
+      speaking: false, pending: false, paused: false,
+      getVoices: () => [{ name: 'Română test', lang: 'ro-RO', localService: true, default: true, voiceURI: 'ro' }],
+      addEventListener() {}, removeEventListener() {},
+      cancel() { st.cancels++; clear(); mock.speaking = false; },
+      pause() {}, resume() {},
+      speak(u) {
+        st.utts.push(u.text); mock.speaking = true;
+        const words = []; const re = /\S+/g; let m; while ((m = re.exec(u.text))) words.push(m.index);
+        st.timers.push(setTimeout(() => { u.onstart && u.onstart({}); }, 10));
+        words.forEach((ci, i) => st.timers.push(setTimeout(() => { u.onboundary && u.onboundary({ name: 'word', charIndex: ci }); }, 20 + i * st.wordMs)));
+        st.timers.push(setTimeout(() => { mock.speaking = false; u.onend && u.onend({}); }, 40 + words.length * st.wordMs));
+      },
+    };
+    Object.defineProperty(window, 'speechSynthesis', { value: mock, configurable: true, writable: true });
+  }, wordMs);
+
+  await step(`[${label}] [v1.0.7] Citire: tot ce se vede pe ecran, de la primul element vizibil; bara aurie se mută sub fiecare cuvânt; al doilea tap oprește`, async () => {
+    await goTab('Dosare');
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await mockTts(700);
+    await tap('[data-test=fab-voice]');
+    await sheetOpt('Citire');
+    await p.locator('.w.cur').first().waitFor();
+    const first = await p.evaluate(() => window.__tts.utts[0]);
+    const firstVisibleText = await p.evaluate(() => { const v = document.querySelector('#view'); const el = [...v.querySelectorAll('.rd-wrap')][0]; return el ? el.textContent.trim() : ''; });
+    assert(first && first.startsWith(firstVisibleText.split(/\s+/)[0].replace(/[▾▴🔒🔓⏰●]/gu, '') || first), 'începe cu primul element vizibil: ' + first + ' / ' + firstVisibleText);
+    const w1 = await p.locator('.w.cur').first().textContent();
+    await p.waitForFunction(w => { const c = document.querySelector('.w.cur'); return c && c.textContent !== w; }, w1, { timeout: 4000 });
+    await p.waitForTimeout(450);
+    const geo = await p.evaluate(() => { const c = document.querySelector('.w.cur').getBoundingClientRect(), b = document.querySelector('.kbar'), br = b.getBoundingClientRect(), cs = getComputedStyle(b), cc = getComputedStyle(document.querySelector('.w.cur')); return { dx: Math.abs(br.left - c.left), dy: br.top - c.bottom, w: Math.abs(br.width - Math.max(6, c.width)), show: b.classList.contains('show'), op: +cs.opacity, bg: cs.backgroundColor, curColor: cc.color, curBg: cc.backgroundColor, past: document.querySelectorAll('.w.past').length }; });
+    assert(geo.show && geo.op > 0.9 && geo.dx < 3 && geo.dy >= -1 && geo.dy < 6 && geo.w < 3, 'bara nu e sub cuvânt: ' + JSON.stringify(geo));
+    assert(geo.bg !== 'rgb(255, 255, 255)' && geo.curColor !== 'rgb(255, 255, 255)' && geo.past >= 1, 'culori: ' + JSON.stringify(geo));
+    assert(await p.locator('[data-test=speak-bubble]').count() === 1 && await p.locator('[data-test=speak-pause]').count() === 0, 'fără Pauză, ca în Notis');
+    await p.screenshot({ path: `${SHOTS}${label}-v107-citire-subliniere.png` });
+    // al doilea tap pe butonul de voce oprește și curăță tot
+    await tap('[data-test=fab-voice]');
+    await p.waitForFunction(() => !document.querySelector('.rd-wrap') && !document.querySelector('.kbar.show'));
+    assert(await p.locator('.m-sheet').count() === 0, 'al doilea tap nu trebuie să deschidă meniul');
+    assert((await p.evaluate(() => window.__tts.cancels)) >= 1, 'speechSynthesis.cancel');
+    assert(await p.locator('[data-test=speak-bubble]').count() === 0, 'bula a rămas');
+    await p.waitForTimeout(300);
+    const n = await p.evaluate(() => window.__tts.utts.length);
+    await p.waitForTimeout(500);
+    assert((await p.evaluate(() => window.__tts.utts.length)) === n, 'citirea a continuat după oprire');
+  });
+
+  await step(`[${label}] [v1.0.7] Citire document lung: textul urcă lin, rândul citit stă în treimea de sus; derularea manuală suspendă urmărirea ~4 s`, async () => {
+    await goTab('Dosare');
+    await tap('[data-test=fab-add]');
+    await p.locator('[data-test=editor] [data-k=title]').fill('Dosar lung citire');
+    const long = Array.from({ length: 70 }, (_, i) => `Rândul ${i + 1} din documentul dosarului are câteva cuvinte de citit.`).join('\n');
+    await p.locator('[data-test=editor] textarea[data-k=notes]').fill(long);
+    await save();
+    const card = p.locator('#view .card', { hasText: 'Dosar lung citire' });
+    await card.waitFor();
+    if (!(await card.evaluate(el => el.classList.contains('open')))) await card.locator('.r1').tap();
+    await card.locator('.r2').tap({ position: { x: 20, y: 12 } });
+    await p.locator('[data-test=editor]').waitFor();
+    await mockTts(40);
+    await tap('[data-test=editor] .m-actions .more');
+    await sheetOpt('Citește cu voce');
+    const mir = p.locator('[data-test=rd-mirror].ta');
+    await mir.waitFor();
+    // așteptăm până citirea ajunge adânc în text
+    await p.waitForFunction(() => { const m = document.querySelector('.rd-mirror.ta'); return m && m.querySelector('.w.cur') && m.scrollTop > 200; }, null, { timeout: 15000 });
+    await p.waitForTimeout(450);
+    const g = await p.evaluate(() => { const m = document.querySelector('.rd-mirror.ta'), c = m.querySelector('.w.cur'), mr = m.getBoundingClientRect(), cr = c.getBoundingClientRect(); return { st: m.scrollTop, rel: (cr.top - mr.top) / mr.height, inside: cr.top >= mr.top && cr.bottom <= mr.bottom, onScreen: cr.top > 50 && cr.bottom < innerHeight - 110 }; });
+    assert(g.st > 200 && g.inside && g.onScreen && g.rel < 0.45, 'urmărire în container: ' + JSON.stringify(g));
+    // derulare manuală → pauză ~4 s
+    await p.evaluate(() => { const m = document.querySelector('.rd-mirror.ta'); m.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -400 })); m.scrollTop = 0; });
+    await p.waitForTimeout(1200);
+    const paused = await p.evaluate(() => document.querySelector('.rd-mirror.ta').scrollTop);
+    assert(paused < 40, 'trebuia suspendată urmărirea după derularea manuală: ' + paused);
+    await p.waitForTimeout(4200);
+    const resumed = await p.evaluate(() => document.querySelector('.rd-mirror.ta').scrollTop);
+    assert(resumed > 200, 'urmărirea trebuia să revină după ~4 s: ' + resumed);
+    await p.screenshot({ path: `${SHOTS}${label}-v107-citire-document-lung.png` });
+    await tap('[data-test=speak-stop]');
+    await p.waitForFunction(() => !document.querySelector('.rd-mirror'));
+    assert((await p.locator('[data-test=editor] textarea[data-k=notes]').inputValue()) === long, 'textul documentului s-a schimbat');
+    await tap('[data-test=editor] .m-actions .btn.ghost:not(.more)');
+    await gone('[data-test=editor]');
+  });
+
+  await step(`[${label}] [v1.0.7] Citire pe telefon (TTS nativ SIMULAT): evenimentele ttsEv range (onRangeStart) mută bara; id transmis la ttsSpeak`, async () => {
+    const np = await p.context().newPage();
+    await np.addInitScript(() => {
+      const L = {}; const st = window.__ntts = { calls: [], stops: 0 };
+      const LsoVoice = {
+        available: async () => ({ available: true }), checkPermissions: async () => ({ mic: 'granted', speechRecognition: 'granted' }),
+        addListener: async (n, f) => { (L[n] = L[n] || []).push(f); return { remove: async () => { L[n] = (L[n] || []).filter(x => x !== f); } }; },
+        removeAllListeners: async () => {}, ttsState: async () => ({ ready: true }), getSupportedVoices: async () => ({ voices: [{ name: 'ro-ro-x', lang: 'ro-RO' }] }),
+        isLanguageSupported: async () => ({ supported: true }), recOrphans: async () => ({ files: [] }), recStart: async () => ({}),
+        ttsSpeak: a => new Promise(res => { st.calls.push(a); st.res = res; const emit = ev => (L.ttsEv || []).forEach(f => f(ev)); setTimeout(() => emit({ id: a.id, type: 'start', s: 0, e: 0 }), 5); const re = /\S+/g; let m, i = 0; const t = []; while ((m = re.exec(a.text))) { const s = m.index, e = s + m[0].length; t.push(setTimeout(() => emit({ id: a.id, type: 'range', s, e }), 30 + 140 * i++)); } st.timers = t; setTimeout(res, 60 + 140 * i); }),
+        ttsStop: async () => { st.stops++; (st.timers || []).forEach(clearTimeout); st.res && st.res(); },
+      };
+      const LN = { checkPermissions: async () => ({ display: 'granted' }), createChannel: async () => {}, schedule: async () => ({}), getPending: async () => ({ notifications: [] }), cancel: async () => {}, getDeliveredNotifications: async () => ({ notifications: [] }), removeDeliveredNotifications: async () => {}, addListener: async () => ({ remove() {} }), checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }) };
+      window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', Plugins: { LsoVoice, LocalNotifications: LN } };
+    });
+    await np.goto(BASE); await np.waitForSelector('.tab-pill');
+    await np.locator('.tab-pill', { hasText: 'Dosare' }).first().tap();
+    await np.locator('[data-test=fab-voice]').tap();
+    await np.locator('.m-sheet .sheet-opt', { hasText: 'Citire' }).tap();
+    await np.locator('.w.cur').first().waitFor();
+    const w0 = await np.locator('.w.cur').first().textContent();
+    await np.waitForFunction(w => { const c = document.querySelector('.w.cur'); return c && c.textContent !== w; }, w0, { timeout: 4000 });
+    const c = await np.evaluate(() => window.__ntts.calls[0]);
+    assert(c && /^r\d+_/.test(c.id) && c.lang === 'ro-RO' && c.text.length > 0, 'ttsSpeak: ' + JSON.stringify(c));
+    await np.locator('[data-test=fab-voice]').tap();
+    await np.waitForFunction(() => !document.querySelector('.rd-wrap'));
+    assert((await np.evaluate(() => window.__ntts.stops)) >= 1, 'ttsStop');
     await np.close();
   });
 

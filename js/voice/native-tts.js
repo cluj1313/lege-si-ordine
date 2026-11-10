@@ -28,10 +28,11 @@ export async function isLanguageSupported(lang) {
   }
 }
 
-export async function speak({ text, lang, rate = 1.25, pitch = 1, volume = 1, voiceName = '', category = 'ambient', queueStrategy = 0 } = {}) {
+// id: evenimentele „ttsEv” { id, type: start|range|done, s, e } (onRangeStart) pentru bara de sub cuvânt.
+export async function speak({ text, lang, rate = 1.25, pitch = 1, volume = 1, voiceName = '', category = 'ambient', queueStrategy = 0, id = '' } = {}) {
   const L = lsoVoice();
   if (L && L.ttsSpeak) {
-    await L.ttsSpeak({ text, lang, rate, pitch, voiceName: voiceName || '' });
+    await L.ttsSpeak({ text, lang, rate, pitch, voiceName: voiceName || '', id: id || '' });
     return;
   }
   const P = ttsEngine();

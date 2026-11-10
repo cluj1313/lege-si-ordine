@@ -31,6 +31,7 @@ import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -77,8 +78,10 @@ public class LsoVoicePlugin extends Plugin {
             ttsReady = status == TextToSpeech.SUCCESS;
             if (ttsReady && tts != null) {
                 tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                    @Override public void onStart(String utteranceId) {}
+                    @Override public void onStart(String utteranceId) { ttsEv(utteranceId, "start", 0, 0); }
                     @Override public void onDone(String utteranceId) { finishSpeak(true, null); }
+                    // Citire cu bara sub cuvânt (din Notis, NativeTts.onRangeStart): indicii de caracter ale cuvântului rostit
+                    @Override public void onRangeStart(String utteranceId, int start, int end, int frame) { ttsEv(utteranceId, "range", start, end); }
                     @Override public void onError(String utteranceId) { finishSpeak(false, "error"); }
                 });
             }
@@ -100,6 +103,9 @@ public class LsoVoicePlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
+        if (rec != null) { try { rec.setSink(null); rec.stop(); } catch (Exception ignored) {} rec = null; }
+        if (recInj != null) { try { recInj.cancel(); } catch (Exception ignored) {} recInj = null; }
+        if (ftInj != null) { try { ftInj.cancel(); } catch (Exception ignored) {} ftInj = null; }
         trOn = false;
         destroyTr();
         restoreBeep();
@@ -191,8 +197,9 @@ public class LsoVoicePlugin extends Plugin {
                 }
             } catch (Exception ignored) {}
             speakCall = call;
-            speakId = UUID.randomUUID().toString();
-            int maxMs = Math.max(4000, Math.min(60000, 80 * text.length() + 2000));
+            String reqId = call.getString("id", "");
+            speakId = reqId != null && !reqId.isEmpty() ? reqId.replaceAll("[^A-Za-z0-9_-]", "") : UUID.randomUUID().toString();
+            int maxMs = Math.max(4000, Math.min(120000, (int) (110 * text.length() / Math.max(0.5f, rate)) + 3000));
             cancelSpeakTimeout();
             speakTimeout = () -> finishSpeak(true, null);
             main.postDelayed(speakTimeout, maxMs);
@@ -230,6 +237,15 @@ public class LsoVoicePlugin extends Plugin {
             return;
         }
         call.reject("no-install");
+    }
+
+    private void ttsEv(String id, String type, int s, int e) {
+        JSObject ev = new JSObject();
+        ev.put("id", id == null ? "" : id);
+        ev.put("type", type);
+        ev.put("s", s);
+        ev.put("e", e);
+        notifyListeners("ttsEv", ev);
     }
 
     private void finishSpeak(boolean ok, String err) {
@@ -660,5 +676,267 @@ public class LsoVoicePlugin extends Plugin {
             AudioManager am = (AudioManager) getContext().getSystemService(android.content.Context.AUDIO_SERVICE);
             if (am != null) am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0);
         } catch (Exception ignored) {}
+    }
+
+    // ---------- RECORDINGS v1.0.7: audio MEREU + transcriere live / ulterioară ----------
+    // Înregistrarea o face LsoRecorder (AudioRecord → .aac). Cu bifa „Transcriere live în timpul înregistrării”:
+    //  • Android 13+ (API 33): aceleași eșantioane merg la recunoaștere prin EXTRA_AUDIO_SOURCE (PcmInjector);
+    //  • dacă serviciul nu acceptă audio injectat sau Android < 13: recunoașterea pe microfon în paralel („mic”),
+    //    păzită: dacă înregistrarea noastră primește zero (microfon luat), oprim transcrierea live, audio continuă.
+    // Transcrierea ulterioară: fișierul e decodat local (AudioDecoder) și trimis la recunoaștere tot prin EXTRA_AUDIO_SOURCE.
+    private LsoRecorder rec;
+    private PcmInjector recInj, ftInj;
+    private String recMode = "off";
+    private String recLang = "ro-RO";
+
+    private File recDir() { return new File(getContext().getFilesDir(), "lso_rec"); }
+    private File trDir() { return new File(getContext().getCacheDir(), "lso_tr"); }
+
+    private boolean insideAppDirs(File f) {
+        try {
+            String c = f.getCanonicalPath();
+            return c.startsWith(recDir().getCanonicalPath() + File.separator) || c.startsWith(trDir().getCanonicalPath() + File.separator);
+        } catch (Exception e) { return false; }
+    }
+
+    private static String mimeOf(File f) {
+        String n = f.getName().toLowerCase(Locale.ROOT);
+        if (n.endsWith(".aac")) return "audio/aac";
+        if (n.endsWith(".wav")) return "audio/wav";
+        if (n.endsWith(".webm")) return "audio/webm";
+        if (n.endsWith(".ogg")) return "audio/ogg";
+        if (n.endsWith(".m4a") || n.endsWith(".mp4")) return "audio/mp4";
+        return "application/octet-stream";
+    }
+
+    private JSObject fileInfo(File f) {
+        JSObject o = new JSObject();
+        o.put("path", f.getAbsolutePath());
+        o.put("name", f.getName());
+        o.put("mime", mimeOf(f));
+        o.put("size", f.length());
+        o.put("duration", LsoRecorder.durationOf(f));
+        long at = 0;
+        try { at = Long.parseLong(f.getName().replaceAll("^rec_(\\d+).*$", "$1")); } catch (Exception ignored) {}
+        o.put("at", at > 0 ? at : f.lastModified());
+        return o;
+    }
+
+    @PluginMethod
+    public void recCaps(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("sdk", Build.VERSION.SDK_INT);
+        r.put("inject", PcmInjector.supported());
+        r.put("recording", rec != null);
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void recStart(PluginCall call) {
+        if (!hasMic()) { call.reject("perm"); return; }
+        final boolean live = Boolean.TRUE.equals(call.getBoolean("live", false));
+        recLang = call.getString("language", "ro-RO");
+        main.post(() -> {
+            if (rec != null) { call.reject("busy"); return; }
+            LsoRecorder r = new LsoRecorder(recDir(), System.currentTimeMillis());
+            try { r.start(); } catch (Exception e) { call.reject("mic"); return; }
+            rec = r;
+            recMode = "off";
+            Activity act = getActivity();
+            if (act != null) act.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            r.setSink(new LsoRecorder.Sink() {
+                @Override public void pcm(byte[] b, int len) { PcmInjector i = recInj; if (i != null) i.write(b, 0, len); }
+                @Override public void silenced() {
+                    PcmInjector i = recInj;
+                    if (i != null) { i.onSilenced(); return; }
+                    main.post(() -> { if ("mic".equals(recMode)) { stopMicLive(); recMode = "off"; emitTr("err", "live-off:silenced"); } });
+                }
+            });
+            if (live) startLive();
+            JSObject o = new JSObject();
+            File f = r.current();
+            o.put("path", f != null ? f.getAbsolutePath() : "");
+            o.put("inject", PcmInjector.supported());
+            o.put("sdk", Build.VERSION.SDK_INT);
+            call.resolve(o);
+        });
+    }
+
+    private void startLive() {
+        Activity act = getActivity();
+        if (PcmInjector.supported() && act != null) {
+            recMode = "trying";
+            recInj = new PcmInjector(act, main, recLang, true, preferredComponent(act), new PcmInjector.Cb() {
+                @Override public void partial(String t) { emitTr("partial", t); }
+                @Override public void fin(String t) { emitTr("final", t); }
+                @Override public void verified(String who) { recMode = "inject"; emitTr("mode", "inject:" + who); }
+                @Override public void failed(String code) {
+                    recInj = null;
+                    if (rec == null) return;
+                    if ("unsupported".equals(code)) startMicLive();
+                    else { recMode = "off"; emitTr("err", "live-off:" + code); }
+                }
+                @Override public void ended() { recInj = null; }
+            });
+            recInj.start();
+        } else startMicLive();
+    }
+
+    private void startMicLive() {
+        if (rec == null) return;
+        recMode = "mic";
+        emitTr("mode", "mic");
+        trLang = recLang; trOn = true; trLast = ""; trErrs = 0;
+        muteBeep();
+        trLoop();
+    }
+
+    private void stopMicLive() {
+        trOn = false;
+        destroyTr();
+        restoreBeep();
+    }
+
+    @PluginMethod
+    public void recStop(PluginCall call) {
+        main.post(() -> {
+            final LsoRecorder r = rec;
+            if (r == null) { JSObject o = new JSObject(); o.put("files", new JSArray()); o.put("last", ""); call.resolve(o); return; }
+            final String last = trLast == null ? "" : trLast; trLast = "";
+            final String mode = recMode;
+            stopMicLive();
+            final PcmInjector inj = recInj;
+            r.setSink(null);
+            new Thread(() -> {
+                java.util.List<File> fs = r.stop();
+                if (inj != null) inj.finishInput(1500);
+                try { Thread.sleep(inj != null && inj.isVerified() ? 1700 : 50); } catch (InterruptedException ignored) {}
+                main.post(() -> {
+                    if (rec == r) rec = null;
+                    if (recInj == inj) recInj = null;
+                    recMode = "off";
+                    Activity act = getActivity();
+                    if (act != null) act.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    JSArray arr = new JSArray();
+                    for (File f : fs) if (f.exists() && f.length() > 0) arr.put(fileInfo(f));
+                    JSObject o = new JSObject();
+                    o.put("files", arr);
+                    o.put("last", last);
+                    o.put("mode", mode);
+                    o.put("seconds", r.seconds());
+                    call.resolve(o);
+                });
+            }, "lso-rec-stop").start();
+        });
+    }
+
+    /** Fișiere rămase de la o înregistrare întreruptă (aplicația închisă brusc): JS le importă, apoi le șterge. */
+    @PluginMethod
+    public void recOrphans(PluginCall call) {
+        JSArray arr = new JSArray();
+        File[] list = recDir().listFiles();
+        java.util.Set<String> busy = new java.util.HashSet<>();
+        if (rec != null) for (File f : rec.files) busy.add(f.getAbsolutePath());
+        if (list != null) {
+            for (File f : list) {
+                if (!f.isFile() || busy.contains(f.getAbsolutePath())) continue;
+                if (f.getName().endsWith(".wav")) LsoRecorder.fixWav(f);
+                if (f.length() <= 64) { f.delete(); continue; }
+                arr.put(fileInfo(f));
+            }
+        }
+        JSObject o = new JSObject();
+        o.put("files", arr);
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void recDelete(PluginCall call) {
+        String path = call.getString("path", "");
+        File f = new File(path == null ? "" : path);
+        boolean ok = false;
+        if (insideAppDirs(f) && (rec == null || !rec.files.contains(f))) ok = f.delete();
+        JSObject o = new JSObject();
+        o.put("deleted", ok);
+        call.resolve(o);
+    }
+
+    /** Scrie (pe bucăți, base64) un fișier temporar în cache/lso_tr, pentru transcrierea ulterioară. */
+    @PluginMethod
+    public void tmpWrite(PluginCall call) {
+        String name = String.valueOf(call.getString("name", "audio.bin")).replaceAll("[^A-Za-z0-9._-]", "_");
+        String data = call.getString("data", "");
+        boolean append = Boolean.TRUE.equals(call.getBoolean("append", false));
+        File dir = trDir();
+        if (!dir.exists()) dir.mkdirs();
+        File f = new File(dir, name);
+        try (java.io.FileOutputStream o = new java.io.FileOutputStream(f, append)) {
+            o.write(android.util.Base64.decode(data == null ? "" : data, android.util.Base64.DEFAULT));
+        } catch (Exception e) { call.reject("write"); return; }
+        JSObject r = new JSObject();
+        r.put("path", f.getAbsolutePath());
+        r.put("size", f.length());
+        call.resolve(r);
+    }
+
+    private void emitFt(String kind, String text, double p) {
+        JSObject ev = new JSObject();
+        ev.put("kind", kind);
+        ev.put("text", text == null ? "" : text);
+        ev.put("p", p);
+        notifyListeners("filetr", ev);
+    }
+
+    @PluginMethod
+    public void fileTranscribeStart(PluginCall call) {
+        if (!PcmInjector.supported()) { call.reject("sdk"); return; }
+        final String path = call.getString("path", "");
+        final File f = new File(path == null ? "" : path);
+        if (!insideAppDirs(f) || !f.isFile()) { call.reject("file"); return; }
+        final String lang = call.getString("language", "ro-RO");
+        main.post(() -> {
+            if (ftInj != null) { call.reject("busy"); return; }
+            Activity act = getActivity();
+            if (act == null) { call.reject("noservice"); return; }
+            act.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            final PcmInjector[] me = new PcmInjector[1];
+            me[0] = new PcmInjector(act, main, lang, false, preferredComponent(act), new PcmInjector.Cb() {
+                @Override public void partial(String t) { emitFt("partial", t, -1); }
+                @Override public void fin(String t) { emitFt("final", t, -1); }
+                @Override public void verified(String who) { emitFt("mode", who, -1); }
+                @Override public void failed(String code) { if (ftInj == me[0]) ftInj = null; ftDone(); emitFt("err", code, -1); }
+                @Override public void ended() { if (ftInj == me[0]) ftInj = null; ftDone(); emitFt("done", "", 1); }
+            });
+            ftInj = me[0];
+            me[0].start();
+            new Thread(() -> {
+                final long[] lastEmit = { 0 };
+                try {
+                    AudioDecoder.decode(f.getAbsolutePath(), (b, n) -> me[0].write(b, 0, n), p -> {
+                        long now = System.currentTimeMillis();
+                        if (now - lastEmit[0] > 700) { lastEmit[0] = now; emitFt("progress", "", p); }
+                    });
+                    me[0].finishInput(10000);
+                } catch (Exception e) {
+                    me[0].cancel();
+                    emitFt("err", "decode", -1);
+                }
+            }, "lso-filetr").start();
+            call.resolve();
+        });
+    }
+
+    private void ftDone() {
+        Activity act = getActivity();
+        if (act != null && rec == null) act.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    @PluginMethod
+    public void fileTranscribeStop(PluginCall call) {
+        main.post(() -> {
+            PcmInjector i = ftInj;
+            if (i != null) i.cancel();
+            call.resolve();
+        });
     }
 }

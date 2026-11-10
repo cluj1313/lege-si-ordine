@@ -235,8 +235,8 @@ function shareIcon() {
 }
 
 function recRow2(it, d) {
-  // Înregistrările făcute doar ca text (transcriere pe telefon) nu au fișier audio.
-  const audio = d.mid ? h('audio', { controls: true, preload: 'none', class: 'rec-audio' }) : null;
+  // Înregistrările vechi (v1.0.6, doar text) nu au fișier audio; din v1.0.7 audio-ul se păstrează mereu.
+  const audio = d.mid ? h('audio', { controls: true, preload: 'none', class: 'rec-audio' }) : (d.pendingFile ? h('div', { class: 'r2-meta' }, t('recPendingFile')) : null);
   if (audio) getMedia(d.mid).then(m => { if (m) audio.src = URL.createObjectURL(m.blob); else audio.replaceWith(h('div', { class: 'r2-meta' }, t('mediaMissing'))); });
   return h('div', { class: 'r2-col' },
     h('div', { class: 'rec-r2-head' },
@@ -246,11 +246,13 @@ function recRow2(it, d) {
       h('button', { class: 'icon-btn sm trash', type: 'button', 'aria-label': t('delete'), 'data-test': 'rec-row-delete', onclick: () => app.deleteItem(it) }, '🗑️')),
     h('div', { class: 'r2-meta' }, fmtTsDate(d.at || it.created)),
     audio,
-    d.transcript ? h('div', { class: 'r2-text pre' }, d.transcript) : h('div', { class: 'r2-meta' }, t('noTranscript')),
+    d.transcript ? h('div', { class: 'r2-text pre', 'data-test': 'rec-transcript' }, d.transcript) : h('div', { class: 'r2-meta' }, t('noTranscript')),
+    // „Transcrie”: tot audio-ul din fișier → text (ulterior), pe un rând separat ca acțiunile să rămână pe o linie
+    d.mid ? h('div', { class: 'rec-tr-row' }, h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-transcribe-file', onclick: e => act(e.currentTarget, () => app.transcribeRec(it)) }, '📝 ' + t('recTranscribeBtn'))) : null,
     h('div', { class: 'r2-actions rec-actions' },
       h('button', { class: 'btn sm ghost', type: 'button', onclick: () => app.renameRec(it) }, t('rename')),
       h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-archive', onclick: () => app.archiveRec(it) }, t('archive')),
       h('button', { class: 'icon-btn share', type: 'button', 'aria-label': t('share'), title: t('share'), 'data-test': 'rec-share', onclick: () => shareRecording(it, d) }, shareIcon()),
       h('button', { class: 'icon-btn trash', type: 'button', 'aria-label': t('delete'), 'data-test': 'rec-delete', onclick: () => app.deleteItem(it) }, '🗑️')));
 }
-export const extOf = mime => (/ogg/.test(mime) ? '.ogg' : /mp4|aac|m4a/.test(mime) ? '.m4a' : /webm/.test(mime) ? '.webm' : /jpeg/.test(mime) ? '.jpg' : /png/.test(mime) ? '.png' : /pdf/.test(mime) ? '.pdf' : '');
+export const extOf = mime => (/ogg/.test(mime) ? '.ogg' : /^audio\/aac/.test(mime) ? '.aac' : /wav/.test(mime) ? '.wav' : /mp4|aac|m4a/.test(mime) ? '.m4a' : /webm/.test(mime) ? '.webm' : /jpeg/.test(mime) ? '.jpg' : /png/.test(mime) ? '.png' : /pdf/.test(mime) ? '.pdf' : '');

@@ -9,7 +9,7 @@ import { dateField, timeField } from './datetime.js';
 import { ensureOpen } from './list.js';
 import { pickFiles, compressImage, viewMedia } from '../features/media.js';
 import { shareText, shareFile } from '../features/share.js';
-import { speak } from '../features/voice.js';
+import { readScreenAloud } from '../features/voice.js';
 import { pickField, choiceField } from './pickers.js';
 import { app } from './registry.js';
 import { extOf } from './list.js';
@@ -164,7 +164,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
       own ? { label: t('unlockPermanent'), value: 'unlock', icon: '🔓' } : { label: t('lockPin'), value: 'lock', icon: '🔒' },
       { label: t('delete'), value: 'del', icon: '🗑', cls: 'danger' },
     ]);
-    if (v === 'read') { await collect(); speak(plainText(K, data)); }
+    if (v === 'read') { await collect(); readScreenAloud(); }
     else if (v === 'share') { await collect(); shareText(K.title(data), plainText(K, data)); }
     else if (v === 'move') {
       if (dirty) { toast(t('saveFirst')); return; }

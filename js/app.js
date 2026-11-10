@@ -12,11 +12,11 @@ import { confirmDlg, toast, sheet, closeAll, modalsOpen, dropMenu, pinDlg } from
 import { renderGeneric, renderSaved, renderFolders, renderNews, renderLocked, currentFolder, newFolder, newsResults, renderMO, hasCats, savedSubs } from './tabs/views.js';
 import { curCat, getCats } from './tabs/cats.js';
 import { isoToday } from './core/util.js';
-import { renderRecordings, startRecording, renameRec, archiveRec, recStatus, isRecording, stopRecording } from './tabs/recordings.js';
+import { renderRecordings, startRecording, renameRec, archiveRec, recStatus, isRecording, stopRecording, transcribeRec } from './tabs/recordings.js';
 import { openSearch } from './features/search.js';
 import { openTrash } from './features/trash.js';
 import { openSettings } from './features/settings.js';
-import { speak, stopSpeak, isSpeaking, startDictation, stopDictation, isDictating, getTarget, setTarget, voiceMenu } from './features/voice.js';
+import { readScreenAloud, stopSpeak, isSpeaking, startDictation, stopDictation, isDictating, getTarget, setTarget, voiceMenu } from './features/voice.js';
 import { KINDS, TAB_KINDS } from './tabs/kinds.js';
 
 let newsCache = [];
@@ -141,8 +141,8 @@ async function voiceFab(tab) {
     { label: t('voiceSettings'), value: 'set', icon: '⚙' },
   ]);
   if (v === 'read') {
-    const text = app.speakEditor ? await app.speakEditor() : readableText(tab);
-    await speak(text);
+    // tot ce se vede pe ecran (lista sau documentul deschis), cu bara sub cuvânt; al doilea tap oprește
+    await readScreenAloud();
   }
   else if (v === 'dict') {
     let target = getTarget();
@@ -162,13 +162,6 @@ async function voiceFab(tab) {
   } else if (v === 'set') voiceMenu();
 }
 
-function readableText(tab) {
-  const ed = document.querySelector('.m-overlay:last-child .editor, .m-overlay:last-child .m-box.editor');
-  if (ed) return [...ed.querySelectorAll('.voice-target')].map(x => x.value).filter(Boolean).join('.\n');
-  const open = [...document.querySelectorAll('#view .card.open')];
-  const src = open.length ? open : [...document.querySelectorAll('#view .card, #view .news-row, #view h2')];
-  return src.map(el => el.innerText.replace(/[▾▴🔒🔓⏰●]/g, '')).join('.\n');
-}
 
 // ---- Selecție multiplă ----
 function renderSelBar() {
@@ -288,7 +281,7 @@ async function onHidden() {
 }
 
 export async function startApp() {
-  Object.assign(app, { reorderItems, dropItem, canDropItem, endDragMode, tabDragOn: () => tabDrag.on, render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, archiveRec, recStatus, startRecording, stopRecording, isRecording });
+  Object.assign(app, { reorderItems, dropItem, canDropItem, endDragMode, tabDragOn: () => tabDrag.on, render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, archiveRec, recStatus, startRecording, stopRecording, isRecording, transcribeRec });
   header();
   newsCache = await newsResults();
   onChange(() => { if (!rendering) render(); });

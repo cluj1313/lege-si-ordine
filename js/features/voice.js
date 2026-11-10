@@ -9,6 +9,7 @@ import { isNative } from '../voice/native-cap.js';
 import * as nativeTts from '../voice/native-tts.js';
 import * as nativeStt from '../voice/native-stt.js';
 import { app } from '../ui/registry.js';
+import { readScreen, stopReading, isReading } from './reader.js';
 
 export const LANGS = [
   ['ro-RO', 'Română'], ['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['fr-FR', 'Français'], ['de-DE', 'Deutsch'],
@@ -75,6 +76,7 @@ export function webVoices() { return ('speechSynthesis' in window) ? speechSynth
 export async function nativeVoices() { return nativeTts.getVoices(); }
 export async function voices() { return nativeTts.hasNativeTts() ? nativeVoices() : webVoices(); }
 export function isSpeaking() {
+  if (isReading()) return true;
   if (speakSt.playing && !speakSt.paused) return true;
   if (!nativeTts.hasNativeTts() && 'speechSynthesis' in window) return speechSynthesis.speaking || speechSynthesis.pending;
   return false;
@@ -166,6 +168,29 @@ export async function speak(text) {
   return ok;
 }
 
+// Citire 📖 din meniul Voce: tot ce se vede pe ecran, cu bara sub cuvântul citit (reader.js, preluat din Notis).
+// Al doilea tap pe Citire / pe butonul de voce oprește.
+export async function readScreenAloud() {
+  if (isReading() || speakSt.playing) { await stopSpeak(); return false; }
+  await yieldMic();
+  if (isDictating()) await stopDictation();
+  return readScreen({
+    emit: emitSpeak,
+    engineCheck: async opts => {
+      if (nativeTts.hasNativeTts()) {
+        const info = await nativeTts.isLanguageSupported(opts.lang);
+        if (!info.hasEngine) { await showTtsHelp({ noEngine: true }); return null; }
+        let ok = info.supported !== false;
+        if (!ok) { const vv = await nativeVoices(); ok = vv.some(x => (x.lang || '').slice(0, 2) === opts.lang.slice(0, 2)); }
+        if (!ok) { await showTtsHelp({ noLang: true }); return null; }
+        return { native: true };
+      }
+      if (!('speechSynthesis' in window)) { await showTtsHelp({ noEngine: true }); return null; }
+      return { native: false, voice: webVoices().find(x => x.name === opts.voiceName) || null };
+    },
+  });
+}
+
 export async function pauseSpeak() {
   if (!speakSt.playing || speakSt.paused) return;
   speakSt.paused = true;
@@ -188,6 +213,7 @@ export async function resumeSpeak() {
 }
 
 export async function stopSpeak() {
+  if (isReading()) await stopReading();
   speakSt.playing = false; speakSt.paused = false;
   hideSpeakBubble();
   if (nativeTts.hasNativeTts()) await nativeTts.stop();
