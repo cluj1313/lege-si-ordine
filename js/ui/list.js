@@ -6,8 +6,9 @@ import { state, dataOf, canView, locksChain, isOpen, unlockTemp, relock, saveIte
 import { pinDlg, toast } from './modal.js';
 import { app } from './registry.js';
 import { shareText, shareRecording } from '../features/share.js';
+import { draggable } from './dnd.js';
 
-export const ui = { expanded: new Set(), selecting: false, selected: new Set() };
+export const ui = { expanded: new Set(), selecting: false, dragMode: false, selected: new Set() };
 
 export async function askUnlock(obj, title) {
   const ok = await pinDlg(title || t('unlock'), { verify: pin => unlockTemp(obj, pin) });
@@ -22,11 +23,56 @@ export async function ensureOpen(it) {
   return canView(it);
 }
 
-function sortItems(items, kindName) {
+// Sortarea aleasă din meniul din dreapta sus, salvată pe tab (lso_kv › ui.sort).
+export const SORT_MODES = ['alpha', 'manual', 'created', 'modified'];
+export const sortModeOf = tabId => { const m = (state.ui.sort || {})[tabId]; return SORT_MODES.includes(m) ? m : 'manual'; };
+const titleOf = it => { const d = dataOf(it); return d ? String((KINDS[it.kind] || KINDS.note).title(d) || '') : ''; };
+export function byMode(mode) {
+  if (mode === 'alpha') return (a, b) => titleOf(a).localeCompare(titleOf(b), 'ro', { sensitivity: 'base', numeric: true });
+  if (mode === 'created') return (a, b) => (b.created || 0) - (a.created || 0);
+  if (mode === 'modified') return (a, b) => (b.updated || 0) - (a.updated || 0);
+  return null;
+}
+// Ordonează o listă simplă (ex. elementele unei zile) după modul tabului; „Manual” păstrează ordinea dată.
+export function sortByTab(items, tabId) {
+  const mode = sortModeOf(tabId);
+  const cmp = byMode(mode);
+  if (cmp) return items.slice().sort(cmp);
+  const man = manualOf(tabId);
+  return man ? items.slice().sort((a, b) => (man.get(a.id) ?? -1) - (man.get(b.id) ?? -1)) : items;
+}
+
+// Ordinea manuală (drag and drop), salvată pe tab în lso_kv › ui.manual.
+export const manualOf = tabId => { const arr = (state.ui.manual || {})[tabId]; return arr && arr.length ? new Map(arr.map((id, i) => [id, i])) : null; };
+export function saveManual(tabId, ids) {
+  let base = ((state.ui.manual || {})[tabId] || []).filter(id => state.items.has(id));
+  const missing = ids.filter(id => !base.includes(id));
+  base = [...missing, ...base];
+  const set = new Set(ids), q = [...ids];
+  base = base.map(id => (set.has(id) ? q.shift() : id));
+  state.ui.manual = { ...(state.ui.manual || {}), [tabId]: base };
+}
+
+function sortItems(items, kindName, mode = 'manual', tabId = null) {
   const K = KINDS[kindName] || {};
   const vis = items.filter(canView), hid = items.filter(i => !canView(i));
+  const cmp = byMode(mode);
+  const manual = mode === 'manual' && tabId ? manualOf(tabId) : null;
   vis.sort((a, b) => {
     const da = dataOf(a), db = dataOf(b);
+    if (manual) {
+      if (kindName === 'task' && !!da.done !== !!db.done) return da.done ? 1 : -1;
+      if (K.past) { const pa = !!K.past(da), pb = !!K.past(db); if (pa !== pb) return pa ? 1 : -1; }
+      const ia = manual.get(a.id) ?? -1, ib = manual.get(b.id) ?? -1;
+      if (ia !== ib) return ia - ib;
+      // elementele noi (fără loc salvat) rămân sus, în ordinea implicită
+    }
+    if (cmp) {
+      // sarcinile bifate și termenele trecute rămân la final, apoi ordinea aleasă
+      if (kindName === 'task' && !!da.done !== !!db.done) return da.done ? 1 : -1;
+      if (K.past) { const pa = !!K.past(da), pb = !!K.past(db); if (pa !== pb) return pa ? 1 : -1; }
+      return cmp(a, b) || 0;
+    }
     if (kindName === 'law') return (a.order || 0) - (b.order || 0);
     if (kindName === 'task' && !!da.done !== !!db.done) return da.done ? 1 : -1;
     if (kindName === 'task' && da.done) return b.updated - a.updated;
@@ -37,10 +83,10 @@ function sortItems(items, kindName) {
   return [...vis, ...hid];
 }
 
-export function renderList(wrap, items, { kind, empty } = {}) {
+export function renderList(wrap, items, { kind, empty, tabId } = {}) {
   wrap.innerHTML = '';
   if (!items.length) { wrap.append(h('div', { class: 'empty' }, empty || t('emptyList'))); return; }
-  const sorted = sortItems(items, kind);
+  const sorted = sortItems(items, kind, tabId ? sortModeOf(tabId) : 'manual', tabId);
   let doneSep = false, pastSep = false;
   for (const it of sorted) {
     const d = canView(it) ? dataOf(it) : null;
@@ -96,6 +142,17 @@ export function card(it) {
   r1.addEventListener('click', toggle);
   r1.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
   el.append(r1);
+  // drag and drop: apăsare lungă pe rândul 1 (sau mânerul ≡ în modul Mutare) – reordonare sau mutare pe o pastilă/folder/tab
+  let grip = r1;
+  if (ui.dragMode) { grip = h('span', { class: 'dnd-handle', role: 'button', 'aria-label': t('dragToReorder'), 'data-test': 'drag-handle' }, '≡'); r1.prepend(grip); }
+  draggable(el, {
+    handle: grip, axis: 'y', container: () => el.parentNode, selector: ':scope > .card[data-id]:not(.folder-row)',
+    immediate: () => !!ui.dragMode,
+    onReorder: ids => app.reorderItems(ids),
+    onDrop: tg => app.dropItem(it, tg),
+    canDrop: tg => app.canDropItem(it, tg),
+    onCancel: () => app.render(),
+  });
 
   // ---- Rândul 2 ----
   if (open) {

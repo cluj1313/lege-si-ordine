@@ -19,7 +19,7 @@ const isNative = () => {
 export function handleBack() {
   const top = topModal();
   if (top) { if (top.onBack) top.onBack(); else top.close(); return true; }
-  if (ui.selecting) { ui.selecting = false; ui.selected.clear(); app.render(); return true; }
+  if (ui.selecting || ui.dragMode || app.tabDragOn()) { ui.selecting = false; ui.selected.clear(); app.endDragMode(); return true; }
   return false;
 }
 

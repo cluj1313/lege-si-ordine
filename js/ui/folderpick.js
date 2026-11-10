@@ -160,10 +160,10 @@ export async function pickFolder({ title, confirmLabel, tab: tabOpt } = {}) {
           here = f; draw();
         } },
           h('div', { class: 'r1' },
-            h('img', { class: 'fr-ic', src: 'icons/folder.png', alt: '' }),
+            locked ? h('span', { class: 'pill-lock' }, '🔒') : null,
             h('span', { class: 'r1t' }, folderNameOf(f)),
-            locked ? h('span', {}, '🔒') : null,
-            h('span', { class: 'r1-meta' }, String(countInFolder(f.id))))));
+            h('span', { class: 'cnt' }, String(countInFolder(f.id))),
+            h('span', { class: 'chev' }, '›'))));
       }
       body.append(list);
 

@@ -5,5 +5,11 @@
   "android": {
     "allowMixedContent": false,
     "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_lso",
+      "iconColor": "#C9A24A"
+    }
   }
 }

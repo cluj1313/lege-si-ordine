@@ -2,7 +2,7 @@
 import { h, uid } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { state, saveTab, itemsOf, saveUI, saveMeta } from '../core/store.js';
-import { pillRow, visibilitySheet } from '../ui/pillrow.js';
+import { pillRow, visibilitySheet, mergeOrder } from '../ui/pillrow.js';
 import { promptDlg, sheet, confirmDlg, toast } from '../ui/modal.js';
 import { app } from '../ui/registry.js';
 
@@ -37,6 +37,7 @@ export function catRow(tab, variant) {
       const c = { id: uid('c'), name: n, visible: true, order: cats.length };
       tab.cats = [...cats, c]; state.ui.sub[tab.id] = c.id; await saveUI(); await saveTab(tab);
     },
+    onReorder: async ids => { mergeOrder(cats, ids).forEach((c, i) => { tab.cats.find(x => x.id === c.id).order = i; }); await saveTab(tab); },
     onManage: () => visibilitySheet(t('manageVisible'), cats, async out => {
       out.forEach((c, i) => { const o = tab.cats.find(x => x.id === c.id); o.visible = c.visible; o.order = i; });
       if (cur !== 'all' && tab.cats.find(x => x.id === cur)?.visible === false) state.ui.sub[tab.id] = 'all';

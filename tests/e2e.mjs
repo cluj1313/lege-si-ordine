@@ -46,6 +46,20 @@ async function run(vp, label, full) {
     await p.waitForTimeout(800);
     await p.locator(sel).first().evaluate(el => el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, pointerType: 'touch' })));
   };
+  const openSet = async () => { await tap('#hdr-brand'); await p.locator('[data-test=settings]').waitFor(); await p.waitForTimeout(260); };
+  const noToasts = async () => { await p.evaluate(() => document.querySelectorAll('#toasts .toast').forEach(t => t.remove())); };
+  const dragTo = async (src, dst, { hold = 600, fx = 0.5, fy = 0.5, sx = 0.35 } = {}) => {
+    await p.locator(src).first().scrollIntoViewIfNeeded();
+    const a = await p.locator(src).first().boundingBox();
+    const x0 = a.x + a.width * sx, y0 = a.y + a.height / 2;
+    await p.mouse.move(x0, y0); await p.mouse.down(); await p.waitForTimeout(hold);
+    const b = await p.locator(dst).first().boundingBox();
+    const tx = b.x + b.width * fx, ty = b.y + b.height * fy;
+    for (let i = 1; i <= 14; i++) { await p.mouse.move(x0 + (tx - x0) * i / 14, y0 + (ty - y0) * i / 14); await p.waitForTimeout(16); }
+    await p.waitForTimeout(150); await p.mouse.up(); await p.waitForTimeout(250);
+  };
+  const tabOrder = () => p.$$eval('.tab-pill[data-id]', els => els.map(e => e.querySelector('.tp-name').textContent.trim()));
+  const kv = key => p.evaluate(k => new Promise(res => { const r = indexedDB.open('lso_db'); r.onsuccess = () => { const q = r.result.transaction('lso_kv').objectStore('lso_kv').get(k); q.onsuccess = () => res(q.result && q.result.v); }; }), key);
   const search = async (q) => { await tap('#hdr-search'); await p.locator('[data-test=search-input]').fill(q); };
   const save = async () => { await tap('[data-test=editor] .m-actions .btn.primary'); await gone('[data-test=editor]'); };
   const noOverflow = async () => { const o = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth); assert(o <= 1, 'depășire orizontală ' + o + 'px'); };
@@ -176,7 +190,7 @@ async function run(vp, label, full) {
     await yes();
     await gone('[data-test=editor]');
     assert(await p.locator('#view .card', { hasText: '– apel' }).count() === 0, 'nu a dispărut din listă');
-    await tap('#hdr-menu'); await sheetOpt('Coș');
+    await tap('#hdr-menu'); await tap('[data-test=menu-trash]');
     const row = p.locator('[data-test=trash] .trash-row', { hasText: '– apel' });
     await row.waitFor();
     await row.locator('[data-test=restore]').tap();
@@ -266,8 +280,8 @@ async function run(vp, label, full) {
     assert(after.every(i => i.data && !i.sec), 'nu s-a decriptat la deblocarea permanentă');
   });
 
-  await step(`[${label}] [NOU] Setări se deschid din antet (sus dreapta), ca în Notis`, async () => {
-    await tap('#hdr-settings');
+  await step(`[${label}] [NOU] Setări: panou din stânga deschis din logo/titlu, ca în Notis`, async () => {
+    await openSet();
     await p.locator('[data-test=settings]').waitFor();
     assert(await p.locator('[data-test=settings] [data-test=set-name]').count() === 1, 'câmpul Nume');
     assert(await p.locator('[data-test=remind-urgents]').count() === 1, 'amintește urgențele');
@@ -287,7 +301,7 @@ async function run(vp, label, full) {
   });
 
   await step(`[${label}] setări: reordonare taburi cu ≡ (pointer) și ascundere`, async () => {
-    await tap('#hdr-settings');
+    await openSet();
     await p.locator('[data-test=settings] details[data-sec=tabs] summary').tap();
     const rows = p.locator('[data-test=tab-order] .to-row');
     await rows.first().waitFor();
@@ -303,17 +317,20 @@ async function run(vp, label, full) {
     await tap('[data-test=settings] .m-back'); await gone('[data-test=settings]');
     const bar = await p.$$eval('.tab-pill', els => els.map(e => e.textContent.trim()));
     assert(bar[0] !== 'Taskuri', 'bara de taburi nu s-a actualizat: ' + bar.slice(0, 3));
-    // mută înapoi prin meniul tabului (apăsare lungă → Mută la stânga)
-    while ((await p.$$eval('.tab-pill', els => els.map(e => e.textContent.trim())))[0] !== 'Taskuri') {
-      await goTab('Taskuri'); await longPress('.tab-pill.active'); await sheetOpt('Mută la stânga'); await p.waitForTimeout(200);
+    // mută înapoi prin drag and drop în bara de taburi (apăsare lungă + tragere)
+    for (let i = 0; i < 4 && (await tabOrder())[0] !== 'Taskuri'; i++) {
+      await p.evaluate(() => { document.querySelector('#tabbar').scrollLeft = 0; });
+      await dragTo('.tab-pill[data-id]:has-text("Taskuri")', '.tab-pill[data-id] >> nth=0', { fx: 0.1 });
     }
+    assert((await tabOrder())[0] === 'Taskuri', 'drag tab înapoi: ' + (await tabOrder()).slice(0, 3));
   });
 
   await step(`[${label}] Foldere: Folder 1/2/3 orizontal cu contor, intrare în folder`, async () => {
     await tap('#hdr-folders');
-    const tiles = await p.$$eval('.folder-tile', els => els.map(e => e.textContent));
+    const tiles = await p.$$eval('[data-test=folder-row] .subtab:not(.add)', els => els.map(e => e.textContent));
+    assert(await p.locator('#view img[src*=folder]').count() === 0, 'icoane de folder pe Foldere');
     assert(tiles.length === 3 && /Folder 1/.test(tiles[0]), 'foldere: ' + tiles);
-    await p.locator('.folder-tile', { hasText: 'Folder 1' }).tap();
+    await p.locator('[data-test=folder-row] .subtab', { hasText: 'Folder 1' }).tap();
     await p.locator('.crumbs', { hasText: 'Folder 1' }).waitFor();
     await p.locator('.folder-panel .card', { hasText: 'checklist' }).waitFor();
     await p.screenshot({ path: `${SHOTS}${label}-foldere-folder1.png` });
@@ -340,7 +357,7 @@ async function run(vp, label, full) {
 
 
   await step(`[${label}] setări: ascundere și reafișare tab prin bifă`, async () => {
-    await tap('#hdr-menu'); await sheetOpt('Setări');
+    await openSet();
     const row = p.locator('[data-test=tab-order] .to-row', { hasText: 'Documente' });
     if (!(await row.isVisible())) await p.locator('[data-test=settings] details[data-sec=tabs] summary').tap();
     await row.locator('input[type=checkbox]').tap();
@@ -361,7 +378,7 @@ async function run(vp, label, full) {
     await fc.setFiles({ name: 'dovada.png', mimeType: 'image/png', buffer: png });
     await p.locator('.m-dialog input.inp').waitFor();
     await p.locator('.m-dialog input.inp').fill('Dovadă comunicare');
-    await p.locator('.m-dialog .m-actions .btn.primary').tap();
+    await p.locator('.m-overlay:not(.closing) .m-dialog .m-actions .btn.primary').tap();
     await p.locator('[data-test=editor] .file-row', { hasText: 'Dovadă comunicare' }).waitFor();
     await save();
     const media = await p.evaluate(() => new Promise(res => { const r = indexedDB.open('lso_db'); r.onsuccess = () => { const q = r.result.transaction('lso_media').objectStore('lso_media').getAll(); q.onsuccess = () => res(q.result.map(m => m.name)); }; }));
@@ -391,13 +408,13 @@ async function run(vp, label, full) {
 
   await step(`[${label}] folder blocat cu PIN: conținut criptat, intrare cu PIN`, async () => {
     await tap('#hdr-folders');
-    await longPress('.folder-tile:has-text("Folder 1")');
+    await longPress('[data-test=folder-row] .subtab:has-text("Folder 1")');
     await sheetOpt('Blochează cu PIN');
     await pin('2468'); await pin('2468');
-    await p.locator('.folder-tile:has-text("Folder 1") .ft-lock').waitFor();
+    await p.locator('[data-test=folder-row] .subtab:has-text("Folder 1") .pill-lock').waitFor();
     const notes = (await idbItems()).filter(i => i.kind === 'note' && i.folder);
     assert(notes.length && notes.every(i => i.sec && !i.data), 'notițele din folder nu sunt criptate');
-    await p.locator('.folder-tile', { hasText: 'Folder 1' }).tap();
+    await p.locator('[data-test=folder-row] .subtab', { hasText: 'Folder 1' }).tap();
     await pin('2468');
     await p.locator('.folder-panel .card', { hasText: 'checklist' }).waitFor();
   });
@@ -408,24 +425,24 @@ async function run(vp, label, full) {
     assert(await row.locator('> :last-child').evaluate(e => e.textContent.trim() === '+' && e.classList.contains('pr-add')), '„+” nu e ultimul');
     for (const n of ['Dosar penal', 'Corespondență', 'Executare']) {
       await row.locator('.pr-add').tap();
-      await p.locator('.m-dialog input.inp').fill(n);
-      await p.locator('.m-dialog .m-actions .btn.primary').tap();
-      await p.locator('[data-test=cat-row] .folder-tile.active', { hasText: n }).waitFor();
+      await p.locator('.m-overlay:not(.closing) .m-dialog input.inp').fill(n);
+      await p.locator('.m-overlay:not(.closing) .m-dialog .m-actions .btn.primary').tap();
+      await p.locator('[data-test=cat-row] .subtab.active', { hasText: n }).waitFor();
     }
     assert(await row.evaluate(r => r.scrollWidth > r.clientWidth + 10), 'rândul nu derulează orizontal');
     assert(await row.locator('> :last-child').evaluate(e => e.textContent.trim() === '+'), '„+” nu mai e ultimul după adăugare');
-    await row.locator('.folder-tile', { hasText: 'Dosar penal' }).tap();
+    await row.locator('.subtab', { hasText: 'Dosar penal' }).tap();
     await tap('[data-test=fab-add]');
     await p.locator('[data-test=editor] [data-k=title]').fill('Plângere penală Vasile');
     await save();
     await p.locator('#view .card', { hasText: 'Plângere penală Vasile' }).waitFor();
     assert(await p.locator('#view .card').count() === 1, 'categoria nu filtrează');
-    await row.locator('.folder-tile', { hasText: 'Executare' }).tap();
+    await row.locator('.subtab', { hasText: 'Executare' }).tap();
     await p.waitForTimeout(200);
     assert(await p.locator('#view .card').count() === 0, 'Executare ar trebui să fie gol');
-    await row.locator('.folder-tile', { hasText: 'Dosar penal' }).tap();
+    await row.locator('.subtab', { hasText: 'Dosar penal' }).tap();
     await p.locator('#view .card', { hasText: 'Plângere penală Vasile' }).waitFor();
-    await row.locator('.folder-tile', { hasText: 'Toate' }).tap();
+    await row.locator('.subtab', { hasText: 'Toate' }).tap();
     assert(await p.locator('#view .card').count() >= 3, '„Toate” nu arată tot');
     await p.screenshot({ path: `${SHOTS}${label}-NOU-documente.png` });
     await row.locator('.pr-manage').tap();
@@ -443,7 +460,7 @@ async function run(vp, label, full) {
     await gone('[data-test=visibility]');
     await p.reload(); await p.waitForSelector('.tab-pill.active');
     await goTab('Documente');
-    const names = await p.locator('[data-test=cat-row] .folder-tile').evaluateAll(els => els.map(e => e.querySelector('.ft-label').textContent));
+    const names = await p.locator('[data-test=cat-row] .subtab:not(.add)').evaluateAll(els => els.map(e => e.querySelector('.pill-name').textContent));
     assert(!names.includes('Probe'), 'Probe încă vizibil: ' + names);
     assert(names[1] === 'Executare', 'ordinea nu s-a păstrat: ' + names);
     const cats = await p.evaluate(() => new Promise(res => { const r = indexedDB.open('lso_db'); r.onsuccess = () => { const q = r.result.transaction('lso_tabs').objectStore('lso_tabs').getAll(); q.onsuccess = () => res(q.result.find(t => t.name === 'Documente').cats); }; }));
@@ -678,7 +695,7 @@ async function run(vp, label, full) {
     const row = p.locator('[data-test=rec-folder-row]');
     await row.waitFor();
     await row.locator('.subtab', { hasText: 'Ion Popescu' }).waitFor();
-    assert(await row.locator('.folder-tile').count() === 0, 'fără icoane mari de folder pe RECORDINGS');
+    assert(await p.locator('#view img[src*=folder], #view .folder-tile').count() === 0, 'fără icoane de folder pe RECORDINGS');
     const labels = await row.locator('.subtab:not(.add)').evaluateAll(els => els.map(e => e.textContent.replace(/🔒/g,'').replace(/\d+$/,'').trim()));
     assert(labels[0] === 'Toate' || labels[0].startsWith('Toate'), 'prima pastilă trebuie să fie Toate: ' + labels.join('|'));
     assert(labels.some(l => /Ion Popescu/.test(l)) && labels.some(l => /Maria Ionescu/.test(l)), 'folderele din clienți lipsesc: ' + labels.join('|'));
@@ -764,7 +781,7 @@ async function run(vp, label, full) {
 
   let backupPath = null;
   await step(`[${label}] backup: export JSON, modificare, import cu Da/Nu + checkpoint, restaurare`, async () => {
-    await tap('#hdr-menu'); await sheetOpt('Setări');
+    await openSet();
     await p.locator('[data-test=settings] details.set-sec[data-sec=backup]').evaluate(el => { el.open = true; });
     const [dl] = await Promise.all([p.waitForEvent('download'), p.locator('[data-test=export]').tap()]);
     backupPath = `/tmp/lso-backup-${label}.json`;
@@ -778,7 +795,7 @@ async function run(vp, label, full) {
     await p.locator('[data-test=editor] [data-k=title]').fill('Notă după backup');
     await save();
     await p.locator('#view .card', { hasText: 'Notă după backup' }).waitFor();
-    await tap('#hdr-menu'); await sheetOpt('Setări');
+    await openSet();
     await p.locator('[data-test=settings] details.set-sec[data-sec=backup]').evaluate(el => { el.open = true; });
     const [fc] = await Promise.all([p.waitForEvent('filechooser'), p.locator('[data-test=import]').tap()]);
     await fc.setFiles(backupPath);
@@ -809,7 +826,7 @@ async function run(vp, label, full) {
   });
 
   await step(`[${label}] tema Navy Aur se aplică`, async () => {
-    await tap('#hdr-menu'); await sheetOpt('Setări');
+    await openSet();
     await p.locator('[data-test=settings] details[data-sec=design] summary').tap();
     await p.locator('.theme-opt[data-theme=navy]').tap();
     await p.waitForTimeout(300);
@@ -818,9 +835,249 @@ async function run(vp, label, full) {
     await goTab('Dosare');
     await p.locator('#view .card .r1').first().tap();
     await p.screenshot({ path: `${SHOTS}${label}-tema-navy-dosare.png` });
-    await tap('#hdr-menu'); await sheetOpt('Setări');
+    await openSet();
     await p.locator('.theme-opt[data-theme=light]').tap();
     await tap('[data-test=settings] .m-back'); await gone('[data-test=settings]');
+  });
+
+
+  await step(`[${label}] [v1.0.5] Antet: logo/titlu deschid Setările în panoul din stânga; un singur loc`, async () => {
+    await goTab('Taskuri');
+    assert(await p.locator('#hdr-settings').count() === 0, 'butonul roată încă există');
+    const shot = n => p.screenshot({ path: `${SHOTS}${label}-v105-${n}.png` });
+    await noToasts();
+    if (label === '412x915') await p.locator('.top').screenshot({ path: `${SHOTS}${label}-v105-antet.png` });
+    await tap('[data-test=hdr-emblem]');
+    await p.locator('[data-test=settings].m-drawer').waitFor();
+    await p.waitForTimeout(350);
+    const g = await p.locator('[data-test=settings]').evaluate(el => { const r = el.getBoundingClientRect(); const ov = el.closest('.m-overlay'); return { l: r.left, r: r.right, w: innerWidth, op: getComputedStyle(ov, '::before').opacity, bg: getComputedStyle(ov, '::before').backgroundColor, tr: getComputedStyle(el).transform }; });
+    assert(Math.abs(g.l) < 2 && g.r < g.w - 30, 'panoul nu e în stânga: ' + JSON.stringify(g));
+    assert(g.op === '1' && (g.tr === 'none' || /matrix\(1, 0, 0, 1, 0, 0\)/.test(g.tr)), 'tranziție blocată: ' + JSON.stringify(g));
+    for (const sec of ['voice', 'tabs', 'design', 'alarms', 'trash', 'backup', 'about']) assert(await p.locator(`[data-test=settings] details[data-sec=${sec}]`).count() === 1, 'lipsește secțiunea ' + sec);
+    await p.locator('[data-test=settings] details.set-sec').evaluateAll(ds => ds.forEach(d => { d.open = false; }));
+    await p.waitForTimeout(150); await noToasts();
+    if (label === '412x915') await shot('setari-panou-stanga');
+    // închidere: atingere pe fundal
+    await p.mouse.click(g.w - 12, 400);
+    await gone('[data-test=settings]');
+    // deschidere din text, închidere cu Înapoi (istoric)
+    await tap('[data-test=hdr-title]'); await p.locator('[data-test=settings]').waitFor(); await p.waitForTimeout(250);
+    await p.evaluate(() => history.back());
+    await gone('[data-test=settings]');
+    // închidere prin glisare spre stânga (touch)
+    await tap('[data-test=hdr-brand]'); await p.locator('[data-test=settings]').waitFor(); await p.waitForTimeout(250);
+    const y = 300;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y }] });
+    for (let x = 290; x >= 120; x -= 20) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await gone('[data-test=settings]');
+    assert(await p.locator('.m-overlay').count() === 0, 'a rămas un fundal');
+  });
+
+  await step(`[${label}] [v1.0.5] Alarme și notificări: stare reală, permisiune, notificare de test`, async () => {
+    await openSet();
+    await p.locator('[data-test=settings] details[data-sec=alarms]').evaluate(el => { el.open = true; });
+    await p.locator('[data-test=notif-state]').waitFor();
+    const st = await p.locator('[data-test=notif-state]').textContent();
+    assert(/Neîntrebat|Refuzate|Permise/.test(st), 'stare: ' + st);
+    assert(!(await p.locator('[data-test=alarms-sec]').textContent()).includes('versiune web'), 'textul vechi „versiune web”');
+    assert(await p.locator('[data-test=notif-test]').count() === 1, 'buton test');
+    await p.locator('[data-test=settings] details[data-sec=alarms]').evaluate(el => el.scrollIntoView({ block: 'start' }));
+    await p.waitForTimeout(200); await noToasts();
+    if (label === '412x915') await p.screenshot({ path: `${SHOTS}${label}-v105-notificari-browser.png` });
+    await p.context().grantPermissions(['notifications']);
+    await tap('[data-test=settings] .m-back'); await gone('[data-test=settings]');
+    await openSet();
+    await p.locator('[data-test=settings] details[data-sec=alarms]').evaluate(el => { el.open = true; });
+    await p.locator('[data-test=notif-state]', { hasText: 'Permise' }).waitFor();
+    await tap('[data-test=notif-test]');
+    await p.locator('[data-test=toast]', { hasText: 'test' }).waitFor();
+    await tap('[data-test=settings] .m-back'); await gone('[data-test=settings]');
+  });
+
+  await step(`[${label}] [v1.0.5] Notificări native (APK simulat): cerere permisiune, canal, alarmă programată, refuz → setări`, async () => {
+    const np = await p.context().newPage();
+    await np.addInitScript(() => {
+      const calls = window.__ln = { req: 0, sched: [], chan: [], openSettings: 0, cancel: [] };
+      let perm = localStorage.getItem('mockPerm') || 'prompt';
+      const LN = {
+        checkPermissions: async () => ({ display: perm }),
+        requestPermissions: async () => { calls.req++; perm = 'granted'; localStorage.setItem('mockPerm', perm); return { display: perm }; },
+        checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }),
+        changeExactNotificationSetting: async () => ({ exact_alarm: 'granted' }),
+        createChannel: async c => { calls.chan.push(c); },
+        schedule: async o => { calls.sched.push(...o.notifications); return { notifications: o.notifications.map(n => ({ id: n.id })) }; },
+        getPending: async () => ({ notifications: [] }), cancel: async o => { calls.cancel.push(o); },
+        getDeliveredNotifications: async () => ({ notifications: [] }), removeDeliveredNotifications: async () => {},
+        addListener: async () => ({ remove() {} }),
+      };
+      window.__setPerm = v => { perm = v; localStorage.setItem('mockPerm', v); };
+      window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', Plugins: { LocalNotifications: LN, LsoSystem: { openNotificationSettings: async () => { calls.openSettings++; return { opened: true }; } } } };
+    });
+    await np.goto(BASE); await np.waitForSelector('.tab-pill');
+    await np.locator('#hdr-brand').tap();
+    await np.locator('[data-test=settings] details[data-sec=alarms]').evaluate(el => { el.open = true; });
+    await np.locator('[data-test=notif-state]', { hasText: 'Neîntrebat' }).waitFor();
+    const npShot = async n => { await np.locator('[data-test=settings] details[data-sec=alarms]').evaluate(el => el.scrollIntoView({ block: 'start' })); await np.waitForTimeout(250); await np.evaluate(() => document.querySelectorAll('#toasts .toast').forEach(t => t.remove())); if (label === '412x915') await np.screenshot({ path: `${SHOTS}${label}-v105-${n}.png` }); };
+    await npShot('notificari-apk-neintrebat');
+    assert(!(await np.locator('[data-test=alarms-sec]').textContent()).includes('browser'), 'text web în APK');
+    await np.locator('[data-test=notif-allow]').tap();
+    await np.locator('[data-test=notif-state]', { hasText: 'Permise' }).waitFor();
+    await np.locator('[data-test=exact-state]', { hasText: 'Permise' }).waitFor();
+    await npShot('notificari-apk-permise');
+    let c = await np.evaluate(() => window.__ln);
+    assert(c.req === 1 && c.chan.some(x => x.id === 'lso_alarme' && x.importance === 5), 'permisiune/canal: ' + JSON.stringify(c));
+    await np.locator('[data-test=notif-test]').tap();
+    await np.waitForTimeout(300);
+    c = await np.evaluate(() => window.__ln);
+    assert(c.sched.some(n => n.id === 900001 && n.channelId === 'lso_alarme'), 'notificarea de test nu s-a programat');
+    // o alarmă viitoare se programează nativ (sună și cu aplicația închisă)
+    await np.evaluate(async () => {
+      const it = [...window.LSO.state.items.values()].find(i => i.kind === 'task');
+      it.alarmAt = Date.now() + 3600000; delete it.firedAt;
+      const r = indexedDB.open('lso_db');
+      await new Promise(res => { r.onsuccess = () => { const tx = r.result.transaction('lso_items', 'readwrite'); tx.objectStore('lso_items').put(it); tx.oncomplete = res; }; });
+    });
+    await np.reload(); await np.waitForSelector('.tab-pill'); await np.waitForTimeout(1200);
+    c = await np.evaluate(() => window.__ln);
+    assert(c.sched.some(n => n.extra && n.extra.id && n.schedule.allowWhileIdle && n.isExactNotification === true && +new Date(n.schedule.at) > Date.now()), 'alarma nu e programată nativ: ' + JSON.stringify(c.sched));
+    // refuz definitiv → butonul deschide setările de notificări ale aplicației
+    await np.evaluate(() => window.__setPerm('denied'));
+    await np.locator('#hdr-brand').tap();
+    await np.locator('[data-test=settings] details[data-sec=alarms]').evaluate(el => { el.open = true; });
+    await np.locator('[data-test=notif-state]', { hasText: 'Refuzate' }).waitFor();
+    await np.locator('[data-test=notif-allow]', { hasText: 'setările' }).tap();
+    await np.waitForTimeout(200);
+    assert((await np.evaluate(() => window.__ln.openSettings)) === 1, 'nu a deschis setările aplicației');
+    await np.evaluate(() => localStorage.removeItem('mockPerm'));
+    await np.close();
+  });
+
+  await step(`[${label}] [v1.0.5] Meniul din dreapta sus: Coș (N), Mutare, Sortare cu bifă, salvată pe tab`, async () => {
+    await goTab('Clienți');
+    await tap('#hdr-menu');
+    const menu = p.locator('[data-test=hdr-dropmenu]');
+    await menu.waitFor();
+    const txt = await menu.textContent();
+    for (const w of ['Coș de gunoi', 'Mutare', 'SORTARE', 'Alfabetic', 'Manual', 'Data creării', 'Data modificării']) assert(txt.includes(w), 'lipsește ' + w);
+    assert(/Coș de gunoi \(\d+\)/.test(txt), 'contor coș');
+    assert(await menu.locator('[data-test=sort-manual] .dm-check').count() === 1, 'Manual ✓ implicit');
+    const mb = await menu.boundingBox(); const vw = await p.evaluate(() => innerWidth);
+    assert(mb.x + mb.width <= vw + 1 && mb.y > 40, 'meniul nu e ancorat sus dreapta');
+    await noToasts();
+    if (label === '412x915') await p.screenshot({ path: `${SHOTS}${label}-v105-meniu-dreapta-sus.png` });
+    await tap('[data-test=sort-alpha]'); await gone('[data-test=hdr-dropmenu]');
+    const names = await p.locator('#view .card .r1t').allTextContents();
+    const sorted = [...names].sort((a, b) => a.localeCompare(b, 'ro', { sensitivity: 'base' }));
+    assert(names.join('|') === sorted.join('|'), 'nu e alfabetic: ' + names.join('|'));
+    await p.reload(); await p.waitForSelector('.tab-pill.active');
+    await tap('#hdr-menu');
+    assert(await p.locator('[data-test=sort-alpha] .dm-check').count() === 1, 'sortarea nu s-a păstrat');
+    const ui = await kv('ui');
+    assert(ui && ui.sort && Object.values(ui.sort).includes('alpha'), 'nu e în lso_kv: ' + JSON.stringify(ui && ui.sort));
+    await tap('[data-test=sort-manual]'); await gone('[data-test=hdr-dropmenu]');
+    await tap('#hdr-menu'); await tap('[data-test=menu-trash]');
+    await p.locator('[data-test=trash]').waitFor();
+    await tap('[data-test=trash] .m-back'); await gone('[data-test=trash]');
+  });
+
+  await step(`[${label}] [v1.0.5] Apăsare lungă pe tab: foaia de meniu (fără Mută la stânga/dreapta); mutarea doar prin tragere`, async () => {
+    await goTab('Taskuri');
+    await p.evaluate(() => { document.querySelector('#tabbar').scrollLeft = 0; });
+    await longPress('.tab-pill[data-id]:has-text("Dosare")');
+    const m = p.locator('.m-sheet[data-test=sheet]');
+    await m.waitFor();
+    assert((await m.locator('.m-title').textContent()).trim() === 'Dosare', 'titlul foii nu e numele tabului');
+    const opts = (await m.locator('.sheet-opt').allTextContents()).map(x => x.trim());
+    for (const w of ['Redenumește', 'Culoare', 'Blochează cu PIN', 'Ascunde', 'Șterge']) assert(opts.some(o => o.includes(w)), 'lipsește ' + w + ': ' + opts);
+    assert(!opts.some(o => /Mută la (stânga|dreapta)/.test(o)), 'Mută la stânga/dreapta încă există: ' + opts);
+    assert(await m.locator('.sheet-opt.danger', { hasText: 'Șterge' }).count() === 1, 'Șterge roșu');
+    assert((await p.locator('.tab-pill.active').textContent()).includes('Taskuri'), 'apăsarea lungă a schimbat tabul');
+    assert(await p.evaluate(() => String(getSelection())) === '', 'text selectat');
+    await p.waitForTimeout(300); await noToasts();
+    if (label === '412x915') await p.screenshot({ path: `${SHOTS}${label}-v105-meniu-tab-apasare-lunga.png` });
+    // Șterge → Da/Nu; „Nu” nu șterge nimic
+    await sheetOpt('Șterge');
+    await p.locator('[data-test=confirm]').waitFor();
+    await tap('[data-test=confirm] .m-actions .btn:first-child'); await gone('[data-test=confirm]');
+    assert((await tabOrder()).includes('Dosare'), '„Nu” a șters tabul');
+    // Culoare (persistată)
+    await longPress('.tab-pill[data-id]:has-text("Dosare")'); await sheetOpt('Culoare');
+    await p.locator('.colors .color-dot').nth(2).tap();
+    await p.waitForTimeout(400);
+    assert(await p.locator('.tab-pill[data-id]:has-text("Dosare")').evaluate(e => !!e.style.getPropertyValue('--tab-color')), 'culoarea nu s-a aplicat');
+    // reordonare prin apăsare lungă + tragere: Dosare înaintea lui Urgențe
+    const before = await tabOrder();
+    await dragTo('.tab-pill[data-id]:has-text("Dosare")', '.tab-pill[data-id]:has-text("Urgențe")', { fx: 0.15 });
+    const after = await tabOrder();
+    assert(after.indexOf('Dosare') < after.indexOf('Urgențe'), 'tragere tab: ' + before.slice(0, 4) + ' → ' + after.slice(0, 4));
+    assert(await p.locator('.m-overlay').count() === 0, 'tragerea a deschis meniul');
+    await p.reload(); await p.waitForSelector('.tab-pill.active');
+    const persisted = await tabOrder();
+    assert(persisted.indexOf('Dosare') < persisted.indexOf('Urgențe'), 'ordinea taburilor nu s-a păstrat');
+    const tabsDb = await p.evaluate(() => new Promise(res => { const r = indexedDB.open('lso_db'); r.onsuccess = () => { const q = r.result.transaction('lso_tabs').objectStore('lso_tabs').getAll(); q.onsuccess = () => res(q.result); }; }));
+    const ord = n => tabsDb.find(x => x.name === n).order;
+    assert(ord('Dosare') < ord('Urgențe'), 'lso_tabs.order');
+    // înapoi
+    await dragTo('.tab-pill[data-id]:has-text("Dosare")', '.tab-pill[data-id]:has-text("Clienți")', { fx: 0.2 });
+    const back = await tabOrder();
+    assert(back.indexOf('Dosare') > back.indexOf('Urgențe'), 'readucere: ' + back.slice(0, 5));
+  });
+
+  await step(`[${label}] [v1.0.5] Drag and drop: element pe pastilă (mutare cu Da/Nu), reordonare manuală, pastile reordonate`, async () => {
+    await goTab('Documente');
+    const row = p.locator('[data-test=cat-row]');
+    await row.locator('.subtab', { hasText: 'Toate' }).tap();
+    await p.waitForTimeout(200);
+    assert(await p.locator('#view img').count() === 0, 'icoane în Documente');
+    await noToasts();
+    if (label === '412x915') await p.screenshot({ path: `${SHOTS}${label}-v105-documente-pastile.png` });
+    const target = await row.locator('.subtab:not(.add):not(.fixed)').nth(0).locator('.pill-name').textContent();
+    const card = '#view .card:has-text("Cerere de chemare")';
+    await dragTo(`${card} .r1`, `[data-test=cat-row] .subtab:has-text("${target}")`);
+    await p.locator('[data-test=confirm]').waitFor();
+    assert((await p.locator('[data-test=confirm]').textContent()).includes(target), 'confirmarea nu numește destinația');
+    await yes();
+    await p.waitForTimeout(400);
+    const tabs = await p.evaluate(() => new Promise(res => { const r = indexedDB.open('lso_db'); r.onsuccess = () => { const q = r.result.transaction('lso_tabs').objectStore('lso_tabs').getAll(); q.onsuccess = () => res(q.result); }; }));
+    const doc = tabs.find(x => x.name === 'Documente');
+    const catId = doc.cats.find(c => c.name === target).id;
+    const it = (await idbItems()).find(i => i.kind === 'document' && i.data && /Cerere de chemare/.test(i.data.title));
+    assert(it && it.cat === catId, 'nu s-a mutat în pastilă: ' + (it && it.cat) + ' vs ' + catId);
+    // reordonare manuală a listei (Sortare = Manual)
+    const t0 = await p.locator('#view .card .r1t').allTextContents();
+    await dragTo('#view .card >> nth=0', '#view .card >> nth=1', { fy: 0.9, sx: 0.6 });
+    await p.waitForTimeout(300);
+    const t1 = await p.locator('#view .card .r1t').allTextContents();
+    assert(t1[0] === t0[1] && t1[1] === t0[0], 'reordonare: ' + t0.slice(0, 3) + ' → ' + t1.slice(0, 3));
+    await p.reload(); await p.waitForSelector('.tab-pill.active');
+    const t2 = await p.locator('#view .card .r1t').allTextContents();
+    assert(t2[0] === t0[1], 'ordinea manuală nu s-a păstrat: ' + t2.slice(0, 3));
+    assert(Object.keys((await kv('ui')).manual || {}).length >= 1, 'ui.manual lipsă');
+    // reordonare pastile prin tragere
+    const p0 = await row.locator('.subtab:not(.add):not(.fixed) .pill-name').allTextContents();
+    await dragTo(`[data-test=cat-row] .subtab:has-text("${p0[1]}")`, `[data-test=cat-row] .subtab:has-text("${p0[0]}")`, { fx: 0.1 });
+    await p.waitForTimeout(400);
+    const p1 = await p.locator('[data-test=cat-row] .subtab:not(.add):not(.fixed) .pill-name').allTextContents();
+    assert(p1[0] === p0[1], 'pastilele nu s-au reordonat: ' + p0 + ' → ' + p1);
+    // modul Mutare din meniu: mânere ≡ și bară „Gata”
+    await tap('#hdr-menu'); await tap('[data-test=menu-move]');
+    await p.locator('[data-test=drag-handle]').first().waitFor();
+    await tap('[data-test=drag-done]');
+    assert(await p.locator('[data-test=drag-handle]').count() === 0, 'mânerele au rămas');
+  });
+
+  await step(`[${label}] [v1.0.5] Foldere și RECORDINGS: doar pastile, fără icoane de folder`, async () => {
+    await tap('#hdr-folders');
+    await p.locator('[data-test=folder-row] .subtab').first().waitFor();
+    assert(await p.locator('#view img, .folder-tile').count() === 0, 'icoane pe Foldere');
+    await noToasts();
+    if (label === '412x915') await p.screenshot({ path: `${SHOTS}${label}-v105-foldere-pastile.png` });
+    await goTab('RECORDINGS');
+    await p.locator('[data-test=rec-folder-row] .subtab').first().waitFor();
+    assert(await p.locator('#view img, .folder-tile').count() === 0, 'icoane pe RECORDINGS');
+    await p.waitForTimeout(300); await noToasts();
+    if (label === '412x915') await p.screenshot({ path: `${SHOTS}${label}-v105-recordings-pastile.png` });
   });
 
   await step(`[${label}] voce: meniul se deschide; degradare elegantă fără API`, async () => {

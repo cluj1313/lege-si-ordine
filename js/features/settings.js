@@ -1,12 +1,12 @@
-// Setări: deschidere din antet (aceeași poziție ca în Notis: sus dreapta),
-// secțiuni pliabile, backup manual/automat, setările LSO păstrate.
+// Setări: un singur loc – panou lateral din stânga, deschis prin atingerea logo-ului sau a textului
+// LEGE ȘI ORDINE (ca în Notis); secțiuni pliabile, backup manual/automat, setările LSO păstrate.
 import { h, act } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { state, liveTabs, saveTab, saveTabsOrder, saveSettings, saveUI, APP_VERSION, purge, itemsOf, dataOf, canView } from '../core/store.js';
 import { openModal, confirmDlg, toast, infoDlg } from '../ui/modal.js';
 import { tabMenu, newTabFlow, renderTabBar } from '../ui/tabsbar.js';
 import { voiceMenu, LANGS, canDictate, canSpeak } from './voice.js';
-import { requestNotif } from './alarms.js';
+import { requestNotif, notifStatus, exactStatus, openExactSettings, openNotifSettings, sendTest, nativeNotif } from './notify.js';
 import { backupSection } from './backup.js';
 import { openTrash } from './trash.js';
 import { TAB_KINDS } from '../tabs/kinds.js';
@@ -123,6 +123,47 @@ async function checkUpdate(statusEl) {
   }
 }
 
+// Alarme și notificări: stare reală (Permise / Refuzate / Neîntrebat), cerere de permisiune, test.
+function alarmsSection() {
+  const native = nativeNotif();
+  const status = h('div', { class: 'notif-status', 'data-test': 'notif-status' });
+  const allow = h('button', { class: 'btn primary', type: 'button', 'data-test': 'notif-allow' }, t('allowNotif'));
+  const test = h('button', { class: 'btn ghost', type: 'button', 'data-test': 'notif-test' }, t('notifTest'));
+  const btns = h('div', { class: 'notif-btns' }, allow, test);
+  const extra = h('div', { class: 'notif-btns' });
+  const draw = async () => {
+    const st = await notifStatus();
+    const ex = await exactStatus();
+    status.innerHTML = '';
+    status.dataset.state = st;
+    status.append(h('span', { class: 'pill ' + (st === 'granted' ? 'ok' : st === 'denied' ? 'bad' : ''), 'data-test': 'notif-state' }, t('notifState_' + st)));
+    if (ex) status.append(h('span', { class: 'pill ' + (ex === 'granted' ? 'ok' : 'bad'), 'data-test': 'exact-state' }, t('exactState_' + ex)));
+    allow.hidden = st === 'granted' || st === 'unsupported';
+    allow.textContent = st === 'denied' && native ? t('notifOpenSettings') : t('allowNotif');
+    test.disabled = st !== 'granted';
+    extra.innerHTML = '';
+    if (native && ex === 'denied') extra.append(h('button', { class: 'btn ghost', type: 'button', 'data-test': 'exact-open', onclick: async () => { await openExactSettings(); } }, t('exactOpen')));
+    if (native && st === 'granted') extra.append(h('button', { class: 'btn ghost', type: 'button', 'data-test': 'notif-open-settings', onclick: () => openNotifSettings() }, t('notifOpenSettings')));
+  };
+  allow.addEventListener('click', () => act(allow, async () => {
+    const r = await requestNotif();
+    if (r === 'denied') toast(native ? t('notifDeniedNative') : t('notifDeniedWeb'), 4500);
+    if (r === 'granted') toast(t('notifGrantedOk'));
+    await draw();
+  }));
+  test.addEventListener('click', () => act(test, async () => {
+    const r = await sendTest();
+    toast(r === 'sent' ? t('notifTestSent') : t('notifTestNeedAllow'), 3500);
+  }));
+  // revenire din setările Android: actualizează starea
+  const onVis = () => { if (!document.hidden && status.isConnected) draw(); else if (!status.isConnected) document.removeEventListener('visibilitychange', onVis); };
+  document.addEventListener('visibilitychange', onVis);
+  draw();
+  return h('div', { 'data-test': 'alarms-sec' },
+    h('p', { class: 'r2-meta' }, native ? t('alarmsHintNative') : t('alarmsHintWeb')),
+    status, btns, extra);
+}
+
 export function openSettings() {
   const s = state.settings;
   const nameInp = h('input', { class: 'inp', type: 'text', value: s.displayName || '', autocomplete: 'name', 'data-test': 'set-name', placeholder: t('setNamePh') });
@@ -132,7 +173,6 @@ export function openSettings() {
     h('span', {}, t('remindUrgents')));
 
   const days = h('input', { class: 'inp', type: 'number', min: '1', max: '3650', value: String(s.trashDays), inputmode: 'numeric', 'data-test': 'trash-days' });
-  const notifState = h('span', { class: 'r2-meta' }, 'Notification' in window ? t('notif_' + Notification.permission) : t('notif_unsupported'));
   const hasSample = [...state.items.values()].some(i => i.sample);
   const updateStatus = h('p', { class: 'r2-meta', 'data-test': 'update-status' }, `${t('version')} ${APP_VERSION}`);
 
@@ -152,9 +192,7 @@ export function openSettings() {
       h('button', { class: 'btn ghost', type: 'button', onclick: () => voiceMenu() }, t('voiceSettings')))),
     section('tabs', t('setTabs'), tabsSection()),
     section('design', t('setDesign'), designSection()),
-    section('alarms', t('setAlarms'), h('div', {},
-      h('p', { class: 'r2-meta' }, t('alarmsHint')), notifState,
-      h('button', { class: 'btn ghost', type: 'button', onclick: async () => { const r = await requestNotif(); notifState.textContent = t('notif_' + r); } }, t('allowNotif')))),
+    section('alarms', t('setAlarms'), alarmsSection()),
     section('trash', t('setTrash'), h('div', {},
       h('label', { class: 'fld' }, h('span', {}, t('trashDays')), h('div', { class: 'row-inp' }, days,
         h('button', { class: 'btn sm', type: 'button', onclick: async () => { const n = Math.max(1, Math.min(3650, Math.round(+days.value || 30))); s.trashDays = n; days.value = n; await saveSettings(); toast(t('savedOk')); } }, t('save')))),
@@ -173,7 +211,7 @@ export function openSettings() {
       updateStatus,
       h('button', { class: 'btn ghost', type: 'button', 'data-test': 'check-update', onclick: () => checkUpdate(updateStatus) }, t('checkUpdate')))),
   );
-  const m = openModal({ title: t('settings'), body, kind: 'page', cls: 'settings-page', onClose: () => app.render() });
+  const m = openModal({ title: t('settings'), body, kind: 'drawer', cls: 'settings-page settings-drawer', onClose: () => app.render() });
   m.el.dataset.test = 'settings';
 }
 

@@ -1,22 +1,23 @@
 // Controlerul aplicației: randare, navigare între taburi, poziție, selecție, FAB, ciclul de viață.
 import { h, $, debounce, onLongPress } from './core/util.js';
 import { t } from './core/i18n.js';
-import { state, tabById, visibleTabs, liveTabs, saveUI, onChange, isOpen, relock, relockAll, item as getItem, trash, isHiddenByTrash, canView, dataOf, itemsOf } from './core/store.js';
+import { state, tabById, visibleTabs, liveTabs, saveUI, onChange, isOpen, relock, relockAll, item as getItem, trash, isHiddenByTrash, canView, dataOf, itemsOf, trashedAll, saveMeta, relocate, unlockTemp } from './core/store.js';
 import { db } from './core/db.js';
 import { app } from './ui/registry.js';
-import { renderTabBar } from './ui/tabsbar.js';
-import { ui, ensureOpen } from './ui/list.js';
+import { renderTabBar, tabDrag } from './ui/tabsbar.js';
+import { ui, ensureOpen, sortModeOf, SORT_MODES, saveManual } from './ui/list.js';
+import { pickFolder, folderNameOf } from './ui/folderpick.js';
 import { openEditor, openEditors, moveItem } from './ui/editor.js';
-import { confirmDlg, toast, sheet, closeAll, modalsOpen } from './ui/modal.js';
-import { renderGeneric, renderSaved, renderFolders, renderNews, renderLocked, currentFolder, newFolder, newsResults, renderMO, hasCats } from './tabs/views.js';
-import { curCat } from './tabs/cats.js';
+import { confirmDlg, toast, sheet, closeAll, modalsOpen, dropMenu, pinDlg } from './ui/modal.js';
+import { renderGeneric, renderSaved, renderFolders, renderNews, renderLocked, currentFolder, newFolder, newsResults, renderMO, hasCats, savedSubs } from './tabs/views.js';
+import { curCat, getCats } from './tabs/cats.js';
 import { isoToday } from './core/util.js';
 import { renderRecordings, startRecording, renameRec, archiveRec, recStatus, isRecording, stopRecording } from './tabs/recordings.js';
 import { openSearch } from './features/search.js';
 import { openTrash } from './features/trash.js';
 import { openSettings } from './features/settings.js';
 import { speak, stopSpeak, isSpeaking, startDictation, stopDictation, isDictating, getTarget, setTarget, voiceMenu } from './features/voice.js';
-import { KINDS } from './tabs/kinds.js';
+import { KINDS, TAB_KINDS } from './tabs/kinds.js';
 
 let newsCache = [];
 
@@ -64,7 +65,7 @@ export function goTab(id, { keepScroll = false } = {}) {
     if (prev.lock && isOpen(prev)) relock(prev);
     const cf = prev.kind === 'folders' && currentFolder(prev);
     if (cf && cf.lock) { relock(cf); state.ui.folder[prev.id] = cf.folder || null; }
-    ui.selecting = false; ui.selected.clear();
+    ui.selecting = false; ui.dragMode = false; ui.selected.clear();
   }
   state.ui.tab = next ? next.id : null;
   saveUI();
@@ -104,7 +105,7 @@ export async function deleteItem(it) {
 function renderFab(tab) {
   const fabs = $('#fabs');
   fabs.innerHTML = '';
-  if (!tab || ui.selecting) return;
+  if (!tab || ui.selecting || ui.dragMode) return;
   const locked = tab.lock && !isOpen(tab);
   if (!locked && tab.kind !== 'news') {
     fabs.append(h('button', { class: 'fab add', type: 'button', 'aria-label': t('add'), 'data-test': 'fab-add', onclick: () => fabAdd(tab) }, '+'));
@@ -117,7 +118,7 @@ function renderFab(tab) {
 async function fabAdd(tab) {
   if (tab.kind === 'folders') {
     const cur = currentFolder(tab);
-    const v = await sheet(t('add'), [{ label: t('newNote'), value: 'note', icon: '📝' }, { label: cur ? t('newSubfolder') : t('newFolder'), value: 'folder', icon: '📁' }]);
+    const v = await sheet(t('add'), [{ label: t('newNote'), value: 'note', icon: '📝' }, { label: cur ? t('newSubfolder') : t('newFolder'), value: 'folder', icon: '+' }]);
     if (v === 'note') openEditor(tab.id, null, { folder: cur ? cur.id : null, kind: 'note' });
     if (v === 'folder') newFolder(tab, cur);
   } else if (tab.kind === 'saved') {
@@ -173,9 +174,15 @@ function readableText(tab) {
 function renderSelBar() {
   const bar = $('#selbar');
   bar.innerHTML = '';
-  if (!ui.selecting) { bar.hidden = true; return; }
+  if (!ui.selecting && !ui.dragMode) { bar.hidden = true; return; }
   bar.hidden = false;
   const tab = currentTab();
+  if (ui.dragMode) {
+    bar.append(
+      h('span', { class: 'sel-hint' }, t('dragModeHint')),
+      h('button', { class: 'btn sm primary', type: 'button', 'data-test': 'drag-done', onclick: () => endDragMode() }, t('done')));
+    return;
+  }
   bar.append(
     h('span', { class: 'sel-count' }, t('nSelected', { n: ui.selected.size })),
     h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { document.querySelectorAll('#view .card[data-id]').forEach(c => { const it = getItem(c.dataset.id); if (it && it.kind !== 'folder') ui.selected.add(c.dataset.id); }); render(); } }, t('selectAll')),
@@ -186,7 +193,6 @@ function renderSelBar() {
       for (const it of ids) await trash(it);
       ui.selected.clear(); ui.selecting = false; toast(t('movedToTrash')); render();
     } }, t('delete')),
-    h('button', { class: 'btn sm ghost', type: 'button', disabled: ui.selected.size !== 1, onclick: async () => { const it = getItem([...ui.selected][0]); if (it && await moveItem(it)) { ui.selected.clear(); ui.selecting = false; render(); } } }, t('moveTo')),
     h('button', { class: 'btn sm primary', type: 'button', onclick: () => { ui.selecting = false; ui.selected.clear(); render(); } }, t('done')));
 }
 
@@ -194,16 +200,82 @@ function header() {
   for (const [id, k] of [['hdr-search', 'search'], ['hdr-folders', 'tkFolders'], ['hdr-select', 'selectOn'], ['hdr-settings', 'settings'], ['hdr-menu', 'menu']]) { const b = $('#' + id); if (!b) continue; b.setAttribute('aria-label', t(k)); b.title = t(k); }
   $('#hdr-search').onclick = () => openSearch();
   $('#hdr-folders').onclick = () => { const f = liveTabs().find(x => x.kind === 'folders'); if (f) { if (f.visible === false) { f.visible = true; } goTab(f.id); } };
-  $('#hdr-select').onclick = () => { ui.selecting = !ui.selecting; ui.selected.clear(); render(); toast(ui.selecting ? t('selectOn') : t('selectOff')); };
-  $('#hdr-settings').onclick = () => openSettings();
-  $('#hdr-menu').onclick = async () => {
-    const v = await sheet(t('menu'), [
-      { label: t('settings'), value: 'set', icon: '⚙' },
-      { label: t('trash'), value: 'trash', icon: '🗑' },
-      { label: t('voiceSettings'), value: 'voice', icon: '🎙' },
-    ]);
-    if (v === 'set') openSettings(); else if (v === 'trash') openTrash(); else if (v === 'voice') voiceMenu();
+  $('#hdr-select').onclick = () => { ui.selecting = !ui.selecting; ui.dragMode = false; ui.selected.clear(); render(); toast(ui.selecting ? t('selectOn') : t('selectOff')); };
+  // Setări: un singur loc – logo-ul sau textul LEGE ȘI ORDINE deschide panoul din stânga.
+  $('#hdr-brand').onclick = () => { if (!modalsOpen()) openSettings(); };
+  // Ultimul buton din dreapta sus: Coș de gunoi, Mutare și Sortare (ca în Notis).
+  $('#hdr-menu').onclick = async e => {
+    const tab = currentTab();
+    const mode = tab ? sortModeOf(tab.id) : 'manual';
+    const sortable = !!tab && !(tab.lock && !isOpen(tab)) && tab.kind !== 'news';
+    const v = await dropMenu(e.currentTarget, [
+      { label: t('menuTrash', { n: trashedAll().length }), value: 'trash', icon: '🗑️', test: 'menu-trash' },
+      { label: t('menuMove'), value: 'move', icon: '⇄', test: 'menu-move', disabled: !sortable },
+      { header: t('menuSort') },
+      ...SORT_MODES.map(m => ({ label: t({ alpha: 'sortAlpha', manual: 'sortManual', created: 'sortCreated', modified: 'sortModified' }[m]), value: 'sort:' + m, check: m === mode, test: 'sort-' + m, disabled: !sortable })),
+    ], { test: 'hdr-dropmenu' });
+    if (!v) return;
+    if (v === 'trash') openTrash();
+    else if (v === 'move') startDragMode();
+    else if (v.startsWith('sort:') && tab) {
+      state.ui.sort = { ...(state.ui.sort || {}), [tab.id]: v.slice(5) };
+      await saveUI(); render();
+    }
   };
+}
+
+// ---- Mutare prin drag and drop ----
+// Meniul „Mutare” pornește modul cu mânere ≡ (tragere imediată); altfel: apăsare lungă + tragere.
+function startDragMode() { ui.dragMode = true; ui.selecting = false; ui.selected.clear(); render(); toast(t('dragModeHint'), 3500); }
+export function endDragMode() { ui.dragMode = false; tabDrag.on = false; render(); }
+
+async function reorderItems(ids) {
+  const tab = currentTab(); if (!tab) return;
+  if (sortModeOf(tab.id) !== 'manual') { toast(t('reorderNeedsManual'), 3000); render(); return; }
+  saveManual(tab.id, ids);
+  await saveUI(); render();
+}
+
+const tabAccepts = (dest, it) => (TAB_KINDS[dest.kind] || {}).item === it.kind || (it.kind === 'note' && (dest.kind === 'folders' || dest.kind === 'saved'));
+function parseDrop(tg) {
+  const [type, id] = String(tg.dataset.drop || '').split(':');
+  const row = tg.closest('[data-test]');
+  return { type, id, row: row ? row.dataset.test : '' };
+}
+function canDropItem(it, tg) {
+  const { type, id, row } = parseDrop(tg);
+  if (type === 'tab') { const dest = tabById(id); return !!dest && dest.id !== it.tab && tabAccepts(dest, it); }
+  if (type === 'folder') return it.folder !== id && it.id !== id;
+  if (type === 'pill') {
+    if (row === 'cat-row') return (it.cat || 'all') !== id;
+    if (row === 'saved-row') return (it.sub || 'salvate') !== id;
+    if (row === 'folder-row') return it.folder !== id && it.id !== id;
+    if (row === 'rec-folder-row') return id === 'all' ? !!it.folder : it.folder !== id;
+  }
+  return false;
+}
+async function dropItem(it, tg) {
+  if (!canDropItem(it, tg)) { toast(t('dropNotAllowed')); render(); return; }
+  const { type, id, row } = parseDrop(tg);
+  const name = (tg.querySelector('.pill-name, .tp-name, .r1t') || tg).textContent.trim();
+  if (!(await confirmDlg(t('moveConfirm', { n: 1, d: name })))) { render(); return; }
+  const tab = currentTab();
+  const intoFolder = async fid => {
+    const f = getItem(fid);
+    if (f && f.lock && !isOpen(f)) { const ok = await pinDlg(t('unlockNamed', { n: folderNameOf(f) }), { verify: pin => unlockTemp(f, pin) }); if (!ok) return false; }
+    await relocate(it, { folder: fid }); return true;
+  };
+  let ok = true;
+  if (type === 'tab') {
+    const dest = tabById(id);
+    if (dest.lock && !isOpen(dest)) { ok = !!(await pinDlg(t('unlockNamed', { n: dest.name }), { verify: pin => unlockTemp(dest, pin) })); }
+    if (ok) await relocate(it, { tab: dest.id, folder: null, cat: null, sub: dest.kind === 'saved' ? 'salvate' : null });
+  } else if (type === 'folder' || row === 'folder-row') ok = await intoFolder(id);
+  else if (row === 'cat-row') { it.cat = id === 'all' ? null : id; await saveMeta(it); }
+  else if (row === 'saved-row') { it.sub = id; await saveMeta(it); }
+  else if (row === 'rec-folder-row') { if (id === 'all') await relocate(it, { folder: null }); else ok = await intoFolder(id); }
+  if (ok) toast(t('movedN', { n: 1, d: name }), 3000);
+  render();
 }
 
 // La trecerea în fundal: salvează poziția, salvează automat editoarele cu conținut blocat, reblochează tot.
@@ -216,7 +288,7 @@ async function onHidden() {
 }
 
 export async function startApp() {
-  Object.assign(app, { render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, archiveRec, recStatus, startRecording, stopRecording, isRecording });
+  Object.assign(app, { reorderItems, dropItem, canDropItem, endDragMode, tabDragOn: () => tabDrag.on, render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, archiveRec, recStatus, startRecording, stopRecording, isRecording });
   header();
   newsCache = await newsResults();
   onChange(() => { if (!rendering) render(); });

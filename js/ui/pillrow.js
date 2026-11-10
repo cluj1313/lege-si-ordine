@@ -1,35 +1,45 @@
-// Componentă comună pentru rânduri orizontale derulabile (pastile sau foldere):
+// Componentă comună pentru rânduri orizontale derulabile de pastile compacte (și pentru foldere):
 // derulare stânga-dreapta, „+” mereu la capătul din dreapta, „⋯” pentru foaia de vizibilitate/ordine.
 import { h, onLongPress } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { openModal } from './modal.js';
+import { draggable } from './dnd.js';
 
-export function pillRow({ items, activeId, onPick, onAdd, onItemMenu, onManage, variant = 'pill', test = '' }) {
-  const row = h('div', { class: `pill-row pr-${variant}`, 'data-test': test || null, role: 'tablist' });
+// Modul „Mutare” (meniul din dreapta sus): tragerea pornește imediat, fără apăsare lungă.
+export const dndMode = { on: false };
+
+export function pillRow({ items, activeId, onPick, onAdd, onItemMenu, onManage, onReorder, drop = true, variant = 'pill', test = '' }) {
+  const row = h('div', { class: 'pill-row pr-pill', 'data-test': test || null, role: 'tablist' });
   for (const it of items) {
-    let b;
-    if (variant === 'folder') {
-      b = h('button', { class: 'folder-tile' + (it.id === activeId ? ' active' : ''), type: 'button', 'data-id': it.id, onclick: () => onPick(it) },
-        h('span', { class: 'ft-ic' }, h('img', { src: 'icons/folder.png', alt: '' }), it.locked ? h('i', { class: 'ft-lock' }, '🔒') : null),
-        h('span', { class: 'ft-name' }, h('span', { class: 'ft-label' }, it.name), it.count != null ? h('span', { class: 'cnt' }, String(it.count)) : null));
-    } else {
-      b = h('button', { class: 'pill subtab' + (it.id === activeId ? ' active' : ''), type: 'button', 'data-id': it.id, onclick: () => onPick(it) },
-        it.locked ? h('span', { class: 'pill-lock', 'aria-hidden': 'true' }, '🔒') : null,
-        it.name, it.count != null ? h('span', { class: 'cnt' }, String(it.count)) : null);
-    }
-    if (onItemMenu && !it.fixed) onLongPress(b, () => onItemMenu(it));
+    // Doar pastile compacte pe un rând (nume + contor); fără icoane de folder.
+    const b = h('button', { class: 'pill subtab' + (it.id === activeId ? ' active' : '') + (it.fixed ? ' fixed' : ''), type: 'button', 'data-id': it.id, 'data-drop': drop && it.droppable !== false ? 'pill:' + it.id : null, onclick: () => onPick(it) },
+      it.locked ? h('span', { class: 'pill-lock', 'aria-hidden': 'true' }, '🔒') : null,
+      h('span', { class: 'pill-name' }, it.name), it.count != null ? h('span', { class: 'cnt' }, String(it.count)) : null);
+    // apăsare lungă fără mișcare = meniul pastilei; apăsare lungă + tragere = reordonare
+    if (!it.fixed && (onItemMenu || onReorder)) draggable(b, {
+      axis: 'x', container: row, selector: '.subtab[data-id]:not(.fixed)', scroller: row,
+      onHold: () => onItemMenu && onItemMenu(it),
+      onReorder: onReorder ? ids => onReorder(ids) : null,
+    });
     row.append(b);
   }
   if (onManage) {
     const m = h('button', { class: 'pr-manage', type: 'button', 'aria-label': t('manageVisible'), title: t('manageVisible'), onclick: () => onManage() }, '⋯');
     row.append(m);
   }
-  const add = h('button', { class: variant === 'folder' ? 'folder-add pr-add' : 'pill subtab add pr-add', type: 'button', 'aria-label': t('add'), onclick: () => onAdd() }, '+');
+  const add = h('button', { class: 'pill subtab add pr-add', type: 'button', 'aria-label': t('add'), onclick: () => onAdd() }, '+');
   if (onManage) onLongPress(add, () => onManage());
   row.append(add);
   const act = row.querySelector('.active');
   if (act) requestAnimationFrame(() => { const r = act.getBoundingClientRect(), br = row.getBoundingClientRect(); if (r.right > br.right || r.left < br.left) row.scrollLeft += r.left - br.left - 12; });
   return row;
+}
+
+// Ordine nouă pentru elementele vizibile (ids); cele ascunse își păstrează locul relativ.
+export function mergeOrder(all, ids) {
+  const set = new Set(ids);
+  const queue = ids.map(id => all.find(x => x.id === id)).filter(Boolean);
+  return all.map(x => (set.has(x.id) ? queue.shift() : x));
 }
 
 // Reordonare verticală prin pointer events (trage de ≡).

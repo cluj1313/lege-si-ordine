@@ -1,11 +1,13 @@
-// Alarme în aplicație: verificare periodică cât aplicația e deschisă; notificare de sistem dacă e permisă.
-// Alarmele native din fundal (aplicația închisă) vin în APK-ul Android.
+// Alarme în aplicație: verificare periodică cât aplicația e deschisă (fereastră cu Amână/Oprește).
+// În APK, alarmele sunt programate și nativ (notify.js), deci sună și cu aplicația închisă.
 import { h } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { state, dataOf, canView, saveMeta, isHiddenByTrash } from '../core/store.js';
 import { KINDS } from '../tabs/kinds.js';
 import { openModal } from '../ui/modal.js';
 import { app } from '../ui/registry.js';
+import { nativeNotif, startNativeNotif, clearDelivered } from './notify.js';
+export { requestNotif } from './notify.js';
 
 let ctx = null, beepTimer = null, ringing = new Set();
 function beep() {
@@ -21,10 +23,7 @@ function beep() {
 export function startAlarms() {
   setInterval(check, 15000);
   setTimeout(check, 3000);
-}
-export async function requestNotif() {
-  if (!('Notification' in window)) return 'unsupported';
-  return Notification.requestPermission();
+  startNativeNotif().catch(e => console.warn('notificări native', e));
 }
 
 function check() {
@@ -42,11 +41,11 @@ function ring(it, due) {
   ringing.add(it.id);
   const title = canView(it) ? (KINDS[it.kind] || KINDS.note).title(dataOf(it)) : t('lockedItem');
   beep(); clearInterval(beepTimer); beepTimer = setInterval(beep, 2500);
-  if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+  if (!nativeNotif() && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
     try { new Notification(t('alarmTitle'), { body: title, icon: 'icons/icon-192.png', tag: it.id }); } catch {}
   }
   const finish = async (snoozeMin) => {
-    clearInterval(beepTimer); ringing.delete(it.id);
+    clearInterval(beepTimer); ringing.delete(it.id); clearDelivered(it.id);
     if (snoozeMin) it.snoozeAt = Date.now() + snoozeMin * 60000; else { it.firedAt = due; delete it.snoozeAt; }
     if (!snoozeMin) it.firedAt = Math.max(it.firedAt || 0, due);
     await saveMeta(it);

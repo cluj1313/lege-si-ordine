@@ -239,23 +239,12 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .cnt { display: inline-grid; place-items: center; min-width: 20px; height: 20px; border-radius: 10px; padding: 0 5px; font-size: 12px; background: var(--anthr); color: var(--bg); margin-left: 6px; }
 
 /* Foldere */
-.folder-strip { display: grid; grid-template-columns: repeat(3, 1fr) 46px; gap: 8px; align-items: center; margin-bottom: 12px; }
-.folder-strip.scroll { display: flex; overflow-x: auto; scrollbar-width: none; }
-.folder-strip.scroll .folder-tile { flex: 0 0 calc((100% - 70px) / 3); }
-.folder-tile { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 4px 8px; border-radius: 14px; border: 1px solid transparent; background: transparent; cursor: pointer; min-width: 0; user-select: none; -webkit-user-select: none; }
-.folder-tile.active { background: var(--gold-soft); border-color: var(--gold-line); }
-.ft-ic { position: relative; }
-.ft-ic img { width: 62px; height: auto; display: block; }
-.ft-lock { position: absolute; right: -6px; bottom: -4px; font-size: 14px; }
-.ft-name { font-size: 14.5px; display: inline-flex; align-items: center; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.folder-add { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); font-size: 22px; cursor: pointer; flex: none; }
 .folder-panel { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 8px 10px 12px; box-shadow: var(--shadow); }
 .crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 4px 2px 10px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
 .crumb { background: none; border: none; font-size: 16.5px; padding: 4px 4px; cursor: pointer; }
 .crumb-sep { color: var(--muted); }
 .folder-row { margin-bottom: 8px; box-shadow: none; }
 .folder-row::before { display: none; }
-.fr-ic { width: 30px; }
 
 /* Ultimele noutăți */
 .page-title h1 { font-weight: 300; font-size: 30px; margin: 4px 0 2px; letter-spacing: .02em; }
@@ -334,11 +323,6 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .pill-row::-webkit-scrollbar { display: none; }
 .pill-row > * { flex: none; scroll-snap-align: start; }
 .pill-row .subtab { white-space: nowrap; }
-.pr-folder .folder-tile { width: 92px; }
-.ft-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.ft-name { justify-content: center; width: 100%; }
-.pr-manage { width: 36px; height: 36px; border-radius: 50%; border: 1px dashed var(--line); background: transparent; cursor: pointer; font-size: 18px; color: var(--muted); }
-.pr-folder .folder-add { margin-left: 2px; }
 
 /* ---------- Grupare pe zile (Monitorul Oficial, RECORDINGS) ---------- */
 .days { display: flex; flex-direction: column; gap: 9px; }
@@ -387,3 +371,58 @@ html[data-font=lg] { font-size: 18.5px; }
 .set-sub summary::after { content: '▾'; color: var(--muted); }
 .set-sub[open] summary::after { content: '▴'; }
 .rec-folder-search { padding: 0 0 8px; }
+
+/* ---------- v1.0.5: antet cu logo = Setări, panou lateral, meniu dreapta sus, pastile ---------- */
+.brand-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; margin: 0; text-align: left; cursor: pointer; color: inherit; font: inherit; border-radius: 26px; -webkit-tap-highlight-color: transparent; }
+.brand-btn:active .emblem { box-shadow: 0 0 0 3px var(--gold-line); }
+.pill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
+.pill-row .pill-lock { margin-right: 4px; }
+.folder-row .r1 { gap: 8px; }
+.folder-row .r1t { font-size: 16.5px; }
+.folder-row .chev { font-size: 18px; }
+/* panou lateral stânga (Setări) */
+.m-ov-drawer { padding: 0; justify-content: flex-start; align-items: stretch; }
+.m-ov-drawer::before { background: rgba(14,12,8,.78); }
+.m-drawer { width: min(88vw, 420px); max-width: min(88vw, 420px); height: 100%; max-height: none; border-radius: 0 18px 18px 0; background: var(--bg); box-shadow: 6px 0 28px rgba(0,0,0,.35); animation: lsoDrawerIn .2s ease-out both; will-change: transform; padding-left: env(safe-area-inset-left); }
+.m-ov-drawer.closing .m-drawer { animation: lsoDrawerOut .16s ease-in both; }
+.m-drawer .m-head { border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.m-drawer .m-body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+@keyframes lsoDrawerIn { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes lsoDrawerOut { from { transform: none; } to { transform: translateX(-100%); } }
+/* meniu derulant dreapta sus */
+.m-ov-menu { padding: 0; display: block; }
+.m-ov-menu::before { background: rgba(14,12,8,.18); }
+.m-menu { position: fixed; width: auto; min-width: 230px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 90px); border-radius: 14px; border: 1px solid var(--line); background: var(--card); box-shadow: 0 12px 34px rgba(0,0,0,.28); }
+.m-menu .m-body { padding: 6px 0; }
+.dm-list { display: flex; flex-direction: column; }
+.dm-opt { display: flex; align-items: center; gap: 10px; width: 100%; background: none; border: 0; padding: 11px 16px; font: inherit; font-size: 17px; color: var(--text); text-align: left; cursor: pointer; min-height: 46px; }
+.dm-opt:active { background: var(--gold-soft); }
+.dm-opt.on { color: var(--gold2); }
+.dm-opt[disabled] { opacity: .45; }
+.dm-ic { width: 24px; text-align: center; flex: none; }
+.dm-label { flex: 1 1 auto; }
+.dm-check { flex: none; font-weight: 600; }
+.dm-head { font-size: 12.5px; letter-spacing: .12em; color: var(--muted); padding: 10px 16px 4px; border-top: 1px solid var(--line); margin-top: 4px; }
+.dm-sep { border-top: 1px solid var(--line); margin: 4px 0; }
+/* notificări */
+.notif-status { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.notif-status .pill { background: var(--card); border-color: var(--line); color: var(--text); }
+.notif-status .pill.ok { background: var(--gold-soft); border-color: var(--gold-line); }
+.notif-status .pill.bad { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+.notif-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.selbar .sel-hint { flex-basis: 100%; font-size: 14px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .m-drawer, .m-ov-drawer.closing .m-drawer { animation: none !important; } }
+/* drag and drop */
+.dnd-armed { transform: scale(1.03); box-shadow: 0 0 0 2px var(--gold-line), 0 8px 22px rgba(0,0,0,.18); transition: transform .12s ease; }
+.dnd-src { opacity: .35; }
+.dnd-ghost { opacity: .95; transform: scale(1.04) rotate(.6deg); box-shadow: 0 14px 36px rgba(0,0,0,.32); border-radius: 14px; }
+.dnd-over { outline: 2.5px solid var(--gold); outline-offset: 2px; background: var(--gold-soft) !important; }
+body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: none !important; cursor: grabbing; }
+.tab-pill, .pill-row .subtab, .card .r1 { -webkit-touch-callout: none; }
+.dnd-handle { flex: none; width: 34px; height: 34px; display: grid; place-items: center; font-size: 20px; color: var(--muted); border: 1px dashed var(--line); border-radius: 9px; touch-action: none; cursor: grab; margin-left: -4px; }
+.tabbar.dnd-mode .tab-pill[data-id] { border-style: dashed; border-width: 1.5px; touch-action: none; }
+.tab-pill.done { background: var(--gold); color: #fff; border-color: var(--gold); }
+@keyframes lsoWiggle { from { transform: rotate(-1deg); } to { transform: rotate(1deg); } }
+.dm-opt.danger { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) { .tabbar.dnd-mode .tab-pill[data-id] { animation: none; } }
+.m-overlay.closing { pointer-events: none; }

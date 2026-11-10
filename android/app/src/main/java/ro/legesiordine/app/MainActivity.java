@@ -4,12 +4,14 @@ import android.os.Bundle;
 import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
+import ro.legesiordine.app.system.LsoSystemPlugin;
 import ro.legesiordine.app.voice.LsoVoicePlugin;
 
 public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(LsoVoicePlugin.class);
+        registerPlugin(LsoSystemPlugin.class);
         super.onCreate(savedInstanceState);
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override

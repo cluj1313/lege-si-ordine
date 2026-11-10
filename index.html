@@ -14,14 +14,15 @@
 <body>
 <div class="top">
   <header class="hdr">
-    <img class="emblem" src="icons/icon-96.png" alt="" width="44" height="44">
-    <div class="brand">LEGE ȘI ORDINE</div>
+    <button id="hdr-brand" class="brand-btn" type="button" aria-label="Setări" title="Setări" data-test="hdr-brand">
+      <img class="emblem" src="icons/icon-96.png" alt="" width="44" height="44" data-test="hdr-emblem">
+      <span class="brand" data-test="hdr-title">LEGE ȘI ORDINE</span>
+    </button>
     <div class="hdr-acts">
       <button id="hdr-search" class="icon-btn" type="button" aria-label="Căutare" title="Căutare"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
       <button id="hdr-folders" class="icon-btn" type="button" aria-label="Foldere" title="Foldere"><svg viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg></button>
       <button id="hdr-select" class="icon-btn" type="button" aria-label="Selecție" title="Selecție"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg></button>
-      <button id="hdr-settings" class="icon-btn" type="button" aria-label="Setări" title="Setări" data-test="hdr-settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.7 1 1.2 1.5 1.2H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
-      <button id="hdr-menu" class="icon-btn" type="button" aria-label="Meniu" title="Meniu"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h9"/></svg></button>
+      <button id="hdr-menu" class="icon-btn" type="button" aria-label="Sortare, mutare și coș" title="Sortare, mutare și coș" aria-haspopup="menu" data-test="hdr-menu"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h9"/></svg></button>
     </div>
   </header>
   <nav id="tabbar" class="tabbar" role="tablist" aria-label="Taburi"></nav>

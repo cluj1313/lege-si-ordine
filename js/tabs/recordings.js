@@ -3,13 +3,13 @@ import { h, act, fmtDur, fmtTs } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, canView, saveUI, saveMeta, descendants, item as getItem, liveTabs } from '../core/store.js';
 import { toast, promptDlg, openModal } from '../ui/modal.js';
-import { card } from '../ui/list.js';
+import { card, sortByTab } from '../ui/list.js';
 import { renderDayGroups } from '../ui/daygroups.js';
 import { recName, recTitle, recStatuses, recArchivedStatus } from './kinds.js';
 import { sheet } from '../ui/modal.js';
 import { saveSettings } from '../core/store.js';
 import { pickFolder, folderNameOf, recFoldersOf, ensureRecFolders, createRecFolder } from '../ui/folderpick.js';
-import { pillRow, visibilitySheet } from '../ui/pillrow.js';
+import { pillRow, visibilitySheet, mergeOrder } from '../ui/pillrow.js';
 import { folderMenu } from './views.js';
 import { isoFromDate } from '../core/util.js';
 import { startDictation, stopDictation, canLiveTranscribe, isSpeaking, stopSpeak, isDictating } from '../features/voice.js';
@@ -45,7 +45,7 @@ function recFolderRow(tab) {
   ];
   const active = roots.some(f => f.id === cur && !f.hidden) ? cur : 'all';
   return pillRow({
-    items, activeId: active, variant: 'pill', test: 'rec-folder-row',
+    items, activeId: active, test: 'rec-folder-row',
     onPick: c => {
       state.ui.sub[tab.id] = c.id;
       if (R.mr) R.folder = c.id === 'all' ? null : c.id;
@@ -55,6 +55,7 @@ function recFolderRow(tab) {
       const f = await createRecFolder(tab, null);
       if (f) { state.ui.sub[tab.id] = f.id; if (R.mr) R.folder = f.id; await saveUI(); app.render(); }
     },
+    onReorder: async ids => { const all = mergeOrder(roots, ids); for (const [i, f] of all.entries()) { f.order = i; await saveMeta(f); } },
     onManage: () => visibilitySheet(t('manageVisible'), roots.map(f => ({ id: f.id, name: folderNameOf(f), visible: !f.hidden })), async out => {
       for (const [i, o] of out.entries()) { const f = getItem(o.id); f.order = i; f.hidden = !o.visible; await saveMeta(f); }
       if (active !== 'all' && getItem(active)?.hidden) state.ui.sub[tab.id] = 'all';
@@ -159,7 +160,7 @@ export function renderRecordings(view, tab) {
         key: tab.id, empty: needle ? t('noRecHits') : t('recEmpty'),
         dateOf: it => isoFromDate(new Date(at(it))),
         summary: arr => h('span', { class: 'day-chips' }, arr.slice().sort((a, b) => at(a) - at(b)).map(it => h('span', { class: 'chip' }, dataOf(it) ? recTitle(dataOf(it)) : '🔒'))),
-        renderItem: it => card(it),
+        renderItem: it => card(it), order: arr => sortByTab(arr, tab.id),
       });
     };
     q.addEventListener('input', apply);
@@ -172,7 +173,7 @@ export function renderRecordings(view, tab) {
     key: tab.id, empty: t('recEmpty'),
     dateOf: it => isoFromDate(new Date(at(it))),
     summary: arr => h('span', { class: 'day-chips' }, arr.slice().sort((a, b) => at(a) - at(b)).map(it => h('span', { class: 'chip' }, dataOf(it) ? recTitle(dataOf(it)) : '🔒'))),
-    renderItem: it => card(it),
+    renderItem: it => card(it), order: arr => sortByTab(arr, tab.id),
   });
 }
 

@@ -4,7 +4,7 @@ import { t } from '../core/i18n.js';
 import { locksChain } from '../core/store.js';
 import { state, itemsOf, itemsInFolder, countInFolder, dataOf, canView, isOpen, newItem, saveItem, saveTab, unlockTemp, relock, descendants, item as getItem,
   lockWithPin, unlockPermanent, trash, saveUI, saveMeta } from '../core/store.js';
-import { renderList, card, ui } from '../ui/list.js';
+import { renderList, card, ui, sortByTab } from '../ui/list.js';
 import { pinDlg, promptDlg, sheet, toast, confirmDlg } from '../ui/modal.js';
 import { timeField } from '../ui/datetime.js';
 import { app } from '../ui/registry.js';
@@ -13,7 +13,7 @@ import { db } from '../core/db.js';
 import { createFolder } from '../ui/folderpick.js';
 import { recTitle } from './kinds.js';
 import { catRow, curCat } from './cats.js';
-import { pillRow, visibilitySheet } from '../ui/pillrow.js';
+import { pillRow, visibilitySheet, mergeOrder } from '../ui/pillrow.js';
 import { renderDayGroups } from '../ui/daygroups.js';
 import { KINDS } from './kinds.js';
 import { isoFromDate } from '../core/util.js';
@@ -39,7 +39,7 @@ export function renderGeneric(view, tab) {
   }
   const list = h('div', { class: 'list' });
   view.append(list);
-  renderList(list, items, { kind: tab.kind === 'note' ? 'note' : tab.kind });
+  renderList(list, items, { kind: tab.kind === 'note' ? 'note' : tab.kind, tabId: tab.id });
 }
 
 // ---- Monitorul Oficial: organizat pe zile (data publicării) ----
@@ -55,7 +55,7 @@ export function renderMO(view, tab) {
     key: tab.id, empty: t('moEmpty'),
     dateOf: it => { const d = dataOf(it); return (d && d.actDate) || isoFromDate(new Date(it.created)); },
     summary: items => items.map(i => (canView(i) ? KINDS.law.title(dataOf(i)) : '🔒')).join(' · '),
-    renderItem: it => card(it),
+    renderItem: it => card(it), order: arr => sortByTab(arr, tab.id),
   });
 }
 
@@ -73,12 +73,13 @@ export function renderSaved(view, tab) {
     activeId: cur, test: 'saved-row',
     onPick: s => { state.ui.sub[tab.id] = s.id; saveUI(); app.render(); },
     onAdd: async () => { const n = await promptDlg(t('addSubtab')); if (!n) return; tab.subs = [...subs, { id: 's' + Date.now().toString(36), name: n, visible: true }]; await saveTab(tab); },
+    onReorder: async ids => { tab.subs = mergeOrder(subs, ids); await saveTab(tab); },
     onManage: () => visibilitySheet(t('manageVisible'), subs, async out => { tab.subs = out.map(o => ({ ...subs.find(s => s.id === o.id), visible: o.visible })); await saveTab(tab); }),
     onItemMenu: s => subMenu(tab, subs.find(x => x.id === s.id)),
   }));
   const list = h('div', { class: 'list' });
   view.append(list);
-  renderList(list, itemsOf(tab.id, { sub: cur }), { kind: 'note', empty: cur === 'descarcate' ? t('emptyDownloaded') : t('emptySaved') });
+  renderList(list, itemsOf(tab.id, { sub: cur }), { kind: 'note', tabId: tab.id, empty: cur === 'descarcate' ? t('emptyDownloaded') : t('emptySaved') });
 }
 async function subMenu(tab, s) {
   const v = await sheet(s.name, [{ label: t('rename'), value: 'ren', icon: '✎' }, { label: t('delete'), value: 'del', icon: '🗑', cls: 'danger' }]);
@@ -120,9 +121,10 @@ export function renderFolders(view, tab) {
   const allRoots = roots;
   view.append(pillRow({
     items: allRoots.filter(f => !f.hidden).map(f => ({ id: f.id, name: folderName(f), count: countIn(f), locked: !!f.lock })),
-    activeId: activeRoot && activeRoot.id, variant: 'folder', test: 'folder-row',
+    activeId: activeRoot && activeRoot.id, test: 'folder-row',
     onPick: f => enterFolder(tab, getItem(f.id)),
     onAdd: () => newFolder(tab, null),
+    onReorder: async ids => { const all = mergeOrder(allRoots, ids); for (const [i, f] of all.entries()) { f.order = i; await saveMeta(f); } },
     onManage: () => visibilitySheet(t('manageVisible'), allRoots.map(f => ({ id: f.id, name: folderName(f), visible: !f.hidden })), async out => {
       for (const [i, o] of out.entries()) { const f = getItem(o.id); f.order = i; f.hidden = !o.visible; await saveMeta(f); }
       if (activeRoot && activeRoot.hidden) state.ui.folder[tab.id] = null;
@@ -140,8 +142,8 @@ export function renderFolders(view, tab) {
   const here = cur ? cur.id : null;
   const subs = itemsOf(tab.id, { folder: here, kind: 'folder' });
   if (here) subs.forEach(f => {
-    const row = h('div', { class: 'card folder-row', 'data-id': f.id, onclick: () => enterFolder(tab, f) },
-      h('div', { class: 'r1' }, h('img', { class: 'fr-ic', src: 'icons/folder.png', alt: '' }), h('span', { class: 'r1t' }, folderName(f)), f.lock ? h('span', {}, '🔒') : null, h('span', { class: 'r1-meta' }, String(countIn(f)))));
+    const row = h('div', { class: 'card folder-row', 'data-id': f.id, 'data-drop': 'folder:' + f.id, onclick: () => enterFolder(tab, f) },
+      h('div', { class: 'r1' }, f.lock ? h('span', { class: 'pill-lock' }, '🔒') : null, h('span', { class: 'r1t' }, folderName(f)), h('span', { class: 'cnt' }, String(countIn(f))), h('span', { class: 'chev' }, '›')));
     onLongPress(row, () => folderMenu(tab, f));
     panel.append(row);
   });
@@ -159,7 +161,7 @@ export function renderFolders(view, tab) {
       list.innerHTML = '';
       const q = norm(inp.value);
       const recs = q ? recsAll.filter(it => { const d = canView(it) && dataOf(it); return d && norm([recTitle(d), d.client || '', d.caseNumber || '', d.transcript || '', d.name || ''].join(' ')).includes(q); }) : recsAll;
-      const items = q ? recs : [...recs, ...notes];
+      const items = sortByTab(q ? recs : [...recs, ...notes], tab.id);
       if (!items.length) list.append(h('div', { class: 'empty' }, recsAll.length && q ? t('noArchiveHits') : (subs.length ? '' : t('emptyFolder'))));
       else items.forEach(it => list.append(card(it)));
     };
@@ -167,7 +169,7 @@ export function renderFolders(view, tab) {
     drawList();
   } else {
     const list = h('div', { class: 'list' });
-    renderList(list, notes, { kind: 'note', empty: t('foldersRootHint') });
+    renderList(list, notes, { kind: 'note', tabId: tab.id, empty: t('foldersRootHint') });
     panel.append(list);
   }
   view.append(panel);

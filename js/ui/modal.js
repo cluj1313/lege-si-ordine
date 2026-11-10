@@ -20,7 +20,7 @@ export function openModal({ title, body, actions = [], kind = 'dialog', onClose,
   const m = { el: box, overlay, closed: false };
   if (title != null || kind === 'page') {
     const head = h('div', { class: 'm-head' },
-      kind === 'page' ? h('button', { class: 'icon-btn m-back', 'aria-label': t('back'), onclick: () => m.close() }, '‹') : null,
+      kind === 'page' || kind === 'drawer' ? h('button', { class: 'icon-btn m-back', 'aria-label': t('back'), onclick: () => m.close() }, '‹') : null,
       h('div', { class: 'm-title' }, title || ''));
     box.append(head);
   }
@@ -60,12 +60,59 @@ export function openModal({ title, body, actions = [], kind = 'dialog', onClose,
   root.append(overlay);
   stack.push(m);
   pushGuard();
+  if (kind === 'drawer') swipeToClose(box, m);
   const openNow = () => { if (!m.closed) overlay.classList.add('open'); };
   openNow();
   requestAnimationFrame(() => requestAnimationFrame(openNow));
   setTimeout(openNow, 0);
   return m;
 }
+// Panou lateral: glisare spre stânga îl închide (fără tranziții care să rămână blocate în WebView).
+function swipeToClose(box, m) {
+  let x0 = null, y0 = 0, dx = 0, horiz = null;
+  box.addEventListener('touchstart', e => { const p = e.touches[0]; x0 = p.clientX; y0 = p.clientY; dx = 0; horiz = null; }, { passive: true });
+  box.addEventListener('touchmove', e => {
+    if (x0 == null) return;
+    const p = e.touches[0]; const ddx = p.clientX - x0, ddy = p.clientY - y0;
+    if (horiz == null && (Math.abs(ddx) > 10 || Math.abs(ddy) > 10)) horiz = Math.abs(ddx) > Math.abs(ddy) * 1.3;
+    if (!horiz) return;
+    dx = Math.min(0, ddx);
+    box.style.transform = dx ? `translateX(${dx}px)` : '';
+  }, { passive: true });
+  const end = () => {
+    if (x0 == null) return;
+    x0 = null;
+    if (horiz && dx < -70) { m.close(); return; }
+    box.style.transform = '';
+  };
+  box.addEventListener('touchend', end); box.addEventListener('touchcancel', end);
+}
+
+// Meniu derulant ancorat sub un buton (ca meniul din dreapta sus din Notis).
+// items: { label, value, icon, check, header, disabled, test }; întoarce valoarea aleasă sau null.
+export function dropMenu(anchor, items, { test = 'dropmenu', align = 'right' } = {}) {
+  return new Promise(res => {
+    let done = false;
+    const list = h('div', { class: 'dm-list', role: 'menu' });
+    const m = openModal({ kind: 'menu', body: list, onClose: () => { if (!done) res(null); } });
+    m.el.dataset.test = test;
+    for (const o of items) {
+      if (!o) continue;
+      if (o.header) { list.append(h('div', { class: 'dm-head' }, o.header)); continue; }
+      if (o.sep) { list.append(h('div', { class: 'dm-sep' })); continue; }
+      list.append(h('button', { class: 'dm-opt' + (o.check ? ' on' : '') + (o.cls ? ' ' + o.cls : ''), type: 'button', role: 'menuitem', 'data-v': o.value, 'data-test': o.test || null, disabled: !!o.disabled,
+        onclick: () => { done = true; res(o.value); m.close(); } },
+        o.icon ? h('span', { class: 'dm-ic' }, o.icon) : null, h('span', { class: 'dm-label' }, o.label), o.check ? h('span', { class: 'dm-check' }, '✓') : null));
+    }
+    const r = anchor.getBoundingClientRect();
+    m.el.style.top = Math.round(r.bottom + 6) + 'px';
+    if (align === 'left') {
+      const w = m.el.offsetWidth || 230;
+      m.el.style.left = Math.max(8, Math.min(Math.round(r.left), window.innerWidth - w - 8)) + 'px';
+    } else m.el.style.right = Math.max(8, Math.round(window.innerWidth - r.right)) + 'px';
+  });
+}
+
 export const topModal = () => stack[stack.length - 1];
 export const closeAll = () => [...stack].reverse().forEach(m => m.close());
 export const modalsOpen = () => stack.length;
