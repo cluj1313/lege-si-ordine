@@ -156,6 +156,27 @@ export async function saveToSaved(it, d) {
   toast(t('savedOk'));
 }
 
+// Icoană Share Android/Material (trei puncte legate), desenată ca SVG cu același stil de linioară ca butoanele din antet.
+// Nu am găsit o descriere sau o captură exactă a icoanei din Notis în referința comportamentală sau în atașamente.
+function shareIcon() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const el = (name, attrs) => {
+    const n = document.createElementNS('http://www.w3.org/2000/svg', name);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    return n;
+  };
+  svg.append(
+    el('circle', { cx: '18', cy: '5', r: '2.4' }),
+    el('circle', { cx: '6', cy: '12', r: '2.4' }),
+    el('circle', { cx: '18', cy: '19', r: '2.4' }),
+    el('path', { d: 'M8.2 10.7L15.7 6.4' }),
+    el('path', { d: 'M8.2 13.3L15.7 17.6' }),
+  );
+  return svg;
+}
+
 function recRow2(it, d) {
   const audio = h('audio', { controls: true, preload: 'none', class: 'rec-audio' });
   getMedia(d.mid).then(m => { if (m) audio.src = URL.createObjectURL(m.blob); else audio.replaceWith(h('div', { class: 'r2-meta' }, t('mediaMissing'))); });
@@ -163,11 +184,10 @@ function recRow2(it, d) {
     h('div', { class: 'r2-meta' }, `${fmtTsDate(d.at || it.created)} • ${fmtDur(d.duration)}`),
     audio,
     d.transcript ? h('div', { class: 'r2-text pre' }, d.transcript) : h('div', { class: 'r2-meta' }, t('noTranscript')),
-    h('div', { class: 'r2-actions' },
-      h('div', { class: 'r2-actions-main' },
-        h('button', { class: 'btn sm ghost', type: 'button', onclick: () => app.renameRec(it) }, t('rename')),
-        h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-status', onclick: () => app.recStatus(it) }, t('recStatusBtn', { s: d.status || '—' })),
-        h('button', { class: 'btn sm ghost', type: 'button', onclick: async () => { const m = await getMedia(d.mid); if (m) shareFile(m.blob, (d.name || 'inregistrare') + extOf(m.mime), d.name); } }, t('share'))),
-      h('button', { class: 'icon-btn sm trash', type: 'button', 'aria-label': t('delete'), 'data-test': 'rec-delete', onclick: () => app.deleteItem(it) }, '🗑️')));
+    h('div', { class: 'r2-actions rec-actions' },
+      h('button', { class: 'btn sm ghost', type: 'button', onclick: () => app.renameRec(it) }, t('rename')),
+      h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-status', 'aria-label': t('recStatusBtn', { s: d.status || '—' }), onclick: () => app.recStatus(it) }, d.status || '—'),
+      h('button', { class: 'icon-btn share', type: 'button', 'aria-label': t('share'), title: t('share'), 'data-test': 'rec-share', onclick: async () => { const m = await getMedia(d.mid); if (m) shareFile(m.blob, (d.name || 'inregistrare') + extOf(m.mime), d.name); } }, shareIcon()),
+      h('button', { class: 'icon-btn trash', type: 'button', 'aria-label': t('delete'), 'data-test': 'rec-delete', onclick: () => app.deleteItem(it) }, '🗑️')));
 }
 export const extOf = mime => (/ogg/.test(mime) ? '.ogg' : /mp4|aac|m4a/.test(mime) ? '.m4a' : /webm/.test(mime) ? '.webm' : /jpeg/.test(mime) ? '.jpg' : /png/.test(mime) ? '.png' : /pdf/.test(mime) ? '.pdf' : '');

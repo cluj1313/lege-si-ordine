@@ -487,17 +487,35 @@ async function run(vp, label, full) {
     await p.locator('.m-dialog .m-actions .btn.primary').tap();
     await p.locator('#view .card[data-kind=rec]', { hasText: 'Audiere martor' }).waitFor();
     const del = p.locator('#view .card[data-kind=rec] [data-test=rec-delete]');
+    const share = p.locator('#view .card[data-kind=rec] [data-test=rec-share]');
     assert(await del.getAttribute('aria-label') === 'Șterge', 'eticheta accesibilă Șterge');
     assert((await del.textContent()).includes('🗑'), 'icoană coș');
-    const pos = await del.evaluate(el => {
-      const row = el.closest('.r2-actions');
-      const rr = row.getBoundingClientRect(), br = el.getBoundingClientRect();
-      return { rightGap: rr.right - br.right, leftOf: [...row.querySelectorAll('button,a')].filter(b => b !== el).every(b => b.getBoundingClientRect().right <= br.left + 1) };
+    assert(await share.getAttribute('aria-label') === 'Partajează', 'eticheta accesibilă Partajează');
+    assert(await share.locator('svg').count() === 1, 'icoana Share lipsește');
+    assert((await p.locator('#view .card[data-kind=rec] [data-test=rec-status]').textContent()).trim() === 'Arhivată', 'pilula de stare trebuie să arate starea, fără prefix');
+    const layout = await p.locator('#view .card[data-kind=rec] .rec-actions').evaluate(el => {
+      const btns = [...el.querySelectorAll('button')];
+      const boxes = btns.map(b => {
+        const r = b.getBoundingClientRect();
+        return { t: r.top, b: r.bottom, l: r.left, r: r.right, w: r.width, h: r.height, label: (b.getAttribute('aria-label') || b.textContent || '').trim(), trunc: b.scrollWidth > b.clientWidth + 1 };
+      });
+      return {
+        n: boxes.length,
+        sameLine: Math.max(...boxes.map(x => x.t)) - Math.min(...boxes.map(x => x.t)) <= 2,
+        trunc: boxes.filter(x => x.trunc).map(x => x.label),
+        tooSmall: boxes.filter(x => x.w < 40 || x.h < 40),
+        rightGap: el.getBoundingClientRect().right - boxes[boxes.length - 1].r,
+        order: boxes.map(x => x.label),
+      };
     });
-    assert(pos.rightGap < 4, 'coșul nu e în dreapta de tot: ' + pos.rightGap);
-    assert(pos.leftOf, 'coșul nu e după celelalte acțiuni');
+    assert(layout.n === 4, 'trebuie 4 acțiuni pe rând, avem ' + layout.n);
+    assert(layout.sameLine, 'acțiunile nu sunt pe o singură linie: ' + JSON.stringify(layout.order));
+    assert(!layout.trunc.length, 'text tăiat: ' + layout.trunc.join(', '));
+    assert(!layout.tooSmall.length, 'țintă sub 40px: ' + JSON.stringify(layout.tooSmall));
+    assert(layout.rightGap < 4, 'coșul nu e în dreapta de tot: ' + layout.rightGap);
     await p.screenshot({ path: `${SHOTS}${label}-NOU-recordings-deschis.png` });
     await p.screenshot({ path: `${SHOTS}${label}-recordings-cos.png` });
+    await p.screenshot({ path: `${SHOTS}${label}-recordings-actiuni.png` });
     // confirmă că Șterge deschide fereastra Da/Nu, fără a muta elementul (Anulează/Nu)
     await del.tap();
     await p.locator('[data-test=confirm]').waitFor();

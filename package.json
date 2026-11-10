@@ -1,6 +1,6 @@
 {
   "name": "lege-si-ordine",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "LEGE ȘI ORDINE – aplicație pentru avocați. Datele rămân pe dispozitiv.",
   "scripts": {
