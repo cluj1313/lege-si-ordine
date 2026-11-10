@@ -1,0 +1,14 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+const ctx = await b.newContext({ viewport: { width: 360, height: 780 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+const p = await ctx.newPage();
+const errs = [];
+p.on('console', m => { if (['error', 'warning'].includes(m.type())) errs.push(m.type() + ': ' + m.text()); });
+p.on('pageerror', e => errs.push('pageerror: ' + e.message));
+await p.goto('http://127.0.0.1:8765/index.html');
+await p.waitForSelector('.tab-pill', { timeout: 10000 }).catch(() => {});
+await p.waitForTimeout(1500);
+console.log(await p.$$eval('.tab-pill', els => els.map(e => e.textContent)));
+await p.screenshot({ path: '/tmp/s1.png' });
+console.log(errs.join('\n'));
+await b.close();

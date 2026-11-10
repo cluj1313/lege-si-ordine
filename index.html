@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ro" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f5f0">
+<meta name="description" content="LEGE ȘI ORDINE – aplicație pentru avocați: dosare, clienți, termene, documente, legi, înregistrări. Date salvate local.">
+<title>LEGE ȘI ORDINE</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-96.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="top">
+  <header class="hdr">
+    <img class="emblem" src="icons/icon-96.png" alt="" width="44" height="44">
+    <div class="brand">LEGE ȘI ORDINE</div>
+    <div class="hdr-acts">
+      <button id="hdr-search" class="icon-btn" type="button" aria-label="Căutare" title="Căutare"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
+      <button id="hdr-folders" class="icon-btn" type="button" aria-label="Foldere" title="Foldere"><svg viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg></button>
+      <button id="hdr-select" class="icon-btn" type="button" aria-label="Selecție" title="Selecție"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg></button>
+      <button id="hdr-menu" class="icon-btn" type="button" aria-label="Meniu și setări" title="Meniu"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h9"/></svg></button>
+    </div>
+  </header>
+  <nav id="tabbar" class="tabbar" role="tablist" aria-label="Taburi"></nav>
+</div>
+<main id="view" class="view"><div class="empty">Se încarcă…</div></main>
+<div id="selbar" class="selbar" hidden></div>
+<div id="fabs" class="fabs"></div>
+<div id="modals"></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script type="module" src="js/boot.js"></script>
+</body>
+</html>
