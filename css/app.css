@@ -9,12 +9,14 @@
   --gold: #b8913a; --gold2: #c9a24a; --gold-soft: #f7ebcd; --gold-line: #e6cf98; --anthr: #2f3136;
   --danger: #b3412e; --danger-soft: #fbe9e5; --ok: #3f7d5a; --shadow: 0 1px 2px rgba(40,35,20,.06), 0 4px 14px rgba(40,35,20,.06);
   --hdr-bg: rgba(247,245,240,.96); --pill-bg: #ffffff; --accent: var(--anthr);
+  --on-gold: #0b1a33; /* text închis pe auriu, contrast WCAG ≥ 4.5:1 față de --gold / --gold2 */
 }
 [data-theme=navy] {
   --bg: #0f1a2e; --bg2: #14223b; --card: #172741; --text: #eef0f5; --muted: #a8b0c2; --line: #263a5c;
   --gold: #d9b45f; --gold2: #e2c172; --gold-soft: #3a3523; --gold-line: #7e6a3a; --anthr: #e9e3d2;
   --danger: #ef8a76; --danger-soft: #3a2224; --ok: #7cc39a; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.25);
   --hdr-bg: rgba(15,26,46,.96); --pill-bg: #172741; --accent: var(--gold);
+  --on-gold: #0b1a33;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { font-size: 16px; }
@@ -47,7 +49,7 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .tab-pill.active { background: var(--gold-soft); border-color: var(--gold-line); color: var(--anthr); box-shadow: inset 0 0 0 1px var(--gold-line); }
 [data-theme=navy] .tab-pill.active { color: var(--gold2); }
 .tab-pill.add { width: 36px; padding: 0; justify-content: center; font-size: 20px; }
-.tab-pill .badge { position: absolute; top: -6px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--gold); color: #fff; font-size: 11px; display: grid; place-items: center; padding: 0 4px; }
+.tab-pill .badge { position: absolute; top: -6px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--gold); color: var(--on-gold); font-size: 11px; display: grid; place-items: center; padding: 0 4px; }
 .tp-lock { font-size: 12px; }
 
 /* ---------- Conținut ---------- */
@@ -94,7 +96,7 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .card.locked .r1t { color: var(--muted); }
 .card.selected { box-shadow: 0 0 0 2px var(--gold2); }
 .sel-box { width: 24px; height: 24px; border-radius: 6px; border: 1.5px solid var(--gold); display: grid; place-items: center; flex: none; font-size: 14px; }
-.sel-box.on { background: var(--gold); color: #fff; }
+.sel-box.on { background: var(--gold); color: var(--on-gold); }
 
 .pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 11px; font-size: 13.5px; border: 1px solid var(--gold-line); background: var(--gold-soft); color: var(--anthr); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
 [data-theme=navy] .pill { color: var(--gold2); }
@@ -110,7 +112,7 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .pill.trash-mark { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); margin-left: 6px; font-size: 12px; }
 
 /* Cercuri bifabile (Taskuri) – linia de legătură apare doar în golul dintre cercuri */
-.circ { width: 26px; height: 26px; border-radius: 50%; border: 1.6px solid var(--gold); background: transparent; display: grid; place-items: center; flex: none; cursor: pointer; padding: 0; font-size: 14px; color: #fff; }
+.circ { width: 26px; height: 26px; border-radius: 50%; border: 1.6px solid var(--gold); background: transparent; display: grid; place-items: center; flex: none; cursor: pointer; padding: 0; font-size: 14px; color: var(--on-gold); }
 .circ.on { background: var(--gold); }
 .circ.sm { width: 22px; height: 22px; font-size: 12px; }
 .subs { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
@@ -123,7 +125,7 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 /* ---------- FAB ---------- */
 .fabs { position: fixed; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; gap: 12px; align-items: center; z-index: 25; }
 .fab { width: 58px; height: 58px; border-radius: 50%; border: none; cursor: pointer; display: grid; place-items: center; font-size: 30px; box-shadow: 0 6px 18px rgba(120,90,20,.28); user-select: none; -webkit-user-select: none; touch-action: manipulation; }
-.fab.add { background: var(--gold2); color: #fff; font-weight: 300; }
+.fab.add { background: var(--gold2); color: var(--on-gold); font-weight: 300; }
 .fab.voice { background: var(--anthr); color: #fff; font-size: 24px; }
 [data-theme=navy] .fab.voice { background: var(--card); border: 1px solid var(--gold-line); }
 .fab.voice.live { box-shadow: 0 0 0 4px rgba(201,162,74,.45); animation: pulse 1.2s infinite; }
@@ -137,7 +139,7 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .btn { border: 1px solid var(--gold-line); background: var(--gold-soft); color: var(--anthr); border-radius: 999px; padding: 9px 18px; min-height: 42px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; font-size: 15.5px; }
 [data-theme=navy] .btn { color: var(--gold2); }
 .btn.sm { min-height: 36px; padding: 6px 13px; font-size: 14.5px; }
-.btn.primary { background: var(--gold2); border-color: var(--gold2); color: #fff; }
+.btn.primary, [data-theme=navy] .btn.primary, [data-theme=light] .btn.primary { background: var(--gold2); border-color: var(--gold2); color: var(--on-gold); }
 .btn.ghost { background: transparent; border-color: var(--line); color: var(--text); }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn.danger-ghost { background: transparent; border-color: var(--danger); color: var(--danger); }
@@ -224,7 +226,7 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .cal-wd { text-align: center; color: var(--muted); font-size: 13px; }
 .cal-d { height: 40px; border: none; border-radius: 10px; background: var(--card); cursor: pointer; }
 .cal-d.today { box-shadow: inset 0 0 0 1.5px var(--gold2); }
-.cal-d.sel { background: var(--gold2); color: #fff; }
+.cal-d.sel { background: var(--gold2); color: var(--on-gold); }
 
 /* Ecran blocat */
 .locked-screen { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 60px 16px; text-align: center; }
@@ -310,8 +312,10 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .to-row .r2-meta { font-size: 12.5px; flex: none; }
 .theme-pick { display: flex; gap: 10px; flex-wrap: wrap; }
 .theme-opt { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--bg); border-radius: 12px; padding: 10px 14px; cursor: pointer; }
+.theme-opt.th-light { background: #f7f5f0; color: #2a2b2f; border-color: #c9c2b2; }
+.theme-opt.th-navy { background: #0f1a2e; color: #eef0f5; border-color: #263a5c; }
 .theme-opt.sel { box-shadow: 0 0 0 2px var(--gold2); }
-.th-swatch { width: 22px; height: 22px; border-radius: 50%; }
+.th-swatch { width: 22px; height: 22px; border-radius: 50%; flex: none; }
 .th-light .th-swatch { background: linear-gradient(135deg, #f7f5f0 50%, #c9a24a 50%); border: 1px solid #ddd; }
 .th-navy .th-swatch { background: linear-gradient(135deg, #0f1a2e 50%, #d9b45f 50%); }
 .sub-h { font-weight: 300; font-size: 17px; margin: 16px 0 4px; }
@@ -431,7 +435,7 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 .tab-pill, .pill-row .subtab, .card .r1 { -webkit-touch-callout: none; }
 .dnd-handle { flex: none; width: 34px; height: 34px; display: grid; place-items: center; font-size: 20px; color: var(--muted); border: 1px dashed var(--line); border-radius: 9px; touch-action: none; cursor: grab; margin-left: -4px; }
 .tabbar.dnd-mode .tab-pill[data-id] { border-style: dashed; border-width: 1.5px; touch-action: none; }
-.tab-pill.done { background: var(--gold); color: #fff; border-color: var(--gold); }
+.tab-pill.done { background: var(--gold); color: var(--on-gold); border-color: var(--gold); }
 @keyframes lsoWiggle { from { transform: rotate(-1deg); } to { transform: rotate(1deg); } }
 .dm-opt.danger { color: var(--danger); }
 @media (prefers-reduced-motion: reduce) { .tabbar.dnd-mode .tab-pill[data-id] { animation: none; } }

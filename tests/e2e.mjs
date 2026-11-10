@@ -1287,7 +1287,7 @@ async function run(vp, label, full) {
   await step(`[${label}] [v1.0.6] Contor anonim: ping o dată pe zi la serverul simulat (id anonim, versiune, sursă); bifă în Confidențialitate`, async () => {
     assert(mock.pings.length >= 1, 'niciun ping');
     const pg = mock.pings[0];
-    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.0.7' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
+    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.0.8' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
     assert((await ls('lso_ping_day')) === new Date().toISOString().slice(0, 10));
     await openSet();
     await tap('[data-sec=privacy] summary');
