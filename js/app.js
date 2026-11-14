@@ -187,53 +187,66 @@ function renderTemporaryZone(tab) {
     background: 'rgba(11,26,51,0.92)', border: '1px solid #d4af37', borderRadius: '12px',
     padding: '8px 12px', maxHeight: '42vh', overflowY: 'auto', color: '#f7efd4',
     boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-    transition: 'opacity 0.25s, transform 0.25s',
+    transition: 'opacity 0.25s',
     opacity: '1'
   } });
-  const header = h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } },
-    h('strong', { style: { fontSize: '0.9rem' } }, 'Temporar'),
-    h('button', { type: 'button', style: { background: 'none', border: '1px solid #d4af37', color: '#d4af37', borderRadius: '50%', width: '26px', height: '26px', fontSize: '16px', lineHeight: '1' }, onclick: () => {
-      const txt = prompt('Notiță rapidă');
-      if (txt && txt.trim()) {
-        let t = txt.trim();
-        if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
-        createTemporary(t, tab.id, ['read', 'dict', 'rec']);
-        render();
-      }
-    } }, '+')
-  );
+
+  let expanded = false;
+  const listEl = h('div', { style: { display: 'none', marginTop: '6px' } });
+
+  const header = h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
+  const title = h('strong', { style: { fontSize: '0.95rem', flex: 1, cursor: 'pointer' } }, 'Temporar');
+  title.onclick = () => {
+    expanded = !expanded;
+    listEl.style.display = expanded ? 'block' : 'none';
+  };
+  header.append(title);
+
+  // small action icons on the right of title
+  const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
+  ['read', 'dict', 'rec'].forEach(m => {
+    const b = h('button', { type: 'button', title: labels[m], style: {
+      fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
+      border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
+    }, onclick: (e) => {
+      e.stopPropagation();
+      toast(labels[m] + ' (în dezvoltare)');
+    } }, labels[m]);
+    header.append(b);
+  });
+
+  const addBtn = h('button', { type: 'button', style: {
+    background: 'none', border: '1px solid #d4af37', color: '#d4af37',
+    borderRadius: '50%', width: '26px', height: '26px', fontSize: '16px', lineHeight: '1', marginLeft: '4px'
+  }, onclick: (e) => {
+    e.stopPropagation();
+    const txt = prompt('Notiță rapidă');
+    if (txt && txt.trim()) {
+      let t = txt.trim();
+      if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
+      createTemporary(t, tab.id, ['read', 'dict', 'rec']);
+      render();
+    }
+  } }, '+');
+  header.append(addBtn);
   box.append(header);
+
   if (!items.length) {
-    box.append(h('div', { style: { opacity: 0.5, fontSize: '0.85rem', padding: '4px 0' } }, 'Nicio notiță'));
+    listEl.append(h('div', { style: { opacity: 0.5, fontSize: '0.85rem', padding: '4px 0' } }, 'Nicio notiță'));
   } else {
     items.forEach(it => {
       const firstLine = (it.text || '').split('\n')[0] || '(gol)';
-      const modes = it.modes || ['read', 'dict', 'rec'];
-      const row = h('div', { style: { padding: '6px 0', borderBottom: '1px solid rgba(212,175,55,0.2)', display: 'flex', flexDirection: 'column', gap: '4px' } });
-      const top = h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' } },
+      const row = h('div', { style: { padding: '6px 0', borderBottom: '1px solid rgba(212,175,55,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
         h('span', { style: { flex: 1, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, firstLine),
-        h('button', { type: 'button', style: { background: 'none', border: 'none', color: '#d4af37', fontSize: '15px', padding: '0 2px' }, onclick: () => { deleteTemporary(it.id); render(); } }, '✕')
+        h('button', { type: 'button', style: { background: 'none', border: 'none', color: '#d4af37', fontSize: '15px', padding: '0 4px' }, onclick: () => { deleteTemporary(it.id); render(); } }, '✕')
       );
-      row.append(top);
-      const btns = h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } });
-      const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
-      ['read', 'dict', 'rec'].forEach(m => {
-        if (modes.includes(m)) {
-          const b = h('button', { type: 'button', style: { fontSize: '0.75rem', padding: '3px 8px', borderRadius: '10px', border: '1px solid #d4af37', background: 'transparent', color: '#d4af37' }, onclick: () => {
-            if (m === 'read') toast('Citește: ' + firstLine.slice(0, 40));
-            else if (m === 'dict') toast('Dictează (în dezvoltare)');
-            else if (m === 'rec') toast('Înregistrează (în dezvoltare)');
-          } }, labels[m]);
-          btns.append(b);
-        }
-      });
-      if (btns.children.length) row.append(btns);
-      box.append(row);
+      listEl.append(row);
     });
   }
+  box.append(listEl);
   document.body.append(box);
 
-  // auto-hide după 3s
+  // auto-hide după 4s
   let hideTimer = setTimeout(() => { box.style.opacity = '0'; box.style.pointerEvents = 'none'; }, 4000);
   const show = () => {
     clearTimeout(hideTimer);
@@ -243,7 +256,7 @@ function renderTemporaryZone(tab) {
   };
   box.addEventListener('pointerdown', show);
 
-  // reapare la swipe vertical pe ecran
+  // reapare la swipe vertical
   let startY = 0;
   document.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
   document.addEventListener('touchend', e => {
