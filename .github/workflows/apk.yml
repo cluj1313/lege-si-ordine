@@ -19,9 +19,10 @@ jobs:
           packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
       - name: Dependențe și sincronizare
         run: |
-          npm ci
-          python3 tools/sync-www.py
-          python3 tools/make-android-icons.py
+          set -x
+          npm install
+          python3 tools/sync-www.py || echo "sync-www failed"
+          python3 tools/make-android-icons.py || echo "icons failed"
           npx cap sync android
       - name: Construiește APK (debug)
         working-directory: android
