@@ -28,9 +28,17 @@ export function creatorBody() {
   draw();
   const off = onNews(() => { if (!list.isConnected) { off(); return; } draw(); });
   const cb = h('input', { type: 'checkbox', 'data-test': 'news-toggle', checked: newsOn(), onchange: e => setNews(e.target.checked) });
+
+  const sendBtn = h('button', { class: 'btn primary sm', type: 'button', style: { marginTop: '12px' } }, 'Trimite mesaj creatorului');
+  sendBtn.addEventListener('click', async () => {
+    const { openFeedback } = await import('../features/feedback.js');
+    openFeedback();
+  });
+
   return h('div', {},
     h('label', { class: 'fld-check' }, cb, h('span', {}, 'Doresc să primesc mesaje de la creator')),
     h('p', { class: 'r2-meta' }, 'Anunțuri scurte de la creatorul aplicației: noutăți, sfaturi și actualizări. Ștergerea de aici e doar pe acest telefon.'),
+    sendBtn,
     list);
 }
 

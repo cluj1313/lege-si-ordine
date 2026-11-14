@@ -4,7 +4,7 @@ import { t } from '../core/i18n.js';
 import { locksChain } from '../core/store.js';
 import { state, itemsOf, itemsInFolder, countInFolder, dataOf, canView, isOpen, newItem, saveItem, saveTab, unlockTemp, relock, descendants, item as getItem,
   lockWithPin, unlockPermanent, trash, saveUI, saveMeta } from '../core/store.js';
-import { renderList, card, ui, sortByTab } from '../ui/list.js';
+import { renderList, card, ui, sortByTab, sortModeOf } from '../ui/list.js';
 import { pinDlg, promptDlg, sheet, toast, confirmDlg } from '../ui/modal.js';
 import { timeField } from '../ui/datetime.js';
 import { app } from '../ui/registry.js';
@@ -112,6 +112,38 @@ export async function enterFolder(tab, f) {
 function isInside(f, anc) { let x = f; while (x) { if (x.id === anc.id) return true; x = x.folder && getItem(x.folder); } return false; }
 
 export function renderFolders(view, tab) {
+  // Subtaburi Persoane fizice / Firme – cu posibilitate de a ascunde una din Settings
+  const showPF = state.settings.showPF !== false;
+  const showFirme = state.settings.showFirme !== false;
+  const mode = state.ui.folderMode?.[tab.id] || (showPF && showFirme ? 'both' : showPF ? 'pf' : 'firme');
+
+  if (showPF || showFirme) {
+    const sub = h('div', { class: 'row-btns', style: { marginBottom: '8px', justifyContent: 'center' } });
+    if (showPF) sub.append(h('button', { class: 'btn sm' + (mode === 'pf' || mode === 'both' ? ' primary' : ' ghost'), type: 'button', onclick: () => {
+      state.ui.folderMode = { ...state.ui.folderMode, [tab.id]: mode === 'pf' ? 'both' : 'pf' };
+      saveUI(); app.render();
+    } }, 'Persoane fizice'));
+    if (showFirme) sub.append(h('button', { class: 'btn sm' + (mode === 'firme' || mode === 'both' ? ' primary' : ' ghost'), type: 'button', onclick: () => {
+      state.ui.folderMode = { ...state.ui.folderMode, [tab.id]: mode === 'firme' ? 'both' : 'firme' };
+      saveUI(); app.render();
+    } }, 'Firme'));
+    view.append(sub);
+  }
+
+  // Sortare
+  const sortSel = h('select', { class: 'inp', style: { marginBottom: '8px', maxWidth: '220px' }, onchange: async e => {
+    state.ui.sort = { ...state.ui.sort, [tab.id]: e.target.value };
+    await saveUI(); app.render();
+  } },
+    h('option', { value: 'manual' }, 'Manual'),
+    h('option', { value: 'processDate' }, 'Data procesului'),
+    h('option', { value: 'clientName' }, 'Nume client/firmă'),
+    h('option', { value: 'alpha' }, 'Alfabetic'),
+    h('option', { value: 'created' }, 'Data creării')
+  );
+  sortSel.value = sortModeOf(tab.id);
+  view.append(sortSel);
+
   const roots = itemsOf(tab.id, { folder: null, kind: 'folder' }).sort((a, b) => (a.order || 0) - (b.order || 0));
   let cur = currentFolder(tab);
   if (cur && !canView(cur)) cur = null;
@@ -119,7 +151,7 @@ export function renderFolders(view, tab) {
   const rootOf = f => { let x = f; while (x && x.folder) x = getItem(x.folder); return x; };
   const activeRoot = cur ? rootOf(cur) : null;
   const allRoots = roots;
-  view.append(pillRow({
+  const row = pillRow({
     items: allRoots.filter(f => !f.hidden).map(f => ({ id: f.id, name: folderName(f), count: countIn(f), locked: !!f.lock })),
     activeId: activeRoot && activeRoot.id, test: 'folder-row',
     onPick: f => enterFolder(tab, getItem(f.id)),
@@ -130,7 +162,18 @@ export function renderFolders(view, tab) {
       if (activeRoot && activeRoot.hidden) state.ui.folder[tab.id] = null;
     }),
     onItemMenu: f => folderMenu(tab, getItem(f.id)),
-  }));
+  });
+  // Auto-hide
+  if (state.settings.folderBarAutoHide !== false) {
+    row.style.transition = 'opacity 0.3s, transform 0.3s';
+    row.style.opacity = '0.3';
+    let timer;
+    const show = () => { row.style.opacity = '1'; clearTimeout(timer); timer = setTimeout(() => row.style.opacity = '0.3', 2000); };
+    row.addEventListener('pointerenter', show);
+    row.addEventListener('pointerdown', show);
+    document.addEventListener('scroll', show, { passive: true });
+  }
+  view.append(row);
 
   const panel = h('div', { class: 'folder-panel' });
   const crumbs = h('div', { class: 'crumbs' });
@@ -182,10 +225,22 @@ export async function folderMenu(tab, f) {
   if (!canView(f)) return;
   const v = await sheet(folderName(f), [
     { label: t('rename'), value: 'ren', icon: '✎' },
+    { label: 'Etichete 🏷️', value: 'tags', icon: '🏷️' },
     f.lock ? { label: t('unlockPermanent'), value: 'unlock', icon: '🔓' } : { label: t('lockPin'), value: 'lock', icon: '🔒' },
     { label: t('delete'), value: 'del', icon: '🗑', cls: 'danger' },
   ]);
   if (v === 'ren') { const n = await promptDlg(t('rename'), { value: folderName(f) }); if (n) await saveItem(f, { ...dataOf(f), name: n }); }
+  else if (v === 'tags') {
+    const { addTag, removeTag, getTags } = await import('../features/tags.js');
+    const current = getTags(f).join(', ');
+    const input = await promptDlg('Etichete (separate prin virgulă)', { value: current });
+    if (input != null) {
+      getTags(f).forEach(t => removeTag(f, t));
+      input.split(',').map(s => s.trim()).filter(Boolean).forEach(t => addTag(f, t));
+      toast('Etichete salvate');
+      app.render();
+    }
+  }
   else if (v === 'lock') {
     // pentru a cripta conținutul, folderul trebuie să fie accesibil acum
     const pin = await pinDlg(t('lockPin'), { confirm: true }); if (!pin) return;
@@ -212,15 +267,22 @@ export function renderNews(view, tab, results = []) {
   }) }, t('save'))));
   const terms = itemsOf(tab.id, { kind: 'term' }).filter(canView);
   GROUPS.forEach(([g, key], gi) => {
-    const sec = h('section', { class: 'news-sec', 'data-group': g });
-    sec.append(h('h2', {}, t(key)));
     const mine = terms.filter(x => dataOf(x).group === g).sort((a, b) => a.created - b.created);
-    if (!mine.length) sec.append(h('div', { class: 'r2-meta pad' }, t('newsNoTerms')));
+    const hasUpdates = mine.some(it => results.some(r => r.termId === it.id));
+    const count = mine.reduce((n, it) => n + results.filter(r => r.termId === it.id).length, 0);
+
+    const header = h('div', { class: 'news-sec-header', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#fff', borderRadius: '12px', marginBottom: '8px', cursor: 'pointer' } },
+      h('span', {}, t(key)),
+      hasUpdates ? h('span', { style: { background: '#d4af37', color: '#0b1a33', borderRadius: '12px', padding: '2px 8px', fontSize: '0.8rem' } }, String(count)) : null
+    );
+
+    const body = h('div', { class: 'news-sec-body', hidden: true, style: { marginBottom: '12px' } });
+    if (!mine.length) body.append(h('div', { class: 'r2-meta pad' }, t('newsNoTerms')));
     mine.forEach(it => {
       const d = dataOf(it);
       const res = results.filter(r => r.termId === it.id);
       const shareTxt = `${d.text}\n` + (res.length ? res.map(r => `${r.source} • ${fmtDate(r.date)} • ${r.url}`).join('\n') : t('newsNoResultsYet'));
-      sec.append(h('div', { class: 'news-row', 'data-id': it.id },
+      body.append(h('div', { class: 'news-row', 'data-id': it.id },
         h('div', { class: 'nr-term' }, d.text),
         h('div', { class: 'nr-res' }, res.length ? res.map(r => h('a', { class: 'pill src', href: r.url, target: '_blank', rel: 'noopener noreferrer' }, `${r.source} • ${fmtDate(r.date)} ↗`)) : h('span', { class: 'r2-meta' }, t('newsNoResultsYet'))),
         h('div', { class: 'nr-act' },
@@ -229,9 +291,11 @@ export function renderNews(view, tab, results = []) {
           h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': t('delete'), onclick: () => app.deleteItem(it) }, '×'))));
     });
     const inp = h('input', { class: 'inp', type: 'text', placeholder: t('newsAddPh'), enterkeyhint: 'done' });
-    const add = async () => { const v = inp.value.trim(); if (!v) return; await newItem(tab.id, 'term', { group: g, text: v }); toast(t('savedOk')); };
+    const add = async () => { const v = inp.value.trim(); if (!v) return; await newItem(tab.id, 'term', { group: g, text: v }); toast(t('savedOk')); app.render(); };
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
-    sec.append(h('div', { class: 'row-inp add-term' }, inp, h('button', { class: 'btn sm', type: 'button', onclick: e => act(e.currentTarget, add) }, '+')));
-    view.append(sec);
+    body.append(h('div', { class: 'row-inp add-term' }, inp, h('button', { class: 'btn sm', type: 'button', onclick: e => act(e.currentTarget, add) }, '+')));
+
+    header.addEventListener('click', () => { body.hidden = !body.hidden; });
+    view.append(header, body);
   });
 }

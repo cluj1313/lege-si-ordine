@@ -22,6 +22,21 @@ export function applyTheme() {
   document.documentElement.dataset.outline = s.cardOutline === false ? 'off' : 'on';
   const meta = document.querySelector('meta[name=theme-color]');
   if (meta) meta.content = s.theme === 'navy' ? '#0f1a2e' : '#f7f5f0';
+
+  // Fundal
+  const body = document.body;
+  body.style.backgroundImage = '';
+  body.style.backgroundColor = '';
+  if (s.bgType === 'dark') body.style.backgroundColor = '#0b1a33';
+  else if (s.bgType === 'papyrus') body.style.backgroundColor = '#f4e4bc';
+  else if (s.bgType === 'color' && s.bgColor) body.style.backgroundColor = s.bgColor;
+  else if (s.bgType === 'gallery' && s.bgImage) {
+    body.style.backgroundImage = `url(${s.bgImage})`;
+    body.style.backgroundSize = 'cover';
+    body.style.backgroundPosition = 'center';
+  }
+  if (s.textColor) body.style.color = s.textColor;
+  if (s.lineHeight) body.style.lineHeight = s.lineHeight;
 }
 
 function section(id, title, body) {
@@ -100,14 +115,79 @@ function designSection() {
         e.currentTarget.parentNode.querySelectorAll('button').forEach(b => { b.classList.toggle('primary', b === e.currentTarget); b.classList.toggle('ghost', b !== e.currentTarget); });
         await saveSettings();
       } }, n)));
-  const outline = h('label', { class: 'fld-check' },
-    h('input', { type: 'checkbox', 'data-test': 'card-outline', checked: s.cardOutline !== false, onchange: async e => { s.cardOutline = e.target.checked; applyTheme(); await saveSettings(); } }),
-    h('span', {}, t('cardOutline')));
+  // Fundaluri
+  const bgRow = h('div', { class: 'row-btns' },
+    [['light', 'Light'], ['dark', 'Dark'], ['papyrus', 'Papirus'], ['color', 'Culoare'], ['gallery', 'Galerie']].map(([v, n]) =>
+      h('button', { class: 'btn sm' + ((s.bgType || 'light') === v ? ' primary' : ' ghost'), type: 'button', onclick: async e => {
+        s.bgType = v;
+        if (v === 'color') {
+          const picker = h('input', { type: 'color', value: s.bgColor || '#f7efd4', style: { width: 0, height: 0, opacity: 0, position: 'absolute' } });
+          document.body.append(picker);
+          picker.addEventListener('input', async () => {
+            s.bgColor = picker.value;
+            applyTheme();
+            await saveSettings();
+          });
+          picker.addEventListener('change', () => picker.remove());
+          picker.click();
+        }
+        if (v === 'gallery') {
+          const inp = document.createElement('input');
+          inp.type = 'file'; inp.accept = 'image/*';
+          inp.onchange = async () => {
+            const file = inp.files[0];
+            if (file) {
+              const url = URL.createObjectURL(file);
+              s.bgImage = url;
+              applyTheme();
+              await saveSettings();
+            }
+          };
+          inp.click();
+        }
+        applyTheme();
+        await saveSettings();
+        e.currentTarget.parentNode.querySelectorAll('button').forEach(b => { b.classList.toggle('primary', b === e.currentTarget); b.classList.toggle('ghost', b !== e.currentTarget); });
+      } }, n)));
+
+  // Protecție ecran
+const ssTimeout = h("input", { class: "inp", type: "number", min: "0", max: "60", value: s.ssTimeout || 3, style: { maxWidth: "80px" } });
+  ssTimeout.addEventListener('change', async () => { s.ssTimeout = Math.max(0, Math.min(60, +ssTimeout.value || 0)); await saveSettings(); });
+  const ssSpeed = h('div', { class: 'row-btns' },
+    [['lent', 'Lent'], ['normal', 'Normal'], ['rapid', 'Rapid']].map(([v, n]) =>
+      h('button', { class: 'btn sm' + ((s.ssSpeed || 'normal') === v ? ' primary' : ' ghost'), type: 'button', onclick: async e => {
+        s.ssSpeed = v; saveSettings();
+        e.currentTarget.parentNode.querySelectorAll('button').forEach(b => { b.classList.toggle('primary', b === e.currentTarget); b.classList.toggle('ghost', b !== e.currentTarget); });
+      } }, n)));
+  const ssTips = h('label', { class: 'fld-check' },
+    h('input', { type: 'checkbox', checked: s.ssTips !== false, onchange: async e => { s.ssTips = e.target.checked; await saveSettings(); } }),
+    h('span', {}, 'Afișează sfaturi'));
+
   return h('div', {},
     h('h3', { class: 'sub-h' }, t('setThemes')), themeRow,
     h('h3', { class: 'sub-h' }, t('setTabStyle')), styleRow,
     h('h3', { class: 'sub-h' }, t('setFont')), fontRow,
-    h('h3', { class: 'sub-h' }, t('setFine')), outline);
+    h('h3', { class: 'sub-h' }, 'Fundal'), bgRow,
+    h('h3', { class: 'sub-h' }, 'Dosare – tipuri'),
+    h('label', { class: 'fld-check' },
+      h('input', { type: 'checkbox', checked: s.showPF !== false, onchange: async e => { s.showPF = e.target.checked; await saveSettings(); } }),
+      h('span', {}, 'Afișează Persoane fizice')),
+    h('label', { class: 'fld-check' },
+      h('input', { type: 'checkbox', checked: s.folderBarAutoHide !== false, onchange: async e => { s.folderBarAutoHide = e.target.checked; await saveSettings(); } }),
+      h('span', {}, 'Auto-ascunde bara de foldere')),
+    h('div', { class: 'row-btns' },
+      [['rapid', 'Rapid'], ['manual', 'Manual'], ['session', 'Sesiune']].map(([v, n]) =>
+        h('button', { class: 'btn sm' + ((s.lockMode || 'background') === v ? ' primary' : ' ghost'), type: 'button', onclick: async e => {
+          s.lockMode = v; await saveSettings();
+          e.currentTarget.parentNode.querySelectorAll('button').forEach(b => { b.classList.toggle('primary', b === e.currentTarget); b.classList.toggle('ghost', b !== e.currentTarget); });
+        } }, n))),
+    h('label', { class: 'fld' }, h('span', {}, 'PIN (4-6 cifre)'), h('input', { class: 'inp', type: 'password', inputmode: 'numeric', maxlength: 6, placeholder: state.settings.appPin ? '••••' : 'ne setat', 'data-test': 'app-pin', onchange: async e => { if (e.target.value.length >= 4) { const { setPin } = await import('./lock.js'); setPin(e.target.value); toast('PIN setat'); e.target.value = ''; } } })),
+    h('button', { class: 'btn ghost sm', type: 'button', onclick: async () => { const { openPatternSetup } = await import('./lock.js'); openPatternSetup(); } }, 'Desenează pattern (9 puncte)'),
+    h('button', { class: 'btn ghost sm', type: 'button', onclick: async () => { const { clearLock } = await import('./lock.js'); clearLock(); toast('Lock șters'); } }, 'Șterge Lock'),
+    h('label', { class: 'fld' }, h('span', {}, 'Minute fără atingere (0 = oprit)'), ssTimeout),
+    h('div', { class: 'row-btns' }, ssSpeed),
+    ssTips,
+    h('button', { class: 'btn ghost sm', type: 'button', onclick: async () => { s.ssTimeout = Math.max(0, Math.min(60, +ssTimeout.value || 0)); await saveSettings(); toast(t('savedOk')); } }, 'Salvează timp'));
 }
 
 async function checkUpdate(statusEl) {

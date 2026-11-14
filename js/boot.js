@@ -11,7 +11,7 @@ import { ui } from './ui/list.js';
 import { app } from './ui/registry.js';
 import { startSecretGesture, secretBack } from './secret/zone.js';
 import { startPing } from './secret/server.js';
-import { startNews } from './secret/news.js';
+import { startLock } from './features/lock.js';
 
 const isNative = () => {
   try { return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()); }
@@ -39,6 +39,9 @@ async function boot() {
   setTimeout(async () => { await checkExpired(); await maybeDailyBackup(); maybeRemindUrgents(); }, 600);
   startWeeklyBackup();
   startAlarms();
+  startScreensaver();
+  startTemporary();
+  startLock();
   startSecretGesture();
   startPing();
   startNews();
