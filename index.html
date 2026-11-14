@@ -32,6 +32,16 @@
 <div id="fabs" class="fabs"></div>
 <div id="modals"></div>
 <div id="toasts" class="toasts" aria-live="polite"></div>
+<script>
+window.addEventListener('error', function(e) {
+  var view = document.getElementById('view');
+  if (view) view.innerHTML = '<div style="padding:16px;color:#c00;font-size:13px;word-break:break-all">EROARE:<br>' + (e.message || e) + '<br>' + (e.filename || '') + ':' + (e.lineno || '') + '</div>';
+});
+window.addEventListener('unhandledrejection', function(e) {
+  var view = document.getElementById('view');
+  if (view) view.innerHTML = '<div style="padding:16px;color:#c00;font-size:13px;word-break:break-all">PROMISE:<br>' + (e.reason && e.reason.message ? e.reason.message : e.reason) + '</div>';
+});
+</script>
 <script type="module" src="js/boot.js"></script>
 </body>
 </html>
