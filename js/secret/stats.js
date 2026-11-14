@@ -127,7 +127,7 @@ function dash() {
       '<div class="ads">Generează coduri</div>' +
       '<div class="crb" style="justify-content:flex-start">' +
         '<input id="adN" class="adn" type="number" min="1" max="500" value="10" style="width:80px">' +
-        '<select id="adD"><option value="0">Pe viață</option><option value="30">30 zile</option><option value="90">90 zile</option><option value="365">365 zile</option></select>' +
+        '<select id="adD"><option value="0">Pe viață</option><option value="90">3 luni</option><option value="180">6 luni</option><option value="270">9 luni</option><option value="365">1 an</option></select>' +
         '<button type="button" id="adGen">Generează</button>' +
       '</div>' +
       '<div class="ads" data-test="ad-sum">Coduri: ' + codes.length + ' · folosite ' + used + ' · nefolosite ' + (codes.length - used) + '</div>' +

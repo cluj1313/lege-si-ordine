@@ -288,6 +288,15 @@ export function openSettings() {
         toast(t('sampleRemoved')); app.render();
       }) }, t('removeSample')))) : null,
     installBtn,
+    section('share-invite', 'Share / Invitație', h('div', {},
+      h('p', { class: 'r2-meta' }, 'Generează un cod de activare și trimite-l. Valabilitatea se alege mai jos. Codurile se gestionează din Meniul Secret → 📊.'),
+      h('div', { class: 'row-inp', style: { flexWrap: 'wrap', gap: '8px', marginTop: '8px' } },
+        h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(90) }, '3 luni'),
+        h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(180) }, '6 luni'),
+        h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(270) }, '9 luni'),
+        h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(365) }, '1 an')
+      )
+    )),
     section('about', t('setAbout'), h('div', {},
       h('p', {}, `LEGE ȘI ORDINE • ${t('version')} ${APP_VERSION}`),
       h('p', { class: 'r2-meta' }, t('aboutHint')),
@@ -324,4 +333,22 @@ export async function maybeRemindUrgents() {
 
 export function listenInstallPrompt() {
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__lsoInstall = e; });
+}
+
+async function shareInvite(days) {
+  const months = { 90: '3 luni', 180: '6 luni', 270: '9 luni', 365: '1 an' }[days] || days + ' zile';
+  let code = '';
+  try {
+    const tok = sessionStorage.getItem('lso_adtok');
+    if (tok) {
+      const { post } = await import('../secret/server.js');
+      const r = await post('/admin/gen', { n: 1, days }, tok);
+      if (r && r.ok && r.codes && r.codes[0]) code = r.codes[0];
+    }
+  } catch {}
+  const msg = code
+    ? `LEGE ȘI ORDINE – cod de activare Super Class (${months}):\n\n${code}\n\nIntrodu codul în Setări → Ai un cod?`
+    : `LEGE ȘI ORDINE – aplicație pentru avocați.\n\nInvitație valabilă ${months}. Codul de activare se obține de la creator.`;
+  const { shareText } = await import('./share.js');
+  await shareText('LEGE ȘI ORDINE – Invitație', msg);
 }
