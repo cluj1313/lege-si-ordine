@@ -23,6 +23,7 @@ import { app } from '../ui/registry.js';
 
 const R = { on: false, mode: 'audio', live: '', liveOff: false, mr: null, chunks: [], start: 0, timer: null, transcript: '', partial: '', tabId: null, stream: null, busy: false, folder: null };
 export const isRecording = () => R.on;
+export const liveTranscript = () => [R.transcript, R.partial].filter(Boolean).join(" ");
 const TR_KEY = 'lso_rec_transcribe';
 export const transcribeOn = () => { try { return localStorage.getItem(TR_KEY) !== '0'; } catch { return true; } };
 const setTranscribe = on => { try { localStorage.setItem(TR_KEY, on ? '1' : '0'); } catch {} };

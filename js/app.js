@@ -12,7 +12,7 @@ import { confirmDlg, toast, sheet, closeAll, modalsOpen, dropMenu, pinDlg, openM
 import { renderGeneric, renderSaved, renderFolders, renderNews, renderLocked, currentFolder, newFolder, newsResults, renderMO, hasCats, savedSubs } from './tabs/views.js';
 import { curCat, getCats } from './tabs/cats.js';
 import { isoToday } from './core/util.js';
-import { renderRecordings, startRecording, renameRec, archiveRec, recStatus, isRecording, stopRecording, transcribeRec } from './tabs/recordings.js';
+import { renderRecordings, startRecording, renameRec, archiveRec, recStatus, isRecording, stopRecording, transcribeRec, liveTranscript } from './tabs/recordings.js';
 import { openSearch } from './features/search.js';
 import { openTrash } from './features/trash.js';
 import { openSettings, applyTheme } from './features/settings.js';
@@ -233,6 +233,8 @@ function renderTemporaryZone(tab) {
       if (m) m.close();
       render();
     };
+    const dictStartBtn = h('button', { type: 'button', class: 'btn primary', style: { marginTop: '8px' } }, 'Dictează');
+    body.append(dictStartBtn);
     openModal({
       title: 'Dictare temporară',
       body,
@@ -242,21 +244,26 @@ function renderTemporaryZone(tab) {
         { label: 'Salvează în Temporar', cls: 'primary', onClick: finish }
       ]
     });
-    setTimeout(async () => {
+    // Titlu se completează automat din primul rând
+    let titleEdited = false;
+    titleInp.addEventListener('input', () => { titleEdited = true; });
+    const syncTitle = () => {
+      if (titleEdited) return;
+      const first = (ta.value || '').split('\n')[0] || '';
+      titleInp.value = first;
+    };
+    ta.addEventListener('input', syncTitle);
+    // Dictarea pornește DOAR când utilizatorul apasă butonul, după ce zona e deschisă
+    dictStartBtn.onclick = async () => {
+      if (started) return;
       setTarget(ta);
-      await startDictation(ta);
-      started = true;
-      // Auto-fill title from first line while dictating
-      let titleEdited = false;
-      titleInp.addEventListener('input', () => { titleEdited = true; });
-      const syncTitle = () => {
-        if (titleEdited) return;
-        const first = (ta.value || '').split('\n')[0] || '';
-        titleInp.value = first;
-      };
-      ta.addEventListener('input', syncTitle);
-      setTimeout(syncTitle, 100);
-    }, 200);
+      const ok = await startDictation(ta);
+      if (ok) {
+        started = true;
+        dictStartBtn.textContent = 'Dictare activă';
+        dictStartBtn.disabled = true;
+      }
+    };
   } }, 'Dictează');
   header.append(dictBtn);
 
@@ -269,13 +276,11 @@ function renderTemporaryZone(tab) {
     const rec = createTemporary('🎙️ Înregistrare…', tab.id, ['rec']);
     if (!rec) return;
     window._lsoTempRecId = rec.id;
-    const timerEl = h('div', { style: { fontSize: '1.4rem', fontWeight: 600, textAlign: 'center', margin: '8px 0' } }, '0:00');
-    const liveEl = h('div', { style: { fontSize: '0.85rem', minHeight: '3em', opacity: 0.85, marginTop: '6px' } }, 'Apasă înregistrare');
+    const timerEl = h('div', { class: 'rec-timer', style: { fontSize: '1.4rem', fontWeight: 600, textAlign: 'center', margin: '8px 0' } }, '0:00');
+    const liveEl = h('div', { class: 'rec-live', style: { fontSize: '0.9rem', minHeight: '4em', marginTop: '8px', padding: '8px', background: 'var(--card)', borderRadius: '8px', textAlign: 'left' } }, 'Apasă înregistrare');
     const liveCb = h('input', { type: 'checkbox', checked: true });
-    const big = h('button', { type: 'button', style: {
-      width: '72px', height: '72px', borderRadius: '50%', border: '3px solid #c0392b',
-      background: '#c0392b', color: '#fff', fontSize: '28px', display: 'block', margin: '12px auto'
-    } }, '●');
+    const core = h('span', { class: 'rec-core' });
+    const big = h('button', { type: 'button', class: 'rec-big', style: { display: 'block', margin: '12px auto' } }, core);
     let running = false, startTs = 0, tick = null;
     const fmt = s => Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
     const stopRec = async () => {
@@ -289,14 +294,17 @@ function renderTemporaryZone(tab) {
     big.onclick = async () => {
       if (!running) {
         running = true; startTs = Date.now();
-        big.textContent = '■'; big.style.background = '#922b21';
+        big.classList.add('on');
         liveEl.textContent = 'Se înregistrează…';
         if (typeof startRecording === 'function') await startRecording(tab.id);
         tick = setInterval(() => {
           const sec = Math.round((Date.now() - startTs)/1000);
           timerEl.textContent = fmt(sec);
+          // arată textul live dacă există
+          const lt = typeof liveTranscript === 'function' ? liveTranscript() : ''; if (lt) liveEl.textContent = lt;
         }, 500);
       } else {
+        big.classList.remove('on');
         await stopRec();
       }
     };

@@ -224,11 +224,11 @@ async function openItemMenu(it) {
   const current = d ? (K.title ? K.title(d) : d.name || d.text || '') : '';
   const v = await sheet('Acțiuni', [
     { label: 'Redenumește', value: 'ren', icon: '✏️' },
-    { label: d?.pinned ? 'Desfixează' : 'Fixează sus 📌', value: 'pin', icon: '📌' },
+    { label: d?.pinned ? 'Desfixează' : 'Fixează sus', value: 'pin', icon: '📌' },
     { label: 'Alarmă', value: 'alarm', icon: '⏰' },
-    { label: 'Trimite', value: 'share', icon: '↗' },
+    { label: 'Share', value: 'share', icon: '📤' },
     { label: it.lock ? 'Deblochează' : 'Blochează', value: 'lock', icon: '🔒' },
-    { label: 'Etichete 🏷️', value: 'tags', icon: '🏷️' },
+    { label: 'Etichete', value: 'tags', icon: '🏷️' },
     { label: 'Șterge', value: 'del', icon: '🗑', cls: 'danger' }
   ]);
   if (v === 'ren') {
