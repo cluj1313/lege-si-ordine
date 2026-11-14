@@ -202,8 +202,7 @@ function renderTemporaryZone(tab) {
     box.append(h('div', { style: { opacity: 0.5, fontSize: '0.85rem', padding: '4px 0' } }, 'Nicio notiță'));
   } else {
     items.forEach(it => {
-      const firstLine = (it.text || '').split('
-')[0] || '(gol)';
+      const firstLine = (it.text || '').split('\n')[0] || '(gol)';
       const modes = it.modes || ['read'];
       const row = h('div', { style: { padding: '6px 0', borderBottom: '1px solid rgba(212,175,55,0.2)', display: 'flex', flexDirection: 'column', gap: '4px' } });
       const top = h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' } },
