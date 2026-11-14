@@ -178,23 +178,23 @@ export async function deleteItem(it) {
 }
 
 function renderTemporaryZone(tab) {
-  const zone = document.getElementById('temp-zone');
-  if (zone) zone.remove();
-  if (!tab || (tab.kind === 'folders' && currentFolder(tab))) return;
-  const items = listTemporary().filter(it => !it.tab || it.tab === tab.id);
-  const box = h('div', { id: 'temp-zone', style: {
-    position: 'fixed', bottom: '120px', left: '8px', right: '8px',
-    background: 'rgba(11,26,51,0.92)', color: '#f7efd4',
-    maxHeight: '30vh', overflowY: 'auto', borderRadius: '12px',
-    border: '1px solid #d4af37', zIndex: 40, padding: '8px 10px',
+  const old = document.getElementById('temporary-zone');
+  if (old) old.remove();
+  if (!tab) return;
+  const items = listTemporary(tab.id);
+  const box = h('div', { id: 'temporary-zone', style: {
+    position: 'fixed', bottom: '78px', left: '12px', right: '12px', zIndex: 35,
+    background: 'rgba(11,26,51,0.92)', border: '1px solid #d4af37', borderRadius: '12px',
+    padding: '8px 12px', maxHeight: '42vh', overflowY: 'auto', color: '#f7efd4',
     boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-    transition: 'opacity 0.3s, transform 0.3s'
+    transition: 'opacity 0.25s, transform 0.25s',
+    opacity: '1'
   } });
   const header = h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } },
     h('strong', { style: { fontSize: '0.9rem' } }, 'Temporar'),
     h('button', { type: 'button', style: { background: 'none', border: '1px solid #d4af37', color: '#d4af37', borderRadius: '50%', width: '26px', height: '26px', fontSize: '16px', lineHeight: '1' }, onclick: () => {
       const txt = prompt('Notiță rapidă');
-      if (txt && txt.trim()) { createTemporary(txt.trim(), tab.id, ['read']); render(); }
+      if (txt && txt.trim()) { createTemporary(txt.trim(), tab.id, ['read', 'dict', 'rec']); render(); }
     } }, '+')
   );
   box.append(header);
@@ -203,7 +203,7 @@ function renderTemporaryZone(tab) {
   } else {
     items.forEach(it => {
       const firstLine = (it.text || '').split('\n')[0] || '(gol)';
-      const modes = it.modes || ['read'];
+      const modes = it.modes || ['read', 'dict', 'rec'];
       const row = h('div', { style: { padding: '6px 0', borderBottom: '1px solid rgba(212,175,55,0.2)', display: 'flex', flexDirection: 'column', gap: '4px' } });
       const top = h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' } },
         h('span', { style: { flex: 1, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, firstLine),
@@ -217,23 +217,34 @@ function renderTemporaryZone(tab) {
           const b = h('button', { type: 'button', style: { fontSize: '0.75rem', padding: '3px 8px', borderRadius: '10px', border: '1px solid #d4af37', background: 'transparent', color: '#d4af37' }, onclick: () => {
             if (m === 'read') toast('Citește: ' + firstLine.slice(0, 40));
             else if (m === 'dict') toast('Dictează (în dezvoltare)');
-            else toast('Înregistrează (în dezvoltare)');
+            else if (m === 'rec') toast('Înregistrează (în dezvoltare)');
           } }, labels[m]);
           btns.append(b);
         }
       });
-      if (btns.childNodes.length) row.append(btns);
+      if (btns.children.length) row.append(btns);
       box.append(row);
     });
   }
   document.body.append(box);
-  // auto-hide după 3s dacă nu e interacțiune
-  let hidden = false;
-  const hide = () => { if (!hidden) { box.style.opacity = '0'; box.style.pointerEvents = 'none'; hidden = true; } };
-  const show = () => { box.style.opacity = '1'; box.style.pointerEvents = 'auto'; hidden = false; };
-  const t = setTimeout(hide, 3000);
-  box.addEventListener('pointerdown', () => { clearTimeout(t); show(); });
-  box.addEventListener('pointerenter', () => { clearTimeout(t); show(); });
+
+  // auto-hide după 3s
+  let hideTimer = setTimeout(() => { box.style.opacity = '0'; box.style.pointerEvents = 'none'; }, 3000);
+  const show = () => {
+    clearTimeout(hideTimer);
+    box.style.opacity = '1';
+    box.style.pointerEvents = 'auto';
+    hideTimer = setTimeout(() => { box.style.opacity = '0'; box.style.pointerEvents = 'none'; }, 3000);
+  };
+  box.addEventListener('pointerdown', show);
+
+  // reapare la swipe vertical pe ecran
+  let startY = 0;
+  document.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
+  document.addEventListener('touchend', e => {
+    const dy = Math.abs(e.changedTouches[0].clientY - startY);
+    if (dy > 40) show();
+  }, { passive: true });
 }
 
 function renderUrgentClock(tab) {
