@@ -228,6 +228,21 @@ function showDictBubble() {
   bubble = h('div', { class: 'dict-bubble', role: 'status' }, h('span', { class: 'dict-dot' }), h('span', { class: 'dict-txt' }, t('listening')),
     h('button', { class: 'btn sm', type: 'button', onclick: () => stopDictation() }, t('stop')));
   document.body.append(bubble);
+  // Punctuation pill
+  const pill = h('div', { class: 'punct-pill', id: 'punct-pill' },
+    ...['-', '+', ',', '.', 'Enter'].map(p =>
+      h('button', { type: 'button', class: 'punct-btn', onclick: () => {
+        const target = getTarget && getTarget();
+        if (target) insertPunctuation(target, p);
+      } }, p === 'Enter' ? '↵' : p)
+    )
+  );
+  document.body.append(pill);
+}
+
+function removePunctPill() {
+  const p = document.getElementById('punct-pill');
+  if (p) p.remove();
 }
 function setDictTxt(s) { if (bubble) bubble.querySelector('.dict-txt').textContent = s || t('listening'); }
 
@@ -277,6 +292,7 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
     });
   } catch (e) {
     rec = null; if (bubble) { bubble.remove(); bubble = null; }
+  removePunctPill();
     if (!quiet) toast(sttErrMsg((e && e.message) || 'noservice'), 4000);
     return false;
   }
@@ -308,10 +324,12 @@ function startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet }) {
     if (rec === r && r._keep) { try { r.start(); return; } catch {} }
     if (rec === r) rec = null;
     if (bubble) { bubble.remove(); bubble = null; }
+  removePunctPill();
     onEnd && onEnd();
   };
   r._keep = true; rec = r;
-  try { r.start(); } catch (e) { rec = null; if (bubble) { bubble.remove(); bubble = null; } toast(t('dictationMissing')); return false; }
+  try { r.start(); } catch (e) { rec = null; if (bubble) { bubble.remove(); bubble = null; }
+  removePunctPill(); toast(t('dictationMissing')); return false; }
   return true;
 }
 
@@ -327,6 +345,7 @@ export async function stopDictation() {
     const end = r._onEnd;
     rec = null;
     if (bubble) { bubble.remove(); bubble = null; }
+  removePunctPill();
     end && end();
     return;
   }
@@ -334,16 +353,59 @@ export async function stopDictation() {
   try { r.stop(); } catch {}
   rec = null;
   if (bubble) { bubble.remove(); bubble = null; }
+  removePunctPill();
 }
 
-export function insertAtCursor(el, txt) {
+let capitalizeNext = false;
+let pauseTimer = null;
+
+export function insertAtCursor(el, txt, { forceCapital = false } = {}) {
   if (!txt) return;
   const start = el.selectionStart ?? el.value.length, end = el.selectionEnd ?? el.value.length;
-  const before = el.value.slice(0, start);
+  let before = el.value.slice(0, start);
+  // Capitalize if requested or if after sentence end
+  if (forceCapital || capitalizeNext || /[.!?]\s*$/.test(before) || !before.trim()) {
+    txt = txt.charAt(0).toUpperCase() + txt.slice(1);
+    capitalizeNext = false;
+  }
   const sep = before && !/\s$/.test(before) ? ' ' : '';
   const ins = sep + txt;
   el.setRangeText(ins, start, end, 'end');
   el.dispatchEvent(new Event('input', { bubbles: true }));
+  // Reset pause timer
+  clearTimeout(pauseTimer);
+  pauseTimer = setTimeout(() => {
+    if (el && document.activeElement === el) {
+      const v = el.value;
+      if (v && !/[.!?\n]\s*$/.test(v)) {
+        // Auto period on longer pause
+        const pos = el.selectionStart ?? v.length;
+        el.setRangeText('. ', pos, pos, 'end');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        capitalizeNext = true;
+      }
+    }
+  }, 1800);
+}
+
+export function insertPunctuation(el, punct) {
+  if (!el) return;
+  const start = el.selectionStart ?? el.value.length;
+  let ins = punct;
+  if (punct === 'Enter') {
+    ins = '\n';
+    capitalizeNext = true;
+  } else if (punct === '.') {
+    ins = '. ';
+    capitalizeNext = true;
+  } else if (punct === ',') {
+    ins = ', ';
+  } else if (punct === '-' || punct === '+') {
+    ins = ' ' + punct + ' ';
+  }
+  el.setRangeText(ins, start, start, 'end');
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  try { el.focus(); } catch {}
 }
 
 // Transcrierea în timpul înregistrării: pe Android prin transcriere nativă continuă (LsoVoice),

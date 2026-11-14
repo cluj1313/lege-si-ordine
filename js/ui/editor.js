@@ -52,68 +52,36 @@ export async function openEditor(tabId, it = null, opts = {}) {
       el = pf.el;
       getters.push(() => { data[f.k] = pf.get(); return true; });
     } else if (f.type === 'text' || f.type === 'url' || f.type === 'tel' || f.type === 'email') {
-      const inp = h('input', { class: 'inp' + (f.type === 'text' ? ' voice-target' : ''), type: f.type === 'text' ? 'text' : f.type, 'data-k': f.k, autocomplete: 'off', enterkeyhint: 'next' });
+      const inp = h('input', { class: 'inp' + (f.type === 'text' ? ' voice-target' : ''), type: f.type === 'text' ? 'text' : f.type, 'data-k': f.k, autocomplete: 'off', enterkeyhint: 'next', autocapitalize: 'sentences' });
       inp.value = data[f.k] || '';
       inp.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
       const extra = f.type === 'tel' && data[f.k] ? h('a', { class: 'icon-btn sm', href: 'tel:' + data[f.k] }, '📞') : f.type === 'email' && data[f.k] ? h('a', { class: 'icon-btn sm', href: 'mailto:' + data[f.k] }, '✉') : f.type === 'url' && /^https?:/.test(data[f.k] || '') ? h('a', { class: 'icon-btn sm', href: data[f.k], target: '_blank', rel: 'noopener noreferrer' }, '↗') : null;
       el = h('label', { class: 'fld' }, h('span', {}, label), extra ? h('div', { class: 'row-inp' }, inp, extra) : inp);
       getters.push(() => { data[f.k] = inp.value.trim(); return true; });
-    const ocrBtn = h('button', { class: 'btn ghost sm', type: 'button', style: { marginTop: '8px' } }, 'OCR / Scan 📷');
-    ocrBtn.addEventListener('click', async () => {
-      const inp = document.createElement('input');
-      inp.type = 'file'; inp.accept = 'image/*';
-      inp.onchange = async () => {
-        const file = inp.files[0];
-        if (!file) return;
-        toast('OCR local nu e disponibil. Poți folosi Adobe Scan / Google Lens și apoi Share → LEGE ȘI ORDINE.');
-        // fallback: citește text simplu dacă e disponibil
-      };
-      inp.click();
-    });
-    if (f.type === 'textarea') ta.parentNode.append(ocrBtn);
+    } else if (f.type === 'textarea') {
+      const ta = h('textarea', { class: 'inp voice-target', 'data-k': f.k, rows: f.rows || 8, placeholder: f.ph || '', autocapitalize: 'sentences', spellcheck: 'true' });
       ta.value = data[f.k] || '';
-      el = h('label', { class: 'fld' }, h('span', {}, label), ta);
+      // Capitalize first letter if empty on focus
+      ta.addEventListener('focus', () => {
+        if (!ta.value) {
+          // leave empty but ensure next typed char is capital via autocapitalize
+        }
+      });
+      const ocrBtn = h('button', { class: 'btn ghost sm', type: 'button', style: { marginTop: '8px' } }, 'OCR / Scan 📷');
+      ocrBtn.addEventListener('click', async () => {
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.accept = 'image/*';
+        inp.onchange = async () => {
+          const file = inp.files[0];
+          if (!file) return;
+          toast('OCR local nu e disponibil. Poți folosi Adobe Scan / Google Lens și apoi Share → LEGE ȘI ORDINE.');
+        };
+        inp.click();
+      });
+      el = h('label', { class: 'fld' }, h('span', {}, label), ta, ocrBtn);
       getters.push(() => { data[f.k] = ta.value.replace(/\s+$/, ''); return true; });
       if (f.main) setTimeout(() => { if (!it) ta.focus(); }, 120);
     } else if (f.type === 'date') {
-      const df = dateField(data[f.k] || '', { label }); el = df.el;
-      getters.push(() => { if (!df.valid()) { df.inp.classList.add('bad'); toast(t('badDate')); return false; } data[f.k] = df.get(); return true; });
-    } else if (f.type === 'time') {
-      const tf = timeField(data[f.k] || '', { label }); el = tf.el;
-      getters.push(() => { if (!tf.valid()) { tf.inp.classList.add('bad'); toast(t('badTime')); return false; } data[f.k] = tf.get(); return true; });
-    } else if (f.type === 'select') {
-      const cf = choiceField({ value: data[f.k] || '', options: f.options, label, test: 'choice-' + f.k });
-      el = cf.el;
-      getters.push(() => { data[f.k] = cf.get(); return true; });
-    } else if (f.type === 'check') {
-      const cb = h('input', { type: 'checkbox', 'data-k': f.k }); cb.checked = !!data[f.k];
-      el = h('label', { class: 'fld-check' }, cb, h('span', {}, label));
-      getters.push(() => { data[f.k] = cb.checked; return true; });
-    } else if (f.type === 'enum') {
-      let cur = data[f.k] || f.def || '';
-      const pills = h('div', { class: 'stage-pick' });
-      const draw = () => {
-        pills.innerHTML = '';
-        (f.options() || []).forEach(o => {
-          const v = o.value, lab = o.label;
-          pills.append(h('button', { type: 'button', class: 'pill' + (cur === v ? ' sel' : ''), 'data-test': 'enum-' + f.k + '-' + v, onclick: () => { cur = v; dirty = true; draw(); } }, lab));
-        });
-      };
-      draw();
-      el = h('div', { class: 'fld' }, h('span', {}, label), pills);
-      getters.push(() => { data[f.k] = cur; return true; });
-    } else if (f.type === 'stage') {
-      let cur = data[f.k] || '';
-      const pills = h('div', { class: 'stage-pick' });
-      const draw = () => { pills.innerHTML = ''; STAGES.forEach(s => pills.append(h('button', { type: 'button', class: 'pill stage st-' + s + (cur === s ? ' sel' : ''), onclick: () => { cur = s; dirty = true; draw(); } }, stageLabel(s)))); };
-      draw();
-      el = h('div', { class: 'fld' }, h('span', {}, label), pills);
-      getters.push(() => { data[f.k] = cur; return true; });
-    } else if (f.type === 'subtasks') {
-      el = subtasksField(data, label, () => { dirty = true; });
-    } else if (f.type === 'files') {
-      el = filesField(data, label, temp, added, removed, () => { dirty = true; });
-    }
     if (f.half) {
       if (!row) { row = h('div', { class: 'fld-row' }); form.append(row); }
       row.append(el); if (row.children.length >= 2) row = null;

@@ -506,3 +506,32 @@ body.reading .w.past { color: var(--muted); }
 .rd-mirror { position: absolute; z-index: 3; box-sizing: border-box; margin: 0; border-style: solid; border-color: var(--gold-line);
   background: var(--card); color: var(--text); white-space: pre; overflow: hidden; pointer-events: auto; }
 .rd-mirror.ta { white-space: pre-wrap; overflow-wrap: break-word; overflow-y: auto; }
+
+
+/* Punctuation pill for dictation */
+.punct-pill {
+  position: fixed;
+  left: 12px; right: 12px;
+  bottom: calc(160px + env(safe-area-inset-bottom));
+  z-index: 91;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(11,26,51,0.92);
+  border: 1px solid #d4af37;
+  border-radius: 999px;
+  padding: 6px 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+}
+.punct-btn {
+  background: transparent;
+  border: 1px solid #d4af37;
+  color: #f7efd4;
+  border-radius: 999px;
+  min-width: 36px;
+  height: 32px;
+  font-size: 14px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.punct-btn:active { background: rgba(212,175,55,0.25); }
