@@ -13,11 +13,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-      - name: Instalează platforme
-        run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
       - name: Dependențe și sincronizare
         run: |
           npm ci
@@ -30,10 +29,10 @@ jobs:
       - name: Pregătește artefactul
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/LEGE-SI-ORDINE-v1.0.4.apk
-          ls -lh dist/LEGE-SI-ORDINE-v1.0.4.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/LEGE-SI-ORDINE-v3.apk
+          ls -lh dist/LEGE-SI-ORDINE-v3.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LEGE-SI-ORDINE-v1.0.4-apk
-          path: dist/LEGE-SI-ORDINE-v1.0.4.apk
+          name: LEGE-SI-ORDINE-v3-apk
+          path: dist/LEGE-SI-ORDINE-v3.apk
           if-no-files-found: error
