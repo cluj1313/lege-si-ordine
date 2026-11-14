@@ -31,13 +31,20 @@ export function handleBack() {
 }
 
 async function boot() {
-  await load();
-  if (await seedIfNeeded()) { await saveUI(); await load(); }
-  await migrate();
-  applyTheme();
-  listenInstallPrompt();
-  await startApp();
-  document.body.classList.add('ready');
+  try {
+    await load();
+    if (await seedIfNeeded()) { await saveUI(); await load(); }
+    await migrate();
+    applyTheme();
+    listenInstallPrompt();
+    await startApp();
+    document.body.classList.add('ready');
+  } catch (err) {
+    console.error('BOOT ERROR', err);
+    const view = document.getElementById('view');
+    if (view) view.innerHTML = '<div style="padding:20px;color:#c00;font-size:14px">Eroare la pornire:<br><pre>' + (err && err.stack ? err.stack : err) + '</pre></div>';
+    return;
+  }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   setTimeout(async () => { await checkExpired(); await maybeDailyBackup(); maybeRemindUrgents(); }, 600);
   startWeeklyBackup();
