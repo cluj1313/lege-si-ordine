@@ -544,11 +544,16 @@ body.reading .w.past { color: var(--muted); }
 .sh-l { flex: 1; font-size: 16px; font-weight: 600; }
 .sh-box { padding: 8px 4px 12px 8px; display: flex; flex-direction: column; gap: 14px; }
 .sh-box[hidden] { display: none; }
-.sh-opt { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid rgba(0,0,0,.08); }
+ .sh-opt { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid rgba(0,0,0,.08); }
+.sh-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.sh-periods { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.sh-p { padding: 6px 12px; border-radius: 16px; border: 1px solid rgba(0,0,0,.15); background: transparent; font-size: 13px; }
+.sh-p.on { background: #7CB342; color: #fff; border-color: #7CB342; }
+.sh-p:disabled { opacity: .4; cursor: not-allowed; }
 .sh-opt:last-child { border-bottom: 0; }
 .sh-opt-h { font-size: 14px; font-weight: 700; opacity: .9; }
 .sh-tx { font-size: 15px; line-height: 1.45; opacity: .9; margin: 0; }
-.sh-go { width: 44px; height: 44px; border: 0; background: none; color: #7CB342; cursor: pointer; display: flex; align-items: center; justify-content: center; align-self: flex-end; margin-top: -4px; }
+.sh-go { width: 48px; height: 48px; border: 0; background: none; color: #7CB342; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .sh-go svg { display: block; }
 .sparr { width: 20px; height: 20px; display: inline-block; }
 .sparr::after { content: '▾'; font-style: normal; opacity: .6; }
