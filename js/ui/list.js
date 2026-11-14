@@ -265,6 +265,7 @@ async function openItemMenu(it) {
   }
   app.render();
 }
+function row2(it, d, K) {
   if (it.kind === 'task') return taskRow2(it, d);
   if (it.kind === 'law') return lawRow2(it, d);
   if (it.kind === 'rec') return recRow2(it, d);
