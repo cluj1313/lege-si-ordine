@@ -511,27 +511,28 @@ body.reading .w.past { color: var(--muted); }
 /* Punctuation pill for dictation */
 .punct-pill {
   position: fixed;
-  left: 12px; right: 12px;
-  bottom: calc(160px + env(safe-area-inset-bottom));
-  z-index: 91;
+  left: 8px; right: 8px;
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  z-index: 95;
   display: flex;
   justify-content: center;
-  gap: 8px;
-  background: rgba(11,26,51,0.92);
+  gap: 10px;
+  background: rgba(11,26,51,0.96);
   border: 1px solid #d4af37;
   border-radius: 999px;
-  padding: 6px 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+  padding: 10px 16px;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.45);
 }
 .punct-btn {
   background: transparent;
-  border: 1px solid #d4af37;
+  border: 1.5px solid #d4af37;
   color: #f7efd4;
   border-radius: 999px;
-  min-width: 36px;
-  height: 32px;
-  font-size: 14px;
-  padding: 0 10px;
+  min-width: 48px;
+  height: 44px;
+  font-size: 18px;
+  font-weight: 600;
+  padding: 0 14px;
   cursor: pointer;
 }
 .punct-btn:active { background: rgba(212,175,55,0.25); }

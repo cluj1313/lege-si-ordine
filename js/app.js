@@ -233,7 +233,7 @@ function renderTemporaryZone(tab) {
   } }, 'Dictează');
   header.append(dictBtn);
 
-  // Înregistrează: rămâne în Temporar (nu pornește înregistrarea externă)
+  // Înregistrează: pornește exact ca înregistrarea externă, rezultatul rămâne în Temporar
   const recBtn = h('button', { type: 'button', title: 'Înregistrează', style: {
     fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
     border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
@@ -243,9 +243,11 @@ function renderTemporaryZone(tab) {
     if (!rec) return;
     expanded = true;
     listEl.style.display = 'block';
-    toast('Înregistrare pornită în Temporar. Apasă din nou pentru a opri.');
-    // simplu: marchează ca înregistrare activă; la oprire se poate atașa audio mai târziu
-    rec._recording = true;
+    // pornește înregistrarea reală (ca în exterior)
+    if (typeof startRecording === 'function') {
+      await startRecording(tab.id);
+      toast('Înregistrare pornită. Oprește din butonul de microfon.');
+    }
     updateTemporary(rec.id, { text: '🎙️ Înregistrare în curs…' });
     render();
   } }, 'Înregistrează');
@@ -272,13 +274,15 @@ function renderTemporaryZone(tab) {
     listEl.append(h('div', { style: { opacity: 0.5, fontSize: '0.85rem', padding: '6px 0' } }, 'Nicio notiță temporară'));
   } else {
     items.forEach(it => {
-      const firstLine = (it.text || '').split('\n')[0] || '(gol)';
+      const lines = (it.text || '').split('\n');
+      const title = lines[0] || '(gol)';
+      const rest = lines.slice(1).join('\n');
       const row = h('div', { style: {
         padding: '8px 4px', borderBottom: '1px solid rgba(212,175,55,0.25)',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer'
       } });
       const left = h('div', { style: { flex: 1, minWidth: 0 } });
-      const textSpan = h('div', { style: { fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, firstLine);
+      const textSpan = h('div', { style: { fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 } }, title);
       left.append(textSpan);
       if (it.modes && it.modes.length) {
         const modeLabel = it.modes.map(m => labels[m] || m).join(' · ');
@@ -295,15 +299,14 @@ function renderTemporaryZone(tab) {
       } }, '✕');
       row.append(delBtn);
 
-      // click pe rând → deschide toată notița (nu doar prima linie)
+      // click pe rând → deschide restul textului (titlul rămâne vizibil)
       let fullOpen = false;
-      const fullText = h('div', { style: { display: 'none', fontSize: '0.85rem', marginTop: '4px', whiteSpace: 'pre-wrap', opacity: 0.9 } }, it.text || '');
+      const fullText = h('div', { style: { display: 'none', fontSize: '0.85rem', marginTop: '4px', whiteSpace: 'pre-wrap', opacity: 0.9 } }, rest || '');
       left.append(fullText);
       row.onclick = async (e) => {
         if (e.target === delBtn) return;
-        if (!fullOpen) {
+        if (!fullOpen && rest) {
           fullOpen = true;
-          textSpan.style.display = 'none';
           fullText.style.display = 'block';
           return;
         }
@@ -363,34 +366,55 @@ function renderTemporaryZone(tab) {
 function renderUrgentClock(tab) {
   const old = document.getElementById('urgent-clock');
   if (old) old.remove();
-  if (!tab || tab.name !== 'Urgențe') return;
-  const pos = JSON.parse(localStorage.getItem('lso_clock_pos') || '{"bottom":"160","right":"16"}');
-  const clk = h('button', { id: 'urgent-clock', type: 'button', style: {
-    position: 'fixed', bottom: pos.bottom + 'px', right: pos.right + 'px',
-    background: 'rgba(11,26,51,0.92)', color: '#d4af37', border: '1px solid #d4af37',
-    borderRadius: '12px', padding: '6px 10px', fontFamily: 'Cinzel, serif', fontSize: '1rem',
-    zIndex: 40, touchAction: 'none', cursor: 'grab'
-  } }, new Date().toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' }));
+  // Ceasul apare pe toate taburile
+  const pos = JSON.parse(localStorage.getItem('lso_clock_pos') || '{"top":"72","right":"12"}');
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+  // următoarea alarmă (simplu, din localStorage sau items)
+  let nextAlarm = '';
+  try {
+    const alarms = JSON.parse(localStorage.getItem('lso_alarms') || '[]');
+    const future = alarms.filter(a => a && a.time).sort((a, b) => a.time.localeCompare(b.time));
+    if (future.length) nextAlarm = future[0].time;
+  } catch {}
+  const clk = h('div', { id: 'urgent-clock', style: {
+    position: 'fixed', top: (pos.top || 72) + 'px', right: (pos.right || 12) + 'px',
+    background: 'rgba(11,26,51,0.94)', color: '#d4af37', border: '1px solid #d4af37',
+    borderRadius: '14px', padding: '6px 12px', fontFamily: 'Cinzel, serif',
+    zIndex: 50, touchAction: 'none', cursor: 'grab', textAlign: 'center', minWidth: '72px'
+  } });
+  clk.append(h('div', { style: { fontSize: '1.15rem', fontWeight: 600, lineHeight: 1.1 } }, timeStr));
+  if (nextAlarm) {
+    clk.append(h('div', { style: { fontSize: '0.65rem', opacity: 0.75, marginTop: '2px' } }, '⏰ ' + nextAlarm));
+  } else {
+    clk.append(h('div', { style: { fontSize: '0.6rem', opacity: 0.5, marginTop: '2px' } }, 'fără alarmă'));
+  }
   let drag = null;
-  clk.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, b: parseInt(clk.style.bottom), r: parseInt(clk.style.right) }; clk.setPointerCapture(e.pointerId); });
+  clk.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, t: parseInt(clk.style.top), r: parseInt(clk.style.right) }; clk.setPointerCapture(e.pointerId); });
   clk.addEventListener('pointermove', e => {
     if (!drag) return;
-    const dy = drag.y - e.clientY, dx = drag.x - e.clientX;
-    clk.style.bottom = Math.max(80, drag.b + dy) + 'px';
-    clk.style.right = Math.max(8, drag.r + dx) + 'px';
+    const dy = e.clientY - drag.y, dx = drag.x - e.clientX;
+    clk.style.top = Math.max(48, drag.t + dy) + 'px';
+    clk.style.right = Math.max(4, drag.r + dx) + 'px';
   });
   clk.addEventListener('pointerup', e => {
     if (!drag) return;
-    localStorage.setItem('lso_clock_pos', JSON.stringify({ bottom: parseInt(clk.style.bottom), right: parseInt(clk.style.right) }));
+    localStorage.setItem('lso_clock_pos', JSON.stringify({ top: parseInt(clk.style.top), right: parseInt(clk.style.right) }));
     drag = null;
   });
   clk.addEventListener('click', () => {
     if (drag) return;
-    const t = prompt('Setează alarmă (HH:MM)', '09:00');
-    if (t && /^\d{1,2}:\d{2}$/.test(t)) toast('Alarmă setată la ' + t);
+    const t = prompt('Setează alarmă (HH:MM)', nextAlarm || '09:00');
+    if (t && /^\d{1,2}:\d{2}$/.test(t)) {
+      const alarms = JSON.parse(localStorage.getItem('lso_alarms') || '[]');
+      alarms.push({ time: t, id: Date.now() });
+      localStorage.setItem('lso_alarms', JSON.stringify(alarms));
+      toast('Alarmă setată la ' + t);
+      renderUrgentClock(tab);
+    }
   });
   document.body.append(clk);
-  setTimeout(() => renderUrgentClock(tab), 60000);
+  setTimeout(() => renderUrgentClock(tab), 30000);
 }
 
 // ---- FAB-uri: „+” (adaugă) și butonul de voce jos-dreapta ----

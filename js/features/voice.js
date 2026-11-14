@@ -392,7 +392,8 @@ export function insertPunctuation(el, punct) {
   if (!el) return;
   const start = el.selectionStart ?? el.value.length;
   let ins = punct;
-  if (punct === 'Enter') {
+  const isEnter = punct === 'Enter';
+  if (isEnter) {
     ins = '\n';
     capitalizeNext = true;
   } else if (punct === '.') {
@@ -405,7 +406,12 @@ export function insertPunctuation(el, punct) {
   }
   el.setRangeText(ins, start, start, 'end');
   el.dispatchEvent(new Event('input', { bubbles: true }));
-  try { el.focus(); } catch {}
+  // Enter nu deschide tastatura; doar inserează linie nouă
+  if (!isEnter) {
+    try { el.focus(); } catch {}
+  } else {
+    try { el.blur(); } catch {}
+  }
 }
 
 // Transcrierea în timpul înregistrării: pe Android prin transcriere nativă continuă (LsoVoice),
