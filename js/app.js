@@ -132,6 +132,7 @@ function enableSwipeTabs() {
     }
   }, { passive: true });
 }
+function goTab(id, keepScroll) {
   const prev = currentTab();
   if (prev) state.ui.scroll[prev.id] = Math.round(window.scrollY);
   const next = id ? tabById(id) : visibleTabs()[0];
