@@ -24,7 +24,7 @@ export function startTemporary() {
 }
 
 function persist() {
-  persist();
+  localStorage.setItem(KEY, JSON.stringify(temps));
   db.kvSet('temp_notes', temps).catch(() => {});
 }
 
