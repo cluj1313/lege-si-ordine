@@ -2,9 +2,9 @@
 import { load, state, saveUI, APP_VERSION } from './core/store.js';
 import { seedIfNeeded, migrate } from './core/seed.js';
 import { applyTheme, maybeRemindUrgents, listenInstallPrompt } from './features/settings.js';
-import { startApp } from './app.js';
+import { startApp, render } from './app.js';
 import { checkExpired } from './features/trash.js';
-import { maybeDailyBackup, startWeeklyBackup } from './features/backup.js';
+import { maybeDailyBackup, startWeeklyBackup, startBackgroundBackup } from './features/backup.js';
 import { startAlarms } from './features/alarms.js';
 import { topModal } from './ui/modal.js';
 import { ui } from './ui/list.js';
@@ -45,12 +45,18 @@ async function boot() {
     if (view) view.innerHTML = '<div style="padding:20px;color:#c00;font-size:14px">Eroare la pornire:<br><pre>' + (err && err.stack ? err.stack : err) + '</pre></div>';
     return;
   }
+  startTemporary(); // încarcă Temporar înainte de primul render
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  setTimeout(async () => { await checkExpired(); await maybeDailyBackup(); maybeRemindUrgents(); }, 600);
+  setTimeout(async () => {
+    await checkExpired();
+    await maybeDailyBackup();
+    maybeRemindUrgents();
+    if (typeof render === 'function') render();
+  }, 200);
   startWeeklyBackup();
+  startBackgroundBackup();
   startAlarms();
   startScreensaver();
-  startTemporary();
   startLock();
   startSecretGesture();
   startPing();
@@ -58,7 +64,7 @@ async function boot() {
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !isNative()) {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
   }
-  window.LSO = { version: APP_VERSION, state, handleBack };
+  window.LSO = { version: APP_VERSION, state, handleBack, render };
 }
 boot().catch(e => {
   console.error(e);

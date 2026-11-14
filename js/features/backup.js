@@ -22,11 +22,17 @@ const sharePlugin = () => cap()?.Plugins?.Share || null;
 // serverului (lso_crsec, lso_crtok, lso_adpw, lso_adtok, lso_iid, lso_newsBox etc.) stau în localStorage/sessionStorage
 // și NU intră niciodată în backup.
 async function rawSnapshot() {
+  let tempNotes = [];
+  try {
+    const raw = localStorage.getItem('lso_temp_notes');
+    tempNotes = raw ? JSON.parse(raw) : [];
+  } catch {}
   return {
     app: 'lege-si-ordine', format: 1, version: APP_VERSION, created: Date.now(),
     settings: await db.kvGet('settings', {}), ui: await db.kvGet('ui', {}),
     kv: { news_results: await db.kvGet('news_results', []), seeded: await db.kvGet('seeded', false) },
     tabs: await db.all(S.tabs), items: await db.all(S.items), media: await db.all(S.media),
+    tempNotes,
   };
 }
 export const dataHash = snap => {
@@ -45,6 +51,9 @@ async function restoreRaw(snap) {
   await db.kvSet('settings', { ...(snap.settings || {}), lastAutoBackup: state.settings.lastAutoBackup });
   await db.kvSet('ui', snap.ui || {});
   if (snap.kv) { await db.kvSet('news_results', snap.kv.news_results || []); await db.kvSet('seeded', true); }
+  if (snap.tempNotes && Array.isArray(snap.tempNotes)) {
+    try { localStorage.setItem('lso_temp_notes', JSON.stringify(snap.tempNotes)); } catch {}
+  }
 }
 
 function backupName(prefix = 'backup') {
@@ -100,8 +109,33 @@ export async function autoBackup(reason = 'auto', force = false) {
 }
 export async function maybeDailyBackup() {
   const versionChanged = state.settings.version !== APP_VERSION;
-  if (versionChanged) { await autoBackup('update', true); state.settings.version = APP_VERSION; await saveSettings(); return; }
+  if (versionChanged) {
+    // Înainte de a marca versiunea nouă, restaurăm Temporar din ultimul backup dacă lipsește
+    try {
+      const raw = localStorage.getItem('lso_temp_notes');
+      const current = raw ? JSON.parse(raw) : [];
+      if (!current.length) {
+        const all = (await db.all(S.backups)).filter(b => b.snap && b.snap.tempNotes && b.snap.tempNotes.length);
+        if (all.length) {
+          const latest = all.sort((a, b) => b.created - a.created)[0];
+          localStorage.setItem('lso_temp_notes', JSON.stringify(latest.snap.tempNotes));
+        }
+      }
+    } catch {}
+    await autoBackup('update', true);
+    state.settings.version = APP_VERSION;
+    await saveSettings();
+    return;
+  }
   if (Date.now() - (state.settings.lastAutoBackup || 0) > 20 * 3600000) await autoBackup('auto');
+}
+
+// Backup rapid când aplicația trece în background (aproape de update / închidere)
+export function startBackgroundBackup() {
+  const doBackup = () => { autoBackup('background', false).catch(() => {}); };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) doBackup(); });
+  window.addEventListener('pagehide', doBackup);
+  window.addEventListener('beforeunload', doBackup);
 }
 export async function listInternal() {
   return (await db.all(S.backups)).filter(b => b.kind !== 'manual').sort((a, b) => b.created - a.created);
