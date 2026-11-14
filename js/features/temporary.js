@@ -2,6 +2,7 @@ import { db, S } from '../core/db.js';
 
 const KEY = 'lso_temp_notes';
 let temps = [];
+let hideTimer = null;
 
 export function startTemporary() {
   try {
@@ -14,11 +15,12 @@ export function listTemporary() {
   return temps.slice();
 }
 
-export function createTemporary(text, tabId) {
+export function createTemporary(text, tabId, modes) {
   const rec = {
     id: 'temp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
     text: String(text || '').trim(),
     tab: tabId || null,
+    modes: modes || ['read'],
     created: Date.now()
   };
   if (!rec.text) return null;
@@ -32,10 +34,19 @@ export function deleteTemporary(id) {
   localStorage.setItem(KEY, JSON.stringify(temps));
 }
 
-export function updateTemporary(id, text) {
+export function updateTemporary(id, patch) {
   const t = temps.find(x => x.id === id);
   if (t) {
-    t.text = String(text || '').trim();
+    Object.assign(t, patch);
     localStorage.setItem(KEY, JSON.stringify(temps));
   }
+}
+
+export function scheduleHide(callback, ms = 2500) {
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(callback, ms);
+}
+
+export function cancelHide() {
+  clearTimeout(hideTimer);
 }
