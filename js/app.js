@@ -247,18 +247,20 @@ function renderTemporaryZone(tab) {
       await startDictation(ta);
       started = true;
       // Auto-fill title from first line while dictating
+      let titleEdited = false;
+      titleInp.addEventListener('input', () => { titleEdited = true; });
       const syncTitle = () => {
-        if (!titleInp.value) {
-          const first = (ta.value || '').split('\n')[0] || '';
-          if (first) titleInp.value = first;
-        }
+        if (titleEdited) return;
+        const first = (ta.value || '').split('\n')[0] || '';
+        titleInp.value = first;
       };
       ta.addEventListener('input', syncTitle);
+      setTimeout(syncTitle, 100);
     }, 200);
   } }, 'Dictează');
   header.append(dictBtn);
 
-  // Înregistrează: pornește exact ca înregistrarea externă, rezultatul rămâne în Temporar
+  // Înregistrează: card complet (timer + bifă transcriere) în Temporar
   const recBtn = h('button', { type: 'button', title: 'Înregistrează', style: {
     fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
     border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
@@ -266,27 +268,54 @@ function renderTemporaryZone(tab) {
     e.stopPropagation();
     const rec = createTemporary('🎙️ Înregistrare…', tab.id, ['rec']);
     if (!rec) return;
-    expanded = true;
-    listEl.style.display = 'block';
     window._lsoTempRecId = rec.id;
-    if (typeof startRecording === 'function') {
-      await startRecording(tab.id);
-      toast('Înregistrare pornită. Oprește din butonul de microfon.');
-    }
-    updateTemporary(rec.id, { text: '🎙️ Înregistrare în curs…' });
-    // Arată status live în zona Temporar
-    const status = h('div', { id: 'temp-rec-status', style: { fontSize: '0.8rem', opacity: 0.85, marginTop: '4px' } }, '● Înregistrare…');
-    listEl.prepend(status);
-    const tick = setInterval(() => {
-      if (!window._lsoTempRecId) { clearInterval(tick); return; }
-      const el = document.getElementById('temp-rec-status');
-      if (el) {
-        const sec = Math.round((Date.now() - (window._lsoRecStart || Date.now())) / 1000);
-        el.textContent = '● Înregistrare… ' + sec + 's';
+    const timerEl = h('div', { style: { fontSize: '1.4rem', fontWeight: 600, textAlign: 'center', margin: '8px 0' } }, '0:00');
+    const liveEl = h('div', { style: { fontSize: '0.85rem', minHeight: '3em', opacity: 0.85, marginTop: '6px' } }, 'Apasă înregistrare');
+    const liveCb = h('input', { type: 'checkbox', checked: true });
+    const big = h('button', { type: 'button', style: {
+      width: '72px', height: '72px', borderRadius: '50%', border: '3px solid #c0392b',
+      background: '#c0392b', color: '#fff', fontSize: '28px', display: 'block', margin: '12px auto'
+    } }, '●');
+    let running = false, startTs = 0, tick = null;
+    const fmt = s => Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+    const stopRec = async () => {
+      running = false;
+      if (tick) clearInterval(tick);
+      big.textContent = '●';
+      big.style.background = '#c0392b';
+      if (typeof stopRecording === 'function') await stopRecording();
+      window._lsoTempRecId = null;
+    };
+    big.onclick = async () => {
+      if (!running) {
+        running = true; startTs = Date.now();
+        big.textContent = '■'; big.style.background = '#922b21';
+        liveEl.textContent = 'Se înregistrează…';
+        if (typeof startRecording === 'function') await startRecording(tab.id);
+        tick = setInterval(() => {
+          const sec = Math.round((Date.now() - startTs)/1000);
+          timerEl.textContent = fmt(sec);
+        }, 500);
+      } else {
+        await stopRec();
       }
-    }, 1000);
-    window._lsoRecStart = Date.now();
-    render();
+    };
+    const body = h('div', { style: { textAlign: 'center' } },
+      big,
+      timerEl,
+      h('label', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', margin: '8px 0' } },
+        liveCb, h('span', {}, 'Transcriere live')),
+      liveEl
+    );
+    openModal({
+      title: 'Înregistrare temporară',
+      body,
+      dismissable: false,
+      actions: [
+        { label: 'Renunță', cls: 'ghost', onClick: async m => { if (running) await stopRec(); deleteTemporary(rec.id); m.close(); render(); } },
+        { label: 'Salvează în Temporar', cls: 'primary', onClick: async m => { if (running) await stopRec(); m.close(); render(); } }
+      ]
+    });
   } }, 'Înregistrează');
   header.append(recBtn);
 
@@ -402,13 +431,22 @@ function renderTemporaryZone(tab) {
         if (action === 'read') {
           if (it.text) await readScreenAloud(it.text);
         } else if (action === 'edit') {
-          const newText = prompt('Editează notița', it.text || '');
-          if (newText != null) {
-            let t = newText.trim();
-            if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
-            updateTemporary(it.id, { text: t });
-            render();
-          }
+          const ta = h('textarea', { class: 'inp', rows: 8, style: { width: '100%' } });
+          ta.value = it.text || '';
+          openModal({
+            title: 'Editează notița',
+            body: h('div', {}, h('label', { class: 'fld' }, h('span', {}, 'Text'), ta)),
+            actions: [
+              { label: 'Renunță', cls: 'ghost', onClick: m => m.close() },
+              { label: 'Salvează', cls: 'primary', onClick: m => {
+                let t = (ta.value || '').trim();
+                if (t && /[a-zăîâșț]/.test(t[0]) && t[0] === t[0].toLowerCase()) t = t[0].toUpperCase() + t.slice(1);
+                updateTemporary(it.id, { text: t });
+                m.close();
+                render();
+              }}
+            ]
+          });
         } else if (action === 'copy') {
           await copyText(it.text || '');
         } else if (action === 'share') {
