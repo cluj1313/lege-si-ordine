@@ -243,7 +243,8 @@ function renderTemporaryZone(tab) {
     if (!rec) return;
     expanded = true;
     listEl.style.display = 'block';
-    // pornește înregistrarea reală (ca în exterior)
+    // pornește înregistrarea reală și o leagă de notița temporară
+    window._lsoTempRecId = rec.id;
     if (typeof startRecording === 'function') {
       await startRecording(tab.id);
       toast('Înregistrare pornită. Oprește din butonul de microfon.');
@@ -303,6 +304,51 @@ function renderTemporaryZone(tab) {
       let fullOpen = false;
       const fullText = h('div', { style: { display: 'none', fontSize: '0.85rem', marginTop: '4px', whiteSpace: 'pre-wrap', opacity: 0.9 } }, rest || '');
       left.append(fullText);
+      // dacă e înregistrare, arată player + durată + share
+      if (it.mid) {
+        const playerWrap = h('div', { style: { display: 'none', marginTop: '6px' } });
+        const audio = h('audio', { controls: true, style: { width: '100%', height: '32px' }, preload: 'none' });
+        audio.src = ''; // se va încărca la cerere
+        const loadAudio = async () => {
+          if (audio.src) return;
+          try {
+            const { getMedia } = await import('./core/store.js');
+            const m = await getMedia(it.mid);
+            if (m && m.blob) audio.src = URL.createObjectURL(m.blob);
+          } catch {}
+        };
+        const dur = it.duration ? Math.round(it.duration) + 's' : '';
+        const info = h('div', { style: { fontSize: '0.75rem', opacity: 0.8, marginTop: '2px' } }, '🎙️ ' + dur + (it.transcript ? ' · ' + it.transcript.slice(0, 60) + (it.transcript.length > 60 ? '…' : '') : ''));
+        const shareBtn = h('button', { type: 'button', style: {
+          fontSize: '0.7rem', padding: '2px 8px', borderRadius: '8px',
+          border: '1px solid #d4af37', background: 'transparent', color: '#d4af37', marginTop: '4px'
+        }, onclick: async (e) => {
+          e.stopPropagation();
+          try {
+            const { getMedia } = await import('./core/store.js');
+            const m = await getMedia(it.mid);
+            if (m && m.blob && navigator.share) {
+              const file = new File([m.blob], 'inregistrare.m4a', { type: m.mime || 'audio/mp4' });
+              await navigator.share({ files: [file], title: it.text || 'Înregistrare' });
+            } else toast('Share nu este disponibil');
+          } catch {}
+        } }, 'Share');
+        playerWrap.append(audio, info, shareBtn);
+        left.append(playerWrap);
+        // deschide playerul la expand
+        const origClick = row.onclick;
+        row.onclick = async (e) => {
+          if (e.target === delBtn) return;
+          if (!fullOpen) {
+            fullOpen = true;
+            fullText.style.display = 'block';
+            playerWrap.style.display = 'block';
+            loadAudio();
+            return;
+          }
+          if (origClick) origClick(e);
+        };
+      }
       row.onclick = async (e) => {
         if (e.target === delBtn) return;
         if (!fullOpen && rest) {
@@ -404,18 +450,63 @@ function renderUrgentClock(tab) {
   });
   clk.addEventListener('click', () => {
     if (drag) return;
-    const t = prompt('Setează alarmă (HH:MM)', nextAlarm || '09:00');
-    if (t && /^\d{1,2}:\d{2}$/.test(t)) {
-      const alarms = JSON.parse(localStorage.getItem('lso_alarms') || '[]');
-      alarms.push({ time: t, id: Date.now() });
-      localStorage.setItem('lso_alarms', JSON.stringify(alarms));
-      toast('Alarmă setată la ' + t);
-      renderUrgentClock(tab);
-    }
+    const raw = prompt('Setează alarmă (ex: 9, 0900, 9.30, 14 15)', nextAlarm || '09:00');
+    if (!raw) return;
+    const norm = normalizeAlarm(raw);
+    if (!norm) { toast('Format invalid. Încearcă 0900 sau 9.30'); return; }
+    const alarms = JSON.parse(localStorage.getItem('lso_alarms') || '[]');
+    alarms.push({ time: norm, id: Date.now(), fired: false });
+    localStorage.setItem('lso_alarms', JSON.stringify(alarms));
+    toast('Alarmă setată la ' + norm);
+    renderUrgentClock(tab);
   });
   document.body.append(clk);
   setTimeout(() => renderUrgentClock(tab), 30000);
 }
+
+function normalizeAlarm(raw) {
+  const s = String(raw || '').trim().replace(/[.,\s]/g, '');
+  if (!s) return null;
+  let h, m;
+  if (/^\d{3,4}$/.test(s)) {
+    if (s.length === 3) { h = s.slice(0,1); m = s.slice(1); }
+    else { h = s.slice(0,2); m = s.slice(2); }
+  } else if (/^\d{1,2}:\d{2}$/.test(raw)) {
+    [h, m] = raw.split(':');
+  } else return null;
+  h = parseInt(h, 10); m = parseInt(m, 10);
+  if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
+// Checker de alarmă – rulează la fiecare 10s
+setInterval(() => {
+  try {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const cur = hh + ':' + mm;
+    const alarms = JSON.parse(localStorage.getItem('lso_alarms') || '[]');
+    let changed = false;
+    for (const a of alarms) {
+      if (a && a.time === cur && !a.fired) {
+        a.fired = true;
+        changed = true;
+        toast('⏰ ALARMĂ: ' + a.time, 8000);
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]); } catch {}
+        // sunet simplu
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const o = ctx.createOscillator(); const g = ctx.createGain();
+          o.connect(g); g.connect(ctx.destination);
+          o.frequency.value = 880; g.gain.value = 0.3;
+          o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 600);
+        } catch {}
+      }
+    }
+    if (changed) localStorage.setItem('lso_alarms', JSON.stringify(alarms));
+  } catch {}
+}, 10000);
 
 // ---- FAB-uri: „+” (adaugă) și butonul de voce jos-dreapta ----
 function renderFab(tab) {

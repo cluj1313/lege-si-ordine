@@ -179,9 +179,25 @@ export async function stopRecording() {
     const status = folder ? recArchivedStatus() : (recStatuses()[0] || '');
     const data = { name: '', duration, mid, mime, transcript: R.transcript.trim(), at: R.start, status };
     if (pendingFile) data.pendingFile = pendingFile;
+    // dacă vine din Temporar, atașează datele la notiță
+    if (window._lsoTempRecId) {
+      try {
+        const { updateTemporary } = await import('../features/temporary.js');
+        updateTemporary(window._lsoTempRecId, {
+          text: (data.transcript || 'Înregistrare').split('\n')[0] || 'Înregistrare',
+          duration: data.duration,
+          mid: data.mid,
+          mime: data.mime,
+          transcript: data.transcript,
+          rec: true
+        });
+        window._lsoTempRecId = null;
+        toast('Înregistrare salvată în Temporar');
+      } catch (e) { console.error(e); }
+    }
     await newItem(R.tabId, 'rec', data, { folder });
     for (const x of extra) await newItem(R.tabId, 'rec', { name: t('recPart2'), duration: x.duration || 0, mid: x.mid, mime: x.mime, transcript: '', at: R.start + 1, status }, { folder });
-    toast(pendingFile ? t('recSavedPending') : t('recSaved'), pendingFile ? 4000 : 2400);
+    if (!window._lsoTempRecId) toast(pendingFile ? t('recSavedPending') : t('recSaved'), pendingFile ? 4000 : 2400);
   } catch (e) { console.error(e); toast(t('recSaveFail'), 4000); }
   R.busy = false;
   app.render();

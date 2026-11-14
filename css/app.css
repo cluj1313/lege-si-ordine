@@ -512,7 +512,7 @@ body.reading .w.past { color: var(--muted); }
 .punct-pill {
   position: fixed;
   left: 8px; right: 8px;
-  bottom: calc(70px + env(safe-area-inset-bottom));
+  bottom: calc(56px + env(safe-area-inset-bottom));
   z-index: 95;
   display: flex;
   justify-content: center;

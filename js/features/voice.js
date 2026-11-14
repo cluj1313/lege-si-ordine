@@ -406,12 +406,10 @@ export function insertPunctuation(el, punct) {
   }
   el.setRangeText(ins, start, start, 'end');
   el.dispatchEvent(new Event('input', { bubbles: true }));
-  // Enter nu deschide tastatura; doar inserează linie nouă
-  if (!isEnter) {
-    try { el.focus(); } catch {}
-  } else {
-    try { el.blur(); } catch {}
-  }
+  // Niciodată nu deschidem tastatura din bara de punctuație
+  try { el.blur(); } catch {}
+  // prevenim focus accidental
+  setTimeout(() => { try { el.blur(); } catch {} }, 50);
 }
 
 // Transcrierea în timpul înregistrării: pe Android prin transcriere nativă continuă (LsoVoice),
