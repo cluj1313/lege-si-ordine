@@ -242,8 +242,7 @@ function renderTemporaryZone(tab) {
     listEl.append(h('div', { style: { opacity: 0.5, fontSize: '0.85rem', padding: '6px 0' } }, 'Nicio notiță temporară'));
   } else {
     items.forEach(it => {
-      const firstLine = (it.text || '').split('
-')[0] || '(gol)';
+      const firstLine = (it.text || '').split('\n')[0] || '(gol)';
       const row = h('div', { style: {
         padding: '8px 4px', borderBottom: '1px solid rgba(212,175,55,0.25)',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer'
