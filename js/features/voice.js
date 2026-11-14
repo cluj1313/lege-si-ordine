@@ -261,28 +261,42 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
   if (!(await nativeStt.ensurePermission())) { if (!quiet) toast(t('micDenied'), 4000); return false; }
 
   if (!quiet) showDictBubble();
-  rec = { kind: 'native', _keep: true };
+  rec = { kind: 'native', _keep: true, _committed: '' };
   let last = '';
   const applyPartial = txt => {
     if (!txt) return;
     last = txt;
+    rec._lastPartial = txt;
     if (target) {
-      // dacă utilizatorul a inserat ceva (punctuație), pornim de la poziția curentă
-      const curSel = target.selectionStart ?? target.value.length;
-      if (rec._start == null || curSel > rec._start) {
-        rec._start = curSel;
-        rec._after = target.value.slice(curSel);
+      // Doar partea nouă după ce a fost deja scris + punctuație
+      let newPart = '';
+      const committed = rec._committed || '';
+      if (txt.startsWith(committed)) {
+        newPart = txt.slice(committed.length).trim();
+      } else {
+        // STT a repornit sau textul s-a schimbat complet
+        newPart = txt.trim();
+        rec._committed = '';
       }
-      const start = rec._start;
-      const after = rec._after ?? '';
-      const before = target.value.slice(0, start);
-      const sep = before && !/\s$/.test(before) ? ' ' : '';
-      target.value = before + sep + txt + after;
-      const pos = (before + sep + txt).length;
-      try { target.setSelectionRange(pos, pos); } catch {}
-      target.dispatchEvent(new Event('input', { bubbles: true }));
+      if (newPart) {
+        const start = target.selectionStart ?? target.value.length;
+        const before = target.value.slice(0, start);
+        const after = target.value.slice(start);
+        // Capitalizare după punct, exclamare, interogare, newline sau început
+        if (capitalizeNext || /[.!?]\s*$/.test(before) || !before.trim()) {
+          newPart = newPart.charAt(0).toUpperCase() + newPart.slice(1);
+          capitalizeNext = false;
+        }
+        const sep = before && !/[ \n]$/.test(before) && !/^[ \n]/.test(newPart) ? ' ' : '';
+        const ins = sep + newPart;
+        target.value = before + ins + after;
+        const pos = before.length + ins.length;
+        try { target.setSelectionRange(pos, pos); } catch {}
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     }
-    setDictTxt(txt);
+    // Bula arată doar status scurt, nu tot textul (ca să nu apară dublu)
+    setDictTxt(txt.length > 40 ? '…' + txt.slice(-36) : txt);
   };
   try {
     nativeHandles = await nativeStt.start({
@@ -296,7 +310,7 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
     });
   } catch (e) {
     rec = null; if (bubble) { bubble.remove(); bubble = null; }
-  removePunctPill();
+    removePunctPill();
     if (!quiet) toast(sttErrMsg((e && e.message) || 'noservice'), 4000);
     return false;
   }
@@ -410,11 +424,9 @@ export function insertPunctuation(el, punct) {
   }
   el.setRangeText(ins, start, start, 'end');
   el.dispatchEvent(new Event('input', { bubbles: true }));
-  // Resetăm punctul de start al dictării ca să nu rescrie peste punctuație
-  if (rec && rec.kind === 'native') {
-    const pos = el.selectionStart ?? el.value.length;
-    rec._start = pos;
-    rec._after = el.value.slice(pos);
+  // Commităm textul recunoscut până acum ca următoarele partial-uri să adauge doar cuvintele noi
+  if (rec && rec.kind === 'native' && rec._lastPartial != null) {
+    rec._committed = rec._lastPartial;
   }
   // Niciodată nu deschidem tastatura din bara de punctuație
   try { el.blur(); } catch {}
