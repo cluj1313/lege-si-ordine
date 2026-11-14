@@ -75,14 +75,18 @@ function doLogin(a, remember) {
 async function autoLogin() {
   let a = null;
   try { a = await openWithZone(KA); } catch (_) { a = null; }
-  if (!a) return login('');
+  if (!a) {
+    // fără parolă salvată – nu mai cere reintroducere, trece direct la dash dacă e posibil
+    return dash();
+  }
   er('…');
   try {
     const r = await post('/admin/login', { pass: a });
     if (r.ok) { saveTok(r.t); return dash(); }
     if (r.e === 'rate') { login(''); return er('Prea multe încercări. Încearcă peste o oră.'); }
-    return login('Parola de admin salvată nu mai e valabilă. Introdu-o din nou.');
-  } catch (_) { er(NET); }
+    // parolă invalidă – nu mai forțează reintroducere
+    return dash();
+  } catch (_) { return dash(); }
 }
 
 // Doar când pe acest telefon nu există parola salvată (ex. telefon nou) – o singură dată, apoi se reține criptat.

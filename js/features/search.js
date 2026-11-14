@@ -32,11 +32,26 @@ function highlight(text, words) {
   return out;
 }
 
+function fuzzyMatch(text, word) {
+  const n = norm(text);
+  if (n.includes(word)) return true;
+  // toleranță simplă: permite 1-2 caractere lipsă/în plus
+  if (word.length < 3) return false;
+  const len = word.length;
+  for (let i = 0; i <= n.length - len + 1; i++) {
+    const slice = n.slice(i, i + len);
+    let diff = 0;
+    for (let j = 0; j < len; j++) if (slice[j] !== word[j]) diff++;
+    if (diff <= 1) return true;
+  }
+  return false;
+}
+
 export function runSearch(q) {
   const words = norm(q).split(/\s+/).filter(Boolean);
   const res = { tabs: [], items: [], lockedOwners: new Map(), lockedCount: 0 };
   if (!words.length) return res;
-  const match = txt => { const n = norm(txt); return words.every(w => n.includes(w)); };
+  const match = txt => { const n = norm(txt); return words.every(w => fuzzyMatch(n, w)); };
   for (const tab of state.tabs) {
     if (match(tab.name + ' ' + ((TAB_KINDS[tab.kind] || {}).label?.() || ''))) res.tabs.push(tab);
   }
@@ -73,12 +88,20 @@ export function openSearch() {
       r.tabs.forEach(tab => out.append(h('button', { class: 'sr', type: 'button', onclick: () => { m.close(); if (tab.trashedAt) app.openTrash(); else app.goTab(tab.id); } },
         h('div', { class: 'sr-t' }, highlight(tab.name, r.words), tab.trashedAt ? h('span', { class: 'pill trash-mark' }, t('inTrash')) : null))));
     }
-    out.append(h('div', { class: 'sep-label' }, t('searchItems', { n: r.items.length })));
-    if (!r.items.length) out.append(h('div', { class: 'r2-meta pad' }, t('noResults')));
-    r.items.slice(0, 200).forEach(x => out.append(h('button', { class: 'sr' + (x.inTrash ? ' in-trash' : ''), type: 'button', 'data-id': x.it.id, onclick: () => { m.close(); app.reveal(x.it.id); } },
-      h('div', { class: 'sr-t' }, highlight(x.title, r.words), x.inTrash ? h('span', { class: 'pill trash-mark' }, t('inTrash')) : null),
-      x.snip ? h('div', { class: 'sr-s' }, highlight(x.snip, r.words)) : null,
-      h('div', { class: 'sr-p' }, x.path, ' • ', fmtTsDate(x.it.updated)))));
+    // grupare pe categorii
+    const groups = {};
+    r.items.forEach(x => {
+      const cat = x.it.kind || 'note';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(x);
+    });
+    for (const [cat, list] of Object.entries(groups)) {
+      out.append(h('div', { class: 'sep-label' }, (KINDS[cat] || {}).label?.() || cat));
+      list.slice(0, 50).forEach(x => out.append(h('button', { class: 'sr' + (x.inTrash ? ' in-trash' : ''), type: 'button', 'data-id': x.it.id, onclick: () => { m.close(); app.reveal(x.it.id); } },
+        h('div', { class: 'sr-t' }, highlight(x.title, r.words), x.inTrash ? h('span', { class: 'pill trash-mark' }, t('inTrash')) : null),
+        x.snip ? h('div', { class: 'sr-s' }, highlight(x.snip, r.words)) : null,
+        h('div', { class: 'sr-p' }, x.path, ' • ', fmtTsDate(x.it.updated)))));
+    }
     if (r.lockedCount) {
       const box = h('div', { class: 'hint locked-hint' }, h('div', {}, t('searchLocked', { n: r.lockedCount })));
       for (const o of r.lockedOwners.values()) {

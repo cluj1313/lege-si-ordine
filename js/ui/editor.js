@@ -58,8 +58,19 @@ export async function openEditor(tabId, it = null, opts = {}) {
       const extra = f.type === 'tel' && data[f.k] ? h('a', { class: 'icon-btn sm', href: 'tel:' + data[f.k] }, '📞') : f.type === 'email' && data[f.k] ? h('a', { class: 'icon-btn sm', href: 'mailto:' + data[f.k] }, '✉') : f.type === 'url' && /^https?:/.test(data[f.k] || '') ? h('a', { class: 'icon-btn sm', href: data[f.k], target: '_blank', rel: 'noopener noreferrer' }, '↗') : null;
       el = h('label', { class: 'fld' }, h('span', {}, label), extra ? h('div', { class: 'row-inp' }, inp, extra) : inp);
       getters.push(() => { data[f.k] = inp.value.trim(); return true; });
-    } else if (f.type === 'textarea') {
-      const ta = h('textarea', { class: 'inp voice-target', rows: f.rows || 4, 'data-k': f.k });
+    const ocrBtn = h('button', { class: 'btn ghost sm', type: 'button', style: { marginTop: '8px' } }, 'OCR / Scan 📷');
+    ocrBtn.addEventListener('click', async () => {
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'image/*';
+      inp.onchange = async () => {
+        const file = inp.files[0];
+        if (!file) return;
+        toast('OCR local nu e disponibil. Poți folosi Adobe Scan / Google Lens și apoi Share → LEGE ȘI ORDINE.');
+        // fallback: citește text simplu dacă e disponibil
+      };
+      inp.click();
+    });
+    if (f.type === 'textarea') ta.parentNode.append(ocrBtn);
       ta.value = data[f.k] || '';
       el = h('label', { class: 'fld' }, h('span', {}, label), ta);
       getters.push(() => { data[f.k] = ta.value.replace(/\s+$/, ''); return true; });

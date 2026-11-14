@@ -1,9 +1,9 @@
 // Liste cu 2 rânduri: inițial doar rândul 1; atingerea lui deschide/închide rândul 2; atingerea rândului 2 deschide elementul.
-import { h, fmtDate, fmtTsDate, fmtDur, act } from '../core/util.js';
+import { h, fmtDate, fmtTsDate, fmtDur, act, onLongPress } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { KINDS, stagePill, recLen } from '../tabs/kinds.js';
-import { state, dataOf, canView, locksChain, isOpen, unlockTemp, relock, saveItem, newItem, liveTabs, getMedia } from '../core/store.js';
-import { pinDlg, toast } from './modal.js';
+import { state, dataOf, canView, locksChain, isOpen, unlockTemp, relock, saveItem, newItem, liveTabs, getMedia, trash } from '../core/store.js';
+import { pinDlg, toast, promptDlg, sheet, confirmDlg } from './modal.js';
 import { app } from './registry.js';
 import { shareText, shareRecording } from '../features/share.js';
 import { draggable } from './dnd.js';
@@ -24,13 +24,23 @@ export async function ensureOpen(it) {
 }
 
 // Sortarea aleasă din meniul din dreapta sus, salvată pe tab (lso_kv › ui.sort).
-export const SORT_MODES = ['alpha', 'manual', 'created', 'modified'];
+export const SORT_MODES = ['alpha', 'manual', 'created', 'modified', 'processDate', 'clientName'];
 export const sortModeOf = tabId => { const m = (state.ui.sort || {})[tabId]; return SORT_MODES.includes(m) ? m : 'manual'; };
 const titleOf = it => { const d = dataOf(it); return d ? String((KINDS[it.kind] || KINDS.note).title(d) || '') : ''; };
 export function byMode(mode) {
   if (mode === 'alpha') return (a, b) => titleOf(a).localeCompare(titleOf(b), 'ro', { sensitivity: 'base', numeric: true });
   if (mode === 'created') return (a, b) => (b.created || 0) - (a.created || 0);
   if (mode === 'modified') return (a, b) => (b.updated || 0) - (a.updated || 0);
+  if (mode === 'processDate') return (a, b) => {
+    const da = dataOf(a)?.processDate || dataOf(a)?.date || '';
+    const db = dataOf(b)?.processDate || dataOf(b)?.date || '';
+    return da.localeCompare(db);
+  };
+  if (mode === 'clientName') return (a, b) => {
+    const ca = (dataOf(a)?.client || dataOf(a)?.name || '').toLowerCase();
+    const cb = (dataOf(b)?.client || dataOf(b)?.name || '').toLowerCase();
+    return ca.localeCompare(cb, 'ro');
+  };
   return null;
 }
 // Ordonează o listă simplă (ex. elementele unei zile) după modul tabului; „Manual” păstrează ordinea dată.
@@ -60,6 +70,8 @@ function sortItems(items, kindName, mode = 'manual', tabId = null) {
   const manual = mode === 'manual' && tabId ? manualOf(tabId) : null;
   vis.sort((a, b) => {
     const da = dataOf(a), db = dataOf(b);
+    // Pinned first
+    if (!!da?.pinned !== !!db?.pinned) return da?.pinned ? -1 : 1;
     if (manual) {
       if (kindName === 'task' && !!da.done !== !!db.done) return da.done ? 1 : -1;
       if (K.past) { const pa = !!K.past(da), pb = !!K.past(db); if (pa !== pb) return pa ? 1 : -1; }
@@ -89,11 +101,42 @@ export function renderList(wrap, items, { kind, empty, tabId } = {}) {
   const sorted = sortItems(items, kind, tabId ? sortModeOf(tabId) : 'manual', tabId);
   let doneSep = false, pastSep = false;
   for (const it of sorted) {
+    if (it.kind === 'separator') {
+      wrap.append(separatorCard(it));
+      continue;
+    }
     const d = canView(it) ? dataOf(it) : null;
     if (d && it.kind === 'task' && d.done && !doneSep) { doneSep = true; wrap.append(h('div', { class: 'sep-label' }, t('doneTasks'))); }
     if (d && KINDS[it.kind]?.past?.(d) && !pastSep) { pastSep = true; wrap.append(h('div', { class: 'sep-label' }, t('pastDeadlines'))); }
     wrap.append(card(it));
   }
+}
+
+function separatorCard(it) {
+  const d = dataOf(it) || {};
+  const el = h('div', { class: 'card separator', style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: d.bg || 'transparent', border: 'none' } },
+    h('hr', { style: { flex: 1, border: 'none', borderTop: '1px solid #d4af37', opacity: 0.5 } }),
+    h('span', { style: { fontSize: '0.85rem', color: '#d4af37', whiteSpace: 'nowrap' } }, d.text || '—'),
+    h('hr', { style: { flex: 1, border: 'none', borderTop: '1px solid #d4af37', opacity: 0.5 } })
+  );
+  onLongPress(el, async () => {
+    const v = await sheet('Separator', [
+      { label: 'Redenumește', value: 'ren' },
+      { label: 'Schimbă fundal', value: 'bg' },
+      { label: 'Șterge', value: 'del', cls: 'danger' }
+    ]);
+    if (v === 'ren') {
+      const n = await promptDlg('Text', { value: d.text || '' });
+      if (n != null) await saveItem(it, { ...d, text: n });
+    } else if (v === 'bg') {
+      const c = prompt('Culoare fundal (#hex)', d.bg || '#f7efd4');
+      if (c) await saveItem(it, { ...d, bg: c });
+    } else if (v === 'del') {
+      if (await confirmDlg('Ștergi separatorul?')) await trash(it);
+    }
+    app.render();
+  });
+  return el;
 }
 
 export function card(it) {
@@ -134,7 +177,10 @@ export function card(it) {
   if (it.kind === 'rec') { /* durata, starea și ștergerea apar pe rândul 2 */ }
   if (it.kind === 'task' && d.date) meta.append(h('span', { class: 'r1-small' }, fmtDate(d.date).slice(0, 5) + (d.time ? ' ' + d.time : '')));
   if (meta.childNodes.length) r1.append(meta);
-  r1.append(h('span', { class: 'chev' }, open ? '▴' : '▾'));
+  // 3 puncte → meniu
+  const dots = h('button', { class: 'icon-btn sm', type: 'button', style: { marginLeft: 'auto' }, 'aria-label': 'Meniu' }, '⋮');
+  dots.addEventListener('click', e => { e.stopPropagation(); openItemMenu(it); });
+  r1.append(dots);
   const toggle = () => {
     if (ui.expanded.has(it.id)) { ui.expanded.delete(it.id); if (it.lock) relock(it); } else ui.expanded.add(it.id);
     app.render();
@@ -161,10 +207,64 @@ export function card(it) {
     r2.addEventListener('click', e => { if (e.target.closest('a,button,audio,input')) return; app.openEditor(it.tab, it); });
     el.append(r2);
   }
+
+  // Pin
+  if (d && d.pinned) {
+    r1.prepend(h('span', { style: { marginRight: '6px', color: '#d4af37' } }, '📌'));
+  }
+
+  // Long-press pe card → redenumire + pin
+  onLongPress(el, async () => {
+    const K = KINDS[it.kind] || KINDS.note;
+    const d = dataOf(it);
+    const current = d ? (K.title ? K.title(d) : d.name || d.text || '') : '';
+    const v = await sheet('Acțiuni', [
+      { label: 'Redenumește', value: 'ren' },
+      { label: d?.pinned ? 'Desfixează' : 'Fixează sus 📌', value: 'pin' }
+    ]);
+    if (v === 'ren') {
+      const n = await promptDlg('Redenumește', { value: current });
+      if (n && n.trim()) {
+        if (it.kind === 'folder') await saveItem(it, { ...d, name: n.trim() });
+        else if (d) await saveItem(it, { ...d, name: n.trim(), text: n.trim() });
+        toast('Redenumit');
+      }
+    } else if (v === 'pin') {
+      await saveItem(it, { ...d, pinned: !d?.pinned });
+      toast(d?.pinned ? 'Desfixat' : 'Fixat sus');
+    }
+    app.render();
+  });
+
   return el;
 }
 
-function row2(it, d, K) {
+async function openItemMenu(it) {
+  const d = dataOf(it);
+  const v = await sheet('Acțiuni', [
+    { label: 'Alarmă', value: 'alarm', icon: '⏰' },
+    { label: 'Trimite', value: 'share', icon: '↗' },
+    { label: it.lock ? 'Deblochează' : 'Blochează', value: 'lock', icon: '🔒' },
+    { label: 'Etichete 🏷️', value: 'tags', icon: '🏷️' },
+    { label: 'Șterge', value: 'del', icon: '🗑', cls: 'danger' }
+  ]);
+  if (v === 'alarm') toast('Alarmă (în dezvoltare)');
+  else if (v === 'share') shareText(d?.title || d?.name || '', d?.text || '');
+  else if (v === 'lock') toast('Blocare (folosește meniul existent)');
+  else if (v === 'tags') {
+    const { addTag, removeTag, getTags } = await import('../features/tags.js');
+    const current = getTags(it).join(', ');
+    const input = await promptDlg('Etichete', { value: current });
+    if (input != null) {
+      getTags(it).forEach(t => removeTag(it, t));
+      input.split(',').map(s => s.trim()).filter(Boolean).forEach(t => addTag(it, t));
+      toast('Etichete salvate');
+    }
+  } else if (v === 'del') {
+    if (await confirmDlg('Ștergi?')) await trash(it);
+  }
+  app.render();
+}
   if (it.kind === 'task') return taskRow2(it, d);
   if (it.kind === 'law') return lawRow2(it, d);
   if (it.kind === 'rec') return recRow2(it, d);

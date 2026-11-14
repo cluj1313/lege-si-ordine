@@ -2,7 +2,7 @@
 import { h, $, debounce, onLongPress } from './core/util.js';
 import { t } from './core/i18n.js';
 import { state, tabById, visibleTabs, liveTabs, saveUI, onChange, isOpen, relock, relockAll, item as getItem, trash, isHiddenByTrash, canView, dataOf, itemsOf, trashedAll, saveMeta, relocate, unlockTemp } from './core/store.js';
-import { db } from './core/db.js';
+import { db, S } from './core/db.js';
 import { app } from './ui/registry.js';
 import { renderTabBar, tabDrag } from './ui/tabsbar.js';
 import { ui, ensureOpen, sortModeOf, SORT_MODES, saveManual } from './ui/list.js';
@@ -15,9 +15,10 @@ import { isoToday } from './core/util.js';
 import { renderRecordings, startRecording, renameRec, archiveRec, recStatus, isRecording, stopRecording, transcribeRec } from './tabs/recordings.js';
 import { openSearch } from './features/search.js';
 import { openTrash } from './features/trash.js';
-import { openSettings } from './features/settings.js';
+import { openSettings, applyTheme } from './features/settings.js';
 import { readScreenAloud, stopSpeak, isSpeaking, startDictation, stopDictation, isDictating, getTarget, setTarget, voiceMenu } from './features/voice.js';
 import { KINDS, TAB_KINDS } from './tabs/kinds.js';
+import { renderWidgets } from './features/widgets.js';
 
 let newsCache = [];
 
@@ -52,11 +53,84 @@ export function render() {
   else renderGeneric(view, tab);
   renderFab(tab);
   renderSelBar();
+  renderTemporaryZone(tab);
+  renderUrgentClock(tab);
+  renderWidgets();
+  enableSwipeTabs();
+  enableEmptySpaceMenu();
   window.scrollTo(0, y);
   rendering = false;
 }
 
-export function goTab(id, { keepScroll = false } = {}) {
+// Ținere scurtă pe spațiu gol → meniu aspect
+function enableEmptySpaceMenu() {
+function enableSwipeTabs() {
+  const view = document.getElementById('view');
+  if (!view || view.dataset.emptyMenu) return;
+  view.dataset.emptyMenu = '1';
+  let timer;
+  view.addEventListener('pointerdown', e => {
+    if (e.target.closest('.card, button, a, input, .fab, .pill, .news-sec-header')) return;
+    timer = setTimeout(async () => {
+      const tab = currentTab();
+      if (!tab) return;
+      const v = await sheet('Aspect', [
+        { label: 'Mărime font', value: 'font' },
+        { label: 'Culoare font', value: 'color' },
+        { label: 'Spațiere rânduri', value: 'spacing' },
+        { label: 'Schimbă fundal', value: 'bg' },
+        { label: 'Resetare', value: 'reset', cls: 'danger' }
+      ]);
+      if (v === 'font') {
+        const s = prompt('Mărime font (sm / md / lg)', state.settings.fontScale || 'md');
+        if (s) { state.settings.fontScale = s; applyTheme(); await saveSettings(); }
+      } else if (v === 'color') {
+        const picker = document.createElement('input');
+        picker.type = 'color';
+        picker.onchange = async () => { state.settings.textColor = picker.value; applyTheme(); await saveSettings(); };
+        picker.click();
+      } else if (v === 'spacing') {
+        const sp = prompt('Spațiere (1.0 - 2.0)', '1.3');
+        if (sp) { state.settings.lineHeight = sp; applyTheme(); await saveSettings(); }
+      } else if (v === 'bg') {
+        const picker = document.createElement('input');
+        picker.type = 'color';
+        picker.onchange = async () => { state.settings.bgColor = picker.value; state.settings.bgType = 'color'; applyTheme(); await saveSettings(); };
+        picker.click();
+      } else if (v === 'reset') {
+        delete state.settings.textColor;
+        delete state.settings.lineHeight;
+        state.settings.fontScale = 'md';
+        state.settings.bgType = 'light';
+        applyTheme(); await saveSettings();
+      }
+      app.render();
+    }, 500);
+  });
+  view.addEventListener('pointerup', () => clearTimeout(timer));
+  view.addEventListener('pointercancel', () => clearTimeout(timer));
+  view.addEventListener('pointermove', () => clearTimeout(timer));
+}
+}
+function enableSwipeTabs() {
+  const view = document.getElementById('view');
+  if (!view || view.dataset.swipeBound) return;
+  view.dataset.swipeBound = '1';
+  let startX = 0, startY = 0;
+  view.addEventListener('pointerdown', e => { startX = e.clientX; startY = e.clientY; }, { passive: true });
+  view.addEventListener('pointerup', e => {
+    const dx = e.clientX - startX;
+    const dy = Math.abs(e.clientY - startY);
+    if (Math.abs(dx) > 60 && dy < 40) {
+      const tabs = visibleTabs();
+      const cur = currentTab();
+      if (!cur || !tabs.length) return;
+      const idx = tabs.findIndex(t => t.id === cur.id);
+      if (dx < 0 && idx < tabs.length - 1) goTab(tabs[idx + 1].id);
+      if (dx > 0 && idx > 0) goTab(tabs[idx - 1].id);
+    }
+  }, { passive: true });
+}
   const prev = currentTab();
   if (prev) state.ui.scroll[prev.id] = Math.round(window.scrollY);
   const next = id ? tabById(id) : visibleTabs()[0];
@@ -101,15 +175,72 @@ export async function deleteItem(it) {
   return true;
 }
 
+function renderTemporaryZone(tab) {
+  const zone = document.getElementById('temp-zone');
+  if (zone) zone.remove();
+  if (!tab || (tab.kind === 'folders' && currentFolder(tab))) return; // dispare când e deschis un dosar
+  const items = listTemporary().filter(it => it.tab === tab.id || !it.tab);
+  const box = h('div', { id: 'temp-zone', style: { position: 'fixed', bottom: '70px', left: 0, right: 0, background: 'rgba(11,26,51,0.95)', color: '#f7efd4', maxHeight: '40vh', overflowY: 'auto', borderTop: '1px solid #d4af37', zIndex: 50, padding: '8px 12px' } },
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } },
+      h('strong', {}, 'Temporar'),
+      h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { const txt = prompt('Notiță rapidă'); if (txt) { const rec = createTemporary('note', { text: txt }); rec.tab = tab.id; db.put(S.items, rec); render(); } } }, '+')
+    )
+  );
+  items.forEach((it, idx) => {
+    const full = (it.data && it.data.text) || it.subtype || '';
+    const short = full.split('\n')[0] || full;
+    const line = h('div', { style: { padding: '6px 0', borderBottom: '1px solid rgba(212,175,55,0.3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+      h('span', { style: { flex: 1, cursor: 'pointer' }, onclick: e => {
+        if (idx === 0) {
+          // prima linie: toggle expand all
+          box.dataset.expanded = box.dataset.expanded === '1' ? '0' : '1';
+          render();
+        } else if (e.target.tagName !== 'BUTTON') {
+          // de la a doua linie: deschide tot textul sau editor
+          if (box.dataset.expanded === '1') openEditor(tab.id, it.id);
+          else { box.dataset.expanded = '1'; render(); }
+        }
+      } }, short),
+      h('button', { type: 'button', style: { background: 'none', border: 'none', color: '#d4af37', marginLeft: '8px' }, onclick: () => { deleteTemporary(it.id); render(); } }, '✕')
+    );
+    if (box.dataset.expanded === '1' && idx > 0) {
+      line.querySelector('span').textContent = full;
+    }
+    box.append(line);
+  });
+  if (!items.length) box.append(h('div', { style: { opacity: 0.6, fontSize: '0.9rem' } }, 'Nicio notiță temporară'));
+  document.body.append(box);
+}
+
+function renderUrgentClock(tab) {
+  const old = document.getElementById('urgent-clock');
+  if (old) old.remove();
+  if (!tab || tab.name !== 'Urgențe') return;
+  const clk = h('button', { id: 'urgent-clock', type: 'button', style: { position: 'fixed', bottom: '80px', right: '16px', background: 'rgba(11,26,51,0.9)', color: '#d4af37', border: '1px solid #d4af37', borderRadius: '12px', padding: '8px 12px', fontFamily: 'Cinzel, serif', fontSize: '1.1rem', zIndex: 40 } },
+    new Date().toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })
+  );
+  clk.addEventListener('click', () => {
+    const t = prompt('Setează alarmă (HH:MM)', '09:00');
+    if (t && /^\d{1,2}:\d{2}$/.test(t)) {
+      toast('Alarmă setată la ' + t);
+      // aici se poate lega de sistemul de alarme existent
+    }
+  });
+  document.body.append(clk);
+  // actualizare la fiecare minut
+  setTimeout(() => renderUrgentClock(tab), 60000);
+}
+
 // ---- FAB-uri: „+” (adaugă) și butonul de voce jos-dreapta ----
 function renderFab(tab) {
   const fabs = $('#fabs');
   fabs.innerHTML = '';
-  if (!tab || ui.selecting || ui.dragMode) return;
-  const locked = tab.lock && !isOpen(tab);
-  if (!locked && tab.kind !== 'news') {
+  if (ui.selecting || ui.dragMode) return;
+  // + doar când e permis
+  if (tab && !(tab.lock && !isOpen(tab)) && tab.kind !== 'news') {
     fabs.append(h('button', { class: 'fab add', type: 'button', 'aria-label': t('add'), 'data-test': 'fab-add', onclick: () => fabAdd(tab) }, '+'));
   }
+  // microfon pe absolut fiecare pagină
   const vb = h('button', { class: 'fab voice' + (isDictating() ? ' live' : '') + (isRecording() ? ' rec' : ''), type: 'button', 'aria-label': t('voice'), 'data-test': 'fab-voice', onclick: () => voiceFab(tab) }, '🎙');
   onLongPress(vb, () => voiceMenu());
   fabs.append(vb);
@@ -118,9 +249,15 @@ function renderFab(tab) {
 async function fabAdd(tab) {
   if (tab.kind === 'folders') {
     const cur = currentFolder(tab);
-    const v = await sheet(t('add'), [{ label: t('newNote'), value: 'note', icon: '📝' }, { label: cur ? t('newSubfolder') : t('newFolder'), value: 'folder', icon: '+' }]);
+    const v = await sheet(t('add'), [
+      { label: t('newNote'), value: 'note', icon: '📝' },
+      { label: cur ? t('newSubfolder') : t('newFolder'), value: 'folder', icon: '+' },
+      { label: 'Separator', value: 'separator', icon: '—' }
+    ]);
     if (v === 'note') openEditor(tab.id, null, { folder: cur ? cur.id : null, kind: 'note' });
     if (v === 'folder') newFolder(tab, cur);
+    if (v === 'password') { const { openPasswordEditor } = await import('./features/passwords.js'); openPasswordEditor(); }
+    if (v === 'separator') await newItem(tab.id, 'separator', { text: 'Secțiune' }, { folder: cur ? cur.id : null });
   } else if (tab.kind === 'saved') {
     const sub = state.ui.sub[tab.id] || 'salvate';
     openEditor(tab.id, null, { sub });
@@ -192,7 +329,15 @@ function renderSelBar() {
 function header() {
   for (const [id, k] of [['hdr-search', 'search'], ['hdr-folders', 'tkFolders'], ['hdr-select', 'selectOn'], ['hdr-settings', 'settings'], ['hdr-menu', 'menu']]) { const b = $('#' + id); if (!b) continue; b.setAttribute('aria-label', t(k)); b.title = t(k); }
   $('#hdr-search').onclick = () => openSearch();
-  $('#hdr-folders').onclick = () => { const f = liveTabs().find(x => x.kind === 'folders'); if (f) { if (f.visible === false) { f.visible = true; } goTab(f.id); } };
+  $('#hdr-folders').onclick = async () => {
+    const tab = currentTab();
+    if (tab && tab.kind === 'folders') {
+      await newFolder(tab, currentFolder(tab));
+    } else {
+      const f = liveTabs().find(x => x.kind === 'folders');
+      if (f) { if (f.visible === false) f.visible = true; goTab(f.id); }
+    }
+  };
   $('#hdr-select').onclick = () => { ui.selecting = !ui.selecting; ui.dragMode = false; ui.selected.clear(); render(); toast(ui.selecting ? t('selectOn') : t('selectOff')); };
   // Setări: un singur loc – logo-ul sau textul LEGE ȘI ORDINE deschide panoul din stânga.
   $('#hdr-brand').onclick = () => { if (!modalsOpen()) openSettings(); };

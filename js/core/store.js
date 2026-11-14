@@ -20,6 +20,17 @@ export const DEFAULT_SETTINGS = {
   displayName: '', remindUrgents: false, lastUrgentRemind: '',
   tabStyle: 'pill', fontScale: 'md', cardOutline: true,
   weeklyBackup: true, lastWeeklyCheck: 0, lastWeeklyHash: '', lastWeeklyWrite: 0,
+  // Protecție ecran
+  ssTimeout: 3, // minute, 0 = oprit
+  ssSpeed: 'normal', // lent | normal | rapid
+  ssTips: true,
+  bgType: 'light',
+  bgColor: '#f7efd4',
+  bgImage: '',
+  lockMode: 'background', // rapid | manual | session
+  showPF: true,
+  showFirme: true,
+  folderBarAutoHide: true,
 };
 
 const listeners = new Set();
