@@ -290,22 +290,24 @@ export function openSettings() {
     installBtn,
     section('share-invite', 'Share', h('div', { class: 'sh-wrap' },
       h('div', { class: 'sh-row', onclick: e => { const b = e.currentTarget.nextElementSibling; b.hidden = !b.hidden; e.currentTarget.classList.toggle('open', !b.hidden); } },
-        h('img', { class: 'sh-app', src: 'icons/icon-512.png', alt: 'LEGE ȘI ORDINE', width: 42, height: 42 }),
+        h('img', { class: 'sh-app', src: 'icons/icon-512.png', alt: 'LEGE ȘI ORDINE', width: 52, height: 52 }),
         h('span', { class: 'sh-l' }, 'SHARE ', h('span', { class: 'ux' }, 'LEGE ȘI ORDINE')),
         h('i', { class: 'sparr' })
       ),
       h('div', { class: 'sh-box', hidden: true },
-        h('span', { class: 'sh-tx' }, 'Dacă cunoști pe cineva care ar avea nevoie de această aplicație, dă un simplu Share. Alegi valabilitatea, destinatarul primește linkul de descărcare.'),
-        h('button', { class: 'sh-go', type: 'button', title: 'Share', onclick: () => openShareValidity() },
-          h('svg', { viewBox: '0 0 24 24', width: 26, height: 26, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
-            h('circle', { cx: 18, cy: 5, r: 3 }),
-            h('circle', { cx: 6, cy: 12, r: 3 }),
-            h('circle', { cx: 18, cy: 19, r: 3 }),
-            h('line', { x1: 8.6, y1: 13.5, x2: 15.4, y2: 17.5 }),
-            h('line', { x1: 15.4, y1: 6.5, x2: 8.6, y2: 10.5 })
-          )
+        // Fără cod
+        h('div', { class: 'sh-opt' },
+          h('div', { class: 'sh-opt-h' }, 'Fără cod'),
+          h('p', { class: 'sh-tx' }, 'Dacă cunoști pe cineva care ar avea nevoie de această aplicație, dă un simplu Share. Destinatarul primește linkul de descărcare (valabil 3 luni).'),
+          h('button', { class: 'sh-go', type: 'button', title: 'Share', onclick: () => doShare(3) }, shareIcon())
         ),
-        codeBlock()
+        // Cu cod
+        h('div', { class: 'sh-opt' },
+          h('div', { class: 'sh-opt-h' }, 'Cu cod'),
+          h('p', { class: 'sh-tx' }, 'Introdu codul primit și alege perioada. Apoi dă Share.'),
+          codeBlock(),
+          h('button', { class: 'sh-go', type: 'button', title: 'Share cu cod', onclick: () => openShareValidity() }, shareIcon())
+        )
       )
     )),
     section('about', t('setAbout'), h('div', {},
@@ -344,6 +346,25 @@ export async function maybeRemindUrgents() {
 
 export function listenInstallPrompt() {
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__lsoInstall = e; });
+}
+
+
+function shareIcon() {
+  return h('svg', { viewBox: '0 0 24 24', width: 28, height: 28, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+    h('circle', { cx: 18, cy: 5, r: 3 }),
+    h('circle', { cx: 6, cy: 12, r: 3 }),
+    h('circle', { cx: 18, cy: 19, r: 3 }),
+    h('line', { x1: 8.6, y1: 13.5, x2: 15.4, y2: 17.5 }),
+    h('line', { x1: 15.4, y1: 6.5, x2: 8.6, y2: 10.5 })
+  );
+}
+
+async function doShare(months) {
+  const label = months === 12 ? '1 an' : months + ' luni';
+  const U = 'https://cluj1313.github.io/lege-si-ordine/apk/';
+  const text = `LEGE ȘI ORDINE\nAplicație pentru avocați.\nValabilă ${label}.\n${U}`;
+  const { shareText } = await import('./share.js');
+  await shareText('LEGE ȘI ORDINE', text);
 }
 
 async function openShareValidity() {
