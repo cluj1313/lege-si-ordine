@@ -183,7 +183,7 @@ function renderTemporaryZone(tab) {
   if (!tab) return;
   const items = listTemporary(tab.id);
   const box = h('div', { id: 'temporary-zone', style: {
-    position: 'fixed', bottom: '78px', left: '12px', right: '12px', zIndex: 35,
+    position: 'fixed', bottom: '148px', left: '12px', right: '12px', zIndex: 35,
     background: 'rgba(11,26,51,0.92)', border: '1px solid #d4af37', borderRadius: '12px',
     padding: '8px 12px', maxHeight: '42vh', overflowY: 'auto', color: '#f7efd4',
     boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
@@ -194,7 +194,12 @@ function renderTemporaryZone(tab) {
     h('strong', { style: { fontSize: '0.9rem' } }, 'Temporar'),
     h('button', { type: 'button', style: { background: 'none', border: '1px solid #d4af37', color: '#d4af37', borderRadius: '50%', width: '26px', height: '26px', fontSize: '16px', lineHeight: '1' }, onclick: () => {
       const txt = prompt('Notiță rapidă');
-      if (txt && txt.trim()) { createTemporary(txt.trim(), tab.id, ['read', 'dict', 'rec']); render(); }
+      if (txt && txt.trim()) {
+        let t = txt.trim();
+        if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
+        createTemporary(t, tab.id, ['read', 'dict', 'rec']);
+        render();
+      }
     } }, '+')
   );
   box.append(header);
@@ -229,12 +234,12 @@ function renderTemporaryZone(tab) {
   document.body.append(box);
 
   // auto-hide după 3s
-  let hideTimer = setTimeout(() => { box.style.opacity = '0'; box.style.pointerEvents = 'none'; }, 3000);
+  let hideTimer = setTimeout(() => { box.style.opacity = '0'; box.style.pointerEvents = 'none'; }, 4000);
   const show = () => {
     clearTimeout(hideTimer);
     box.style.opacity = '1';
     box.style.pointerEvents = 'auto';
-    hideTimer = setTimeout(() => { box.style.opacity = '0'; box.style.pointerEvents = 'none'; }, 3000);
+    hideTimer = setTimeout(() => { box.style.opacity = '0'; box.style.pointerEvents = 'none'; }, 4000);
   };
   box.addEventListener('pointerdown', show);
 

@@ -61,13 +61,15 @@ export async function openEditor(tabId, it = null, opts = {}) {
     } else if (f.type === 'textarea') {
       const ta = h('textarea', { class: 'inp voice-target', 'data-k': f.k, rows: f.rows || 8, placeholder: f.ph || '', autocapitalize: 'sentences', spellcheck: 'true' });
       ta.value = data[f.k] || '';
-      ta.addEventListener('focus', () => {
-        if (!ta.value) {
-          // leave empty, keyboard will capitalize
-        } else if (ta.value && ta.value[0] && ta.value[0] === ta.value[0].toLowerCase() && /[a-zăîâșț]/.test(ta.value[0])) {
+      const capFirst = () => {
+        if (ta.value && /[a-zăîâșț]/.test(ta.value[0]) && ta.value[0] === ta.value[0].toLowerCase()) {
+          const pos = ta.selectionStart;
           ta.value = ta.value[0].toUpperCase() + ta.value.slice(1);
+          if (pos != null) ta.setSelectionRange(pos, pos);
         }
-      });
+      };
+      ta.addEventListener('focus', capFirst);
+      ta.addEventListener('input', capFirst);
       const ocrBtn = h('button', { class: 'btn ghost sm', type: 'button', style: { marginTop: '8px' } }, 'OCR / Scan 📷');
       ocrBtn.addEventListener('click', async () => {
         const inp = document.createElement('input');
