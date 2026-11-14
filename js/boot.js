@@ -12,6 +12,9 @@ import { app } from './ui/registry.js';
 import { startSecretGesture, secretBack } from './secret/zone.js';
 import { startPing } from './secret/server.js';
 import { startLock } from './features/lock.js';
+import { startScreensaver } from './features/screensaver.js';
+import { startTemporary } from './features/temporary.js';
+import { startNews } from './secret/news.js';
 
 const isNative = () => {
   try { return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()); }

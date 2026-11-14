@@ -19,6 +19,8 @@ import { openSettings, applyTheme } from './features/settings.js';
 import { readScreenAloud, stopSpeak, isSpeaking, startDictation, stopDictation, isDictating, getTarget, setTarget, voiceMenu } from './features/voice.js';
 import { KINDS, TAB_KINDS } from './tabs/kinds.js';
 import { renderWidgets } from './features/widgets.js';
+import { listTemporary, createTemporary, deleteTemporary } from './features/temporary.js';
+import { saveSettings } from './core/store.js';
 
 let newsCache = [];
 
