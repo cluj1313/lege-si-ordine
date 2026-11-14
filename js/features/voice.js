@@ -267,10 +267,14 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
     if (!txt) return;
     last = txt;
     if (target) {
-      const start = rec._start ?? (target.selectionStart ?? target.value.length);
-      rec._start = start;
-      const after = rec._after ?? target.value.slice(target.selectionEnd ?? start);
-      rec._after = after;
+      // dacă utilizatorul a inserat ceva (punctuație), pornim de la poziția curentă
+      const curSel = target.selectionStart ?? target.value.length;
+      if (rec._start == null || curSel > rec._start) {
+        rec._start = curSel;
+        rec._after = target.value.slice(curSel);
+      }
+      const start = rec._start;
+      const after = rec._after ?? '';
       const before = target.value.slice(0, start);
       const sep = before && !/\s$/.test(before) ? ' ' : '';
       target.value = before + sep + txt + after;
@@ -406,9 +410,14 @@ export function insertPunctuation(el, punct) {
   }
   el.setRangeText(ins, start, start, 'end');
   el.dispatchEvent(new Event('input', { bubbles: true }));
+  // Resetăm punctul de start al dictării ca să nu rescrie peste punctuație
+  if (rec && rec.kind === 'native') {
+    const pos = el.selectionStart ?? el.value.length;
+    rec._start = pos;
+    rec._after = el.value.slice(pos);
+  }
   // Niciodată nu deschidem tastatura din bara de punctuație
   try { el.blur(); } catch {}
-  // prevenim focus accidental
   setTimeout(() => { try { el.blur(); } catch {} }, 50);
 }
 
