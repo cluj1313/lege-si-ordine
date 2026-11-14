@@ -10,7 +10,22 @@ export function startTemporary() {
     const raw = localStorage.getItem(KEY);
     temps = raw ? JSON.parse(raw) : [];
   } catch { temps = []; }
+  // Dacă localStorage e gol, încearcă din IndexedDB
+  if (!temps.length) {
+    db.kvGet('temp_notes', []).then(fromDb => {
+      if (Array.isArray(fromDb) && fromDb.length) {
+        temps = fromDb;
+        persist();
+        if (typeof window !== 'undefined' && window.LSO && window.LSO.render) window.LSO.render();
+      }
+    }).catch(() => {});
+  }
   pruneExpired();
+}
+
+function persist() {
+  persist();
+  db.kvSet('temp_notes', temps).catch(() => {});
 }
 
 function pruneExpired() {
@@ -18,7 +33,7 @@ function pruneExpired() {
   const before = temps.length;
   temps = temps.filter(t => !t.expires || t.expires > now);
   if (temps.length !== before) {
-    localStorage.setItem(KEY, JSON.stringify(temps));
+    persist();
   }
 }
 
@@ -37,15 +52,15 @@ export function createTemporary(text, tabId, modes) {
     created: now,
     expires: now + DAYS_30
   };
-  if (!rec.text) return null;
+  // allow empty for quick dict/rec start
   temps.unshift(rec);
-  localStorage.setItem(KEY, JSON.stringify(temps));
+  persist();
   return rec;
 }
 
 export function deleteTemporary(id) {
   temps = temps.filter(t => t.id !== id);
-  localStorage.setItem(KEY, JSON.stringify(temps));
+  persist();
 }
 
 export function updateTemporary(id, patch) {
@@ -53,7 +68,7 @@ export function updateTemporary(id, patch) {
   if (t) {
     Object.assign(t, patch);
     // dacă se schimbă textul, nu resetăm expirarea
-    localStorage.setItem(KEY, JSON.stringify(temps));
+    persist();
   }
 }
 

@@ -203,23 +203,45 @@ function renderTemporaryZone(tab) {
   header.append(title);
 
   const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
-  ['read', 'dict', 'rec'].forEach(m => {
-    const b = h('button', { type: 'button', title: labels[m], style: {
-      fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
-      border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
-    }, onclick: (e) => {
-      e.stopPropagation();
-      const txt = prompt(labels[m] + ' – notiță rapidă');
-      if (txt && txt.trim()) {
-        let t = txt.trim();
-        if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
-        createTemporary(t, tab.id, [m]);
-        expanded = true;
-        render();
+  // Dictează: creează notiță goală și deschide editorul cu dictare
+  const dictBtn = h('button', { type: 'button', title: 'Dictează', style: {
+    fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
+    border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
+  }, onclick: async (e) => {
+    e.stopPropagation();
+    const rec = createTemporary('', tab.id, ['dict']);
+    if (!rec) return;
+    expanded = true;
+    await openEditor(tab.id, null, { kind: 'note', preset: { body: '' } });
+    setTimeout(async () => {
+      const ta = document.querySelector('.editor textarea.voice-target');
+      if (ta) {
+        setTarget(ta);
+        await startDictation(ta);
       }
-    } }, labels[m]);
-    header.append(b);
-  });
+    }, 200);
+    render();
+  } }, 'Dictează');
+  header.append(dictBtn);
+
+  // Înregistrează: creează notiță goală și pornește înregistrarea
+  const recBtn = h('button', { type: 'button', title: 'Înregistrează', style: {
+    fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
+    border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
+  }, onclick: async (e) => {
+    e.stopPropagation();
+    const rec = createTemporary('', tab.id, ['rec']);
+    if (!rec) return;
+    expanded = true;
+    await openEditor(tab.id, null, { kind: 'note', preset: { body: '' } });
+    setTimeout(async () => {
+      const ta = document.querySelector('.editor textarea.voice-target');
+      if (ta) setTarget(ta);
+      if (typeof startRecording === 'function') await startRecording(tab.id);
+    }, 200);
+    render();
+  } }, 'Înregistrează');
+  header.append(recBtn);
 
   const addBtn = h('button', { type: 'button', style: {
     background: 'none', border: '1px solid #d4af37', color: '#d4af37',
@@ -268,12 +290,15 @@ function renderTemporaryZone(tab) {
       row.onclick = async (e) => {
         if (e.target === delBtn) return;
         const action = await sheet(firstLine.slice(0, 40), [
+          { label: 'Citește', value: 'read', icon: '🔊' },
           { label: 'Editează', value: 'edit', icon: '✏️' },
           { label: 'Copiază', value: 'copy', icon: '📋' },
           { label: 'Share', value: 'share', icon: '📤' },
           { label: 'Șterge', value: 'del', icon: '🗑️', cls: 'danger' }
         ]);
-        if (action === 'edit') {
+        if (action === 'read') {
+          if (it.text) await readScreenAloud(it.text);
+        } else if (action === 'edit') {
           const newText = prompt('Editează notița', it.text || '');
           if (newText != null) {
             let t = newText.trim();
