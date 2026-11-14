@@ -290,13 +290,21 @@ export function openSettings() {
     installBtn,
     section('share-invite', 'Share', h('div', { class: 'sh-wrap' },
       h('div', { class: 'sh-row', onclick: e => { const b = e.currentTarget.nextElementSibling; b.hidden = !b.hidden; e.currentTarget.classList.toggle('open', !b.hidden); } },
-        h('img', { class: 'sh-app', src: 'icons/icon-512.png', alt: 'LEGE ȘI ORDINE', width: 38, height: 38 }),
-        h('span', { class: 'sh-l' }, 'Share ', h('span', { class: 'ux' }, 'LEGE ȘI ORDINE')),
+        h('img', { class: 'sh-app', src: 'icons/icon-512.png', alt: 'LEGE ȘI ORDINE', width: 42, height: 42 }),
+        h('span', { class: 'sh-l' }, 'SHARE ', h('span', { class: 'ux' }, 'LEGE ȘI ORDINE')),
         h('i', { class: 'sparr' })
       ),
       h('div', { class: 'sh-box', hidden: true },
         h('span', { class: 'sh-tx' }, 'Dacă cunoști pe cineva care ar avea nevoie de această aplicație, dă un simplu Share. Alegi valabilitatea, destinatarul primește linkul de descărcare.'),
-        h('button', { class: 'sh-go', type: 'button', onclick: () => openShareValidity() }, '📤'),
+        h('button', { class: 'sh-go', type: 'button', title: 'Share', onclick: () => openShareValidity() },
+          h('svg', { viewBox: '0 0 24 24', width: 26, height: 26, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+            h('circle', { cx: 18, cy: 5, r: 3 }),
+            h('circle', { cx: 6, cy: 12, r: 3 }),
+            h('circle', { cx: 18, cy: 19, r: 3 }),
+            h('line', { x1: 8.6, y1: 13.5, x2: 15.4, y2: 17.5 }),
+            h('line', { x1: 15.4, y1: 6.5, x2: 8.6, y2: 10.5 })
+          )
+        ),
         codeBlock()
       )
     )),
@@ -340,19 +348,37 @@ export function listenInstallPrompt() {
 
 async function openShareValidity() {
   const { openModal } = await import('../ui/modal.js');
+  const { zoneSession } = await import('../secret/zone.js');
+  const isOwner = !!zoneSession();
   const opts = [[3, '3 luni'], [6, '6 luni'], [9, '9 luni'], [12, '1 an']];
   let sel = 3;
   const body = h('div', {},
     h('p', { class: 'r2-meta' }, 'Valabilitate pentru destinatar'),
     h('div', { class: 'row-inp', style: { flexWrap: 'wrap', gap: '8px', margin: '10px 0' } },
-      ...opts.map(([m, l]) => h('button', { class: 'btn sm' + (m === sel ? ' primary' : ''), type: 'button',
-        onclick: e => { sel = m; e.currentTarget.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('primary', b === e.currentTarget)); } }, l))
+      ...opts.map(([m, l]) => {
+        const disabled = !isOwner && m !== 3;
+        return h('button', {
+          class: 'btn sm' + (m === sel ? ' primary' : ''),
+          type: 'button',
+          disabled,
+          style: disabled ? { opacity: .45, cursor: 'not-allowed' } : {},
+          title: disabled ? 'Doar 3 luni disponibil' : '',
+          onclick: e => {
+            if (disabled) return;
+            sel = m;
+            e.currentTarget.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('primary', b === e.currentTarget));
+          }
+        }, l);
+      })
     ),
+    h('p', { class: 'r2-meta' }, isOwner
+      ? 'Ești în Zona secretă: poți alege orice perioadă.'
+      : 'Pentru distribuire: doar 3 luni. Perioadele mai lungi sunt pentru creator.'),
     h('p', { class: 'r2-meta' }, 'După expirare, datele rămân pe telefon; se pot citi și exporta. Nu se șterge nimic.'),
     h('button', { class: 'btn primary', type: 'button', style: { marginTop: '12px' }, onclick: async () => {
       const months = sel === 12 ? '1 an' : sel + ' luni';
       const U = 'https://cluj1313.github.io/lege-si-ordine/apk/';
-      const text = `LEGE ȘI ORDINE – aplicație pentru avocați\nAcces partajat: ${months}\n${U}`;
+      const text = `LEGE ȘI ORDINE\nAplicație pentru avocați.\nValabilă ${months}.\n${U}`;
       const { shareText } = await import('./share.js');
       await shareText('LEGE ȘI ORDINE', text);
       document.querySelector('[data-test=share-validity]')?.remove();
