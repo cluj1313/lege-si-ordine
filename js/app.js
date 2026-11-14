@@ -64,7 +64,6 @@ export function render() {
 
 // Ținere scurtă pe spațiu gol → meniu aspect
 function enableEmptySpaceMenu() {
-function enableSwipeTabs() {
   const view = document.getElementById('view');
   if (!view || view.dataset.emptyMenu) return;
   view.dataset.emptyMenu = '1';
@@ -111,7 +110,7 @@ function enableSwipeTabs() {
   view.addEventListener('pointercancel', () => clearTimeout(timer));
   view.addEventListener('pointermove', () => clearTimeout(timer));
 }
-}
+
 function enableSwipeTabs() {
   const view = document.getElementById('view');
   if (!view || view.dataset.swipeBound) return;
