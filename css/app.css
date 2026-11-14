@@ -553,7 +553,9 @@ body.reading .w.past { color: var(--muted); }
 .sh-opt:last-child { border-bottom: 0; }
 .sh-opt-h { font-size: 14px; font-weight: 700; opacity: .9; }
 .sh-tx { font-size: 15px; line-height: 1.45; opacity: .9; margin: 0; }
-.sh-go { width: 48px; height: 48px; border: 0; background: none; color: #7CB342; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.sh-go { height: 40px; padding: 0 14px 0 10px; border: 0; background: #7CB342; color: #fff; border-radius: 20px; cursor: pointer; display: flex; align-items: center; gap: 6px; flex-shrink: 0; font-weight: 600; }
+.sh-go svg { width: 20px; height: 20px; stroke: #fff; }
+.sh-go-l { font-size: 14px; }
 .sh-go svg { display: block; }
 .sparr { width: 20px; height: 20px; display: inline-block; }
 .sparr::after { content: '▾'; font-style: normal; opacity: .6; }

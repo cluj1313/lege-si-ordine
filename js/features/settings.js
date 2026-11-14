@@ -297,18 +297,23 @@ export function openSettings() {
       h('div', { class: 'sh-box', hidden: true },
         // Fără cod
         h('div', { class: 'sh-opt' },
-          h('p', { class: 'sh-tx' }, 'Dacă cunoști pe cineva care ar avea nevoie de această aplicație, dă un simplu Share. Destinatarul primește linkul de descărcare (valabil 3 luni).'),
+          h('p', { class: 'sh-tx' }, 'Dacă cunoști pe cineva care ar avea nevoie de această aplicație, dă un simplu Share. Destinatarul primește linkul de descărcare.'),
           h('div', { class: 'sh-line' },
             h('span', { class: 'sh-opt-h' }, 'Fără cod'),
-            h('button', { class: 'sh-go', type: 'button', title: 'Share', onclick: () => doShare(3) }, shareIcon())
+            h('button', { class: 'sh-go', type: 'button', title: 'Share', onclick: () => doShare(3) }, shareIcon(), h('span', { class: 'sh-go-l' }, 'Share'))
+          ),
+          h('div', { class: 'sh-periods' },
+            ...[[3,'3 luni'],[6,'6 luni'],[9,'9 luni'],[12,'1 an']].map(([m,l]) =>
+              h('button', { class: 'sh-p' + (m===3?' on':''), type: 'button', disabled: m!==3 }, l)
+            )
           )
         ),
         // Cu cod
         h('div', { class: 'sh-opt' },
           h('p', { class: 'sh-tx' }, 'Introdu codul primit și alege perioada. Apoi dă Share.'),
           h('div', { class: 'sh-line' },
-            h('span', { class: 'sh-opt-h' }, 'Ai un cod?'),
-            h('button', { class: 'sh-go', type: 'button', title: 'Share', onclick: () => doShareWithCode() }, shareIcon())
+            h('span', { class: 'sh-opt-h' }, 'Cu cod'),
+            h('button', { class: 'sh-go', type: 'button', title: 'Share', onclick: () => doShareWithCode() }, shareIcon(), h('span', { class: 'sh-go-l' }, 'Share'))
           ),
           h('div', { class: 'sh-periods', id: 'shPeriods' },
             ...[[3,'3 luni'],[6,'6 luni'],[9,'9 luni'],[12,'1 an']].map(([m,l]) =>
