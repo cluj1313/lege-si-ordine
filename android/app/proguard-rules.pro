@@ -19,3 +19,13 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Capacitor / WebView
+-keep class com.getcapacitor.** { *; }
+-keep class org.apache.cordova.** { *; }
+-dontwarn com.getcapacitor.**
+-dontwarn org.apache.cordova.**
+
+# Keep annotations
+-keepattributes *Annotation*
+-keepattributes Signature
