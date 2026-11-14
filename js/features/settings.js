@@ -289,7 +289,7 @@ export function openSettings() {
       }) }, t('removeSample')))) : null,
     installBtn,
     section('share-invite', 'Share / Invitație', h('div', {},
-      h('p', { class: 'r2-meta' }, 'Generează un cod de activare și trimite-l. Valabilitatea se alege mai jos. Codurile se gestionează din Meniul Secret → 📊.'),
+      h('p', { class: 'r2-meta' }, 'Trimite un text scurt + icoana aplicației. Alege perioada de valabilitate.'),
       h('div', { class: 'row-inp', style: { flexWrap: 'wrap', gap: '8px', marginTop: '8px' } },
         h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(90) }, '3 luni'),
         h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(180) }, '6 luni'),
@@ -336,19 +336,26 @@ export function listenInstallPrompt() {
 }
 
 async function shareInvite(days) {
-  const months = { 90: '3 luni', 180: '6 luni', 270: '9 luni', 365: '1 an' }[days] || days + ' zile';
-  let code = '';
+  const months = { 90: '3 luni', 180: '6 luni', 270: '9 luni', 365: '1 an' }[days] || (days + ' zile');
+  const text = `LEGE ȘI ORDINE\nAplicație pentru avocați.\nValabilă ${months}.`;
+  // Share text scurt + icoana aplicației
   try {
-    const tok = sessionStorage.getItem('lso_adtok');
-    if (tok) {
-      const { post } = await import('../secret/server.js');
-      const r = await post('/admin/gen', { n: 1, days }, tok);
-      if (r && r.ok && r.codes && r.codes[0]) code = r.codes[0];
+    const res = await fetch('icons/icon-512.png');
+    const blob = await res.blob();
+    const file = new File([blob], 'lege-si-ordine.png', { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ title: 'LEGE ȘI ORDINE', text, files: [file] });
+      return;
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  // Fallback Capacitor Share (text + url icon dacă e disponibil)
+  try {
+    const SH = window.Capacitor?.Plugins?.Share;
+    if (SH) {
+      await SH.share({ title: 'LEGE ȘI ORDINE', text, dialogTitle: 'Share' });
+      return;
     }
   } catch {}
-  const msg = code
-    ? `LEGE ȘI ORDINE – cod de activare Super Class (${months}):\n\n${code}\n\nIntrodu codul în Setări → Ai un cod?`
-    : `LEGE ȘI ORDINE – aplicație pentru avocați.\n\nInvitație valabilă ${months}. Codul de activare se obține de la creator.`;
   const { shareText } = await import('./share.js');
-  await shareText('LEGE ȘI ORDINE – Invitație', msg);
+  await shareText('LEGE ȘI ORDINE', text);
 }
