@@ -25,11 +25,11 @@ jobs:
           npx cap sync android
       - name: Construiește APK (release)
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleDebug --no-daemon
       - name: Pregătește artefactul
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/release/app-release-unsigned.apk dist/LEGE-SI-ORDINE-v1.0.9.apk
+          cp android/app/build/outputs/apk/release/app-debug.apk dist/LEGE-SI-ORDINE-v1.0.9.apk
           ls -lh dist/LEGE-SI-ORDINE-v1.0.9.apk
       - uses: actions/upload-artifact@v4
         with:
