@@ -180,37 +180,29 @@ export async function deleteItem(it) {
 function renderTemporaryZone(tab) {
   const zone = document.getElementById('temp-zone');
   if (zone) zone.remove();
-  if (!tab || (tab.kind === 'folders' && currentFolder(tab))) return; // dispare când e deschis un dosar
-  const items = listTemporary().filter(it => it.tab === tab.id || !it.tab);
-  const box = h('div', { id: 'temp-zone', style: { position: 'fixed', bottom: '70px', left: 0, right: 0, background: 'rgba(11,26,51,0.95)', color: '#f7efd4', maxHeight: '40vh', overflowY: 'auto', borderTop: '1px solid #d4af37', zIndex: 50, padding: '8px 12px' } },
-    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } },
-      h('strong', {}, 'Temporar'),
-      h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { const txt = prompt('Notiță rapidă'); if (txt) { const rec = createTemporary('note', { text: txt }); rec.tab = tab.id; db.put(S.items, rec); render(); } } }, '+')
-    )
+  if (!tab || (tab.kind === 'folders' && currentFolder(tab))) return;
+  const items = listTemporary().filter(it => !it.tab || it.tab === tab.id);
+  const box = h('div', { id: 'temp-zone', style: { position: 'fixed', bottom: '70px', left: 0, right: 0, background: 'rgba(11,26,51,0.95)', color: '#f7efd4', maxHeight: '35vh', overflowY: 'auto', borderTop: '1px solid #d4af37', zIndex: 50, padding: '8px 12px' } });
+  const header = h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } },
+    h('strong', {}, 'Temporar'),
+    h('button', { type: 'button', style: { background: 'none', border: '1px solid #d4af37', color: '#d4af37', borderRadius: '50%', width: '28px', height: '28px', fontSize: '18px', lineHeight: '1' }, onclick: () => {
+      const txt = prompt('Notiță rapidă');
+      if (txt && txt.trim()) { createTemporary(txt.trim(), tab.id); render(); }
+    } }, '+')
   );
-  items.forEach((it, idx) => {
-    const full = (it.data && it.data.text) || it.subtype || '';
-    const short = full.split('\n')[0] || full;
-    const line = h('div', { style: { padding: '6px 0', borderBottom: '1px solid rgba(212,175,55,0.3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-      h('span', { style: { flex: 1, cursor: 'pointer' }, onclick: e => {
-        if (idx === 0) {
-          // prima linie: toggle expand all
-          box.dataset.expanded = box.dataset.expanded === '1' ? '0' : '1';
-          render();
-        } else if (e.target.tagName !== 'BUTTON') {
-          // de la a doua linie: deschide tot textul sau editor
-          if (box.dataset.expanded === '1') openEditor(tab.id, it.id);
-          else { box.dataset.expanded = '1'; render(); }
-        }
-      } }, short),
-      h('button', { type: 'button', style: { background: 'none', border: 'none', color: '#d4af37', marginLeft: '8px' }, onclick: () => { deleteTemporary(it.id); render(); } }, '✕')
-    );
-    if (box.dataset.expanded === '1' && idx > 0) {
-      line.querySelector('span').textContent = full;
-    }
-    box.append(line);
-  });
-  if (!items.length) box.append(h('div', { style: { opacity: 0.6, fontSize: '0.9rem' } }, 'Nicio notiță temporară'));
+  box.append(header);
+  if (!items.length) {
+    box.append(h('div', { style: { opacity: 0.5, fontSize: '0.85rem', padding: '4px 0' } }, 'Nicio notiță'));
+  } else {
+    items.forEach((it, idx) => {
+      const firstLine = (it.text || '').split('\n')[0] || '(gol)';
+      const line = h('div', { style: { padding: '5px 0', borderBottom: '1px solid rgba(212,175,55,0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' } },
+        h('span', { style: { flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.95rem' } }, firstLine),
+        h('button', { type: 'button', style: { background: 'none', border: 'none', color: '#d4af37', fontSize: '16px', padding: '0 4px' }, onclick: () => { deleteTemporary(it.id); render(); } }, '✕')
+      );
+      box.append(line);
+    });
+  }
   document.body.append(box);
 }
 
