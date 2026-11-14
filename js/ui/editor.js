@@ -61,12 +61,6 @@ export async function openEditor(tabId, it = null, opts = {}) {
     } else if (f.type === 'textarea') {
       const ta = h('textarea', { class: 'inp voice-target', 'data-k': f.k, rows: f.rows || 8, placeholder: f.ph || '', autocapitalize: 'sentences', spellcheck: 'true' });
       ta.value = data[f.k] || '';
-      // Capitalize first letter if empty on focus
-      ta.addEventListener('focus', () => {
-        if (!ta.value) {
-          // leave empty but ensure next typed char is capital via autocapitalize
-        }
-      });
       const ocrBtn = h('button', { class: 'btn ghost sm', type: 'button', style: { marginTop: '8px' } }, 'OCR / Scan 📷');
       ocrBtn.addEventListener('click', async () => {
         const inp = document.createElement('input');
@@ -82,6 +76,44 @@ export async function openEditor(tabId, it = null, opts = {}) {
       getters.push(() => { data[f.k] = ta.value.replace(/\s+$/, ''); return true; });
       if (f.main) setTimeout(() => { if (!it) ta.focus(); }, 120);
     } else if (f.type === 'date') {
+      const df = dateField(data[f.k] || '', { label }); el = df.el;
+      getters.push(() => { if (!df.valid()) { df.inp.classList.add('bad'); toast(t('badDate')); return false; } data[f.k] = df.get(); return true; });
+    } else if (f.type === 'time') {
+      const tf = timeField(data[f.k] || '', { label }); el = tf.el;
+      getters.push(() => { if (!tf.valid()) { tf.inp.classList.add('bad'); toast(t('badTime')); return false; } data[f.k] = tf.get(); return true; });
+    } else if (f.type === 'select') {
+      const cf = choiceField({ value: data[f.k] || '', options: f.options, label, test: 'choice-' + f.k });
+      el = cf.el;
+      getters.push(() => { data[f.k] = cf.get(); return true; });
+    } else if (f.type === 'check') {
+      const cb = h('input', { type: 'checkbox', 'data-k': f.k }); cb.checked = !!data[f.k];
+      el = h('label', { class: 'fld-check' }, cb, h('span', {}, label));
+      getters.push(() => { data[f.k] = cb.checked; return true; });
+    } else if (f.type === 'enum') {
+      let cur = data[f.k] || f.def || '';
+      const pills = h('div', { class: 'stage-pick' });
+      const draw = () => {
+        pills.innerHTML = '';
+        (f.options() || []).forEach(o => {
+          const v = o.value, lab = o.label;
+          pills.append(h('button', { type: 'button', class: 'pill' + (cur === v ? ' sel' : ''), 'data-test': 'enum-' + f.k + '-' + v, onclick: () => { cur = v; dirty = true; draw(); } }, lab));
+        });
+      };
+      draw();
+      el = h('div', { class: 'fld' }, h('span', {}, label), pills);
+      getters.push(() => { data[f.k] = cur; return true; });
+    } else if (f.type === 'stage') {
+      let cur = data[f.k] || '';
+      const pills = h('div', { class: 'stage-pick' });
+      const draw = () => { pills.innerHTML = ''; STAGES.forEach(s => pills.append(h('button', { type: 'button', class: 'pill stage st-' + s + (cur === s ? ' sel' : ''), onclick: () => { cur = s; dirty = true; draw(); } }, stageLabel(s)))); };
+      draw();
+      el = h('div', { class: 'fld' }, h('span', {}, label), pills);
+      getters.push(() => { data[f.k] = cur; return true; });
+    } else if (f.type === 'subtasks') {
+      el = subtasksField(data, label, () => { dirty = true; });
+    } else if (f.type === 'files') {
+      el = filesField(data, label, temp, added, removed, () => { dirty = true; });
+    }
     if (f.half) {
       if (!row) { row = h('div', { class: 'fld-row' }); form.append(row); }
       row.append(el); if (row.children.length >= 2) row = null;
