@@ -682,12 +682,9 @@ function header() {
   $('#hdr-search').onclick = () => openSearch();
   $('#hdr-folders').onclick = async () => {
     const tab = currentTab();
-    if (tab && tab.kind === 'folders') {
-      await newFolder(tab, currentFolder(tab));
-    } else {
-      const f = liveTabs().find(x => x.kind === 'folders');
-      if (f) { if (f.visible === false) f.visible = true; goTab(f.id); }
-    }
+    if (!tab) return;
+    // Creează folder în tab-ul curent (sau subfolder dacă ești într-un folder)
+    await newFolder(tab, currentFolder(tab));
   };
   $('#hdr-select').onclick = () => { ui.selecting = !ui.selecting; ui.dragMode = false; ui.selected.clear(); render(); toast(ui.selecting ? t('selectOn') : t('selectOff')); };
   // Setări: un singur loc – logo-ul sau textul LEGE ȘI ORDINE deschide panoul din stânga.

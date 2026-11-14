@@ -268,36 +268,43 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
     last = txt;
     rec._lastPartial = txt;
     if (target) {
-      // Doar partea nouă după ce a fost deja scris + punctuație
+      // Delta față de ultima recunoaștere STT – nu rescriem textul existent
       let newPart = '';
       const committed = rec._committed || '';
-      if (txt.startsWith(committed)) {
+      if (committed && txt.startsWith(committed)) {
         newPart = txt.slice(committed.length).trim();
-      } else {
-        // STT a repornit sau textul s-a schimbat complet
+      } else if (!committed) {
         newPart = txt.trim();
-        rec._committed = '';
+      } else {
+        // STT a rescris – păstrăm punctuația manuală, adăugăm doar cuvinte noi la final
+        const oldW = committed.split(/\s+/).filter(Boolean);
+        const newW = txt.trim().split(/\s+/).filter(Boolean);
+        let i = 0;
+        while (i < oldW.length && i < newW.length && oldW[i].toLowerCase() === newW[i].toLowerCase()) i++;
+        if (i >= Math.max(0, oldW.length - 1)) {
+          newPart = newW.slice(oldW.length).join(' ');
+        } else {
+          // Rescriere majoră – nu atingem câmpul
+          rec._committed = txt;
+          setDictTxt(txt.length > 40 ? '…' + txt.slice(-36) : txt);
+          return;
+        }
       }
       if (newPart) {
-        const start = target.selectionStart ?? target.value.length;
-        const before = target.value.slice(0, start);
-        const after = target.value.slice(start);
-        // Capitalizare după punct, exclamare, interogare, newline sau început
-        if (capitalizeNext || /[.!?]\s*$/.test(before) || !before.trim()) {
+        // Adaugă ÎNTOTDEAUNA la sfârșit, după punctuația introdusă manual
+        const cur = target.value || '';
+        if (capitalizeNext || /[.!?\n]\s*$/.test(cur) || !cur.trim()) {
           newPart = newPart.charAt(0).toUpperCase() + newPart.slice(1);
           capitalizeNext = false;
         }
-        const sep = before && !/[ \n]$/.test(before) && !/^[ \n]/.test(newPart) ? ' ' : '';
-        const ins = sep + newPart;
-        target.value = before + ins + after;
-        const pos = before.length + ins.length;
+        const sep = cur && !/[ \n]$/.test(cur) ? ' ' : '';
+        target.value = cur + sep + newPart;
+        const pos = target.value.length;
         try { target.setSelectionRange(pos, pos); } catch {}
         target.dispatchEvent(new Event('input', { bubbles: true }));
       }
-      // IMPORTANT: commit the full partial so next partial only appends the delta
       rec._committed = txt;
     }
-    // Bula arată doar status scurt, nu tot textul (ca să nu apară dublu)
     setDictTxt(txt.length > 40 ? '…' + txt.slice(-36) : txt);
   };
   try {
