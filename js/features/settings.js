@@ -288,13 +288,16 @@ export function openSettings() {
         toast(t('sampleRemoved')); app.render();
       }) }, t('removeSample')))) : null,
     installBtn,
-    section('share-invite', 'Share / Invitație', h('div', {},
-      h('p', { class: 'r2-meta' }, 'Trimite un text scurt + icoana aplicației. Alege perioada de valabilitate.'),
-      h('div', { class: 'row-inp', style: { flexWrap: 'wrap', gap: '8px', marginTop: '8px' } },
-        h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(90) }, '3 luni'),
-        h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(180) }, '6 luni'),
-        h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(270) }, '9 luni'),
-        h('button', { class: 'btn sm', type: 'button', onclick: () => shareInvite(365) }, '1 an')
+    section('share-invite', 'Share', h('div', { class: 'sh-wrap' },
+      h('div', { class: 'sh-row', onclick: e => { const b = e.currentTarget.nextElementSibling; b.hidden = !b.hidden; e.currentTarget.classList.toggle('open', !b.hidden); } },
+        h('img', { class: 'sh-app', src: 'icons/icon-512.png', alt: 'LEGE ȘI ORDINE', width: 38, height: 38 }),
+        h('span', { class: 'sh-l' }, 'Share ', h('span', { class: 'ux' }, 'LEGE ȘI ORDINE')),
+        h('i', { class: 'sparr' })
+      ),
+      h('div', { class: 'sh-box', hidden: true },
+        h('span', { class: 'sh-tx' }, 'Dacă cunoști pe cineva care ar avea nevoie de această aplicație, dă un simplu Share. Alegi valabilitatea, destinatarul primește linkul de descărcare.'),
+        h('button', { class: 'sh-go', type: 'button', onclick: () => openShareValidity() }, '📤'),
+        codeBlock()
       )
     )),
     section('about', t('setAbout'), h('div', {},
@@ -335,27 +338,26 @@ export function listenInstallPrompt() {
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__lsoInstall = e; });
 }
 
-async function shareInvite(days) {
-  const months = { 90: '3 luni', 180: '6 luni', 270: '9 luni', 365: '1 an' }[days] || (days + ' zile');
-  const text = `LEGE ȘI ORDINE\nAplicație pentru avocați.\nValabilă ${months}.`;
-  // Share text scurt + icoana aplicației
-  try {
-    const res = await fetch('icons/icon-512.png');
-    const blob = await res.blob();
-    const file = new File([blob], 'lege-si-ordine.png', { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ title: 'LEGE ȘI ORDINE', text, files: [file] });
-      return;
-    }
-  } catch (e) { if (e && e.name === 'AbortError') return; }
-  // Fallback Capacitor Share (text + url icon dacă e disponibil)
-  try {
-    const SH = window.Capacitor?.Plugins?.Share;
-    if (SH) {
-      await SH.share({ title: 'LEGE ȘI ORDINE', text, dialogTitle: 'Share' });
-      return;
-    }
-  } catch {}
-  const { shareText } = await import('./share.js');
-  await shareText('LEGE ȘI ORDINE', text);
+async function openShareValidity() {
+  const { openModal } = await import('../ui/modal.js');
+  const opts = [[3, '3 luni'], [6, '6 luni'], [9, '9 luni'], [12, '1 an']];
+  let sel = 3;
+  const body = h('div', {},
+    h('p', { class: 'r2-meta' }, 'Valabilitate pentru destinatar'),
+    h('div', { class: 'row-inp', style: { flexWrap: 'wrap', gap: '8px', margin: '10px 0' } },
+      ...opts.map(([m, l]) => h('button', { class: 'btn sm' + (m === sel ? ' primary' : ''), type: 'button',
+        onclick: e => { sel = m; e.currentTarget.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('primary', b === e.currentTarget)); } }, l))
+    ),
+    h('p', { class: 'r2-meta' }, 'După expirare, datele rămân pe telefon; se pot citi și exporta. Nu se șterge nimic.'),
+    h('button', { class: 'btn primary', type: 'button', style: { marginTop: '12px' }, onclick: async () => {
+      const months = sel === 12 ? '1 an' : sel + ' luni';
+      const U = 'https://cluj1313.github.io/lege-si-ordine/apk/';
+      const text = `LEGE ȘI ORDINE – aplicație pentru avocați\nAcces partajat: ${months}\n${U}`;
+      const { shareText } = await import('./share.js');
+      await shareText('LEGE ȘI ORDINE', text);
+      document.querySelector('[data-test=share-validity]')?.remove();
+    } }, 'Trimite')
+  );
+  const m = openModal({ title: 'Distribuie LEGE ȘI ORDINE', body, kind: 'dialog' });
+  if (m && m.el) m.el.dataset.test = 'share-validity';
 }

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ro"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LEGE ȘI ORDINE</title>
+<meta property="og:title" content="LEGE ȘI ORDINE">
+<meta property="og:description" content="Descarcă aplicația LEGE ȘI ORDINE pentru Android.">
+<meta property="og:image" content="https://cluj1313.github.io/lege-si-ordine/apk/og-icon.png">
+<link rel="icon" href="og-icon.png">
+<style>
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#0d1b2a;color:#fff;text-align:center}
+img{width:160px;height:160px;border-radius:36px;box-shadow:0 8px 30px #0008}
+h1{margin:18px 0 4px;font-size:28px}p{margin:0 0 26px;opacity:.75}
+a.btn{display:inline-block;padding:16px 44px;background:#1e88e5;color:#fff;border-radius:14px;font-size:22px;font-weight:700;text-decoration:none}
+small{margin-top:18px;opacity:.6}
+</style></head><body>
+<img src="og-icon.png" alt="LEGE ȘI ORDINE">
+<h1>LEGE ȘI ORDINE</h1><p id="ver">Descarcă aplicația</p>
+<a class="btn" id="dl" href="#">Descarcă</a>
+<small>Descărcarea pornește automat…</small>
+<script>
+const APK = "https://github.com/cluj1313/lege-si-ordine/releases/latest/download/LEGE-SI-ORDINE.apk";
+document.getElementById("dl").href = APK;
+if (!/[?&]nr\b/.test(location.search)) setTimeout(function(){ location.href = APK; }, 800);
+</script>
+</body></html>
