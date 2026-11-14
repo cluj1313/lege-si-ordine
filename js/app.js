@@ -8,7 +8,7 @@ import { renderTabBar, tabDrag } from './ui/tabsbar.js';
 import { ui, ensureOpen, sortModeOf, SORT_MODES, saveManual } from './ui/list.js';
 import { pickFolder, folderNameOf } from './ui/folderpick.js';
 import { openEditor, openEditors, moveItem } from './ui/editor.js';
-import { confirmDlg, toast, sheet, closeAll, modalsOpen, dropMenu, pinDlg } from './ui/modal.js';
+import { confirmDlg, toast, sheet, closeAll, modalsOpen, dropMenu, pinDlg, openModal } from './ui/modal.js';
 import { renderGeneric, renderSaved, renderFolders, renderNews, renderLocked, currentFolder, newFolder, newsResults, renderMO, hasCats, savedSubs } from './tabs/views.js';
 import { curCat, getCats } from './tabs/cats.js';
 import { isoToday } from './core/util.js';
@@ -211,25 +211,50 @@ function renderTemporaryZone(tab) {
     e.stopPropagation();
     const rec = createTemporary('', tab.id, ['dict']);
     if (!rec) return;
-    expanded = true;
-    listEl.style.display = 'block';
-    // deschide editorul pe notița temporară (nu pe tab principal)
-    await openEditor(tab.id, null, { kind: 'note', preset: { body: '', tempId: rec.id } });
-    setTimeout(async () => {
-      const ta = document.querySelector('.editor textarea.voice-target');
-      if (ta) {
-        setTarget(ta);
-        await startDictation(ta);
-        // la oprire, salvează textul în notița temporară
-        const stop = () => {
-          const txt = ta.value || '';
-          if (txt.trim()) updateTemporary(rec.id, { text: txt });
-          render();
-        };
-        ta.addEventListener('blur', stop, { once: true });
+    // Modal temporar: textul rămâne doar în Temporar, nu se creează notiță în tab
+    const titleInp = h('input', { class: 'inp', type: 'text', placeholder: 'Titlu (se completează automat din primul rând)' });
+    const ta = h('textarea', { class: 'inp voice-target', rows: 8, placeholder: 'Dictează aici...' });
+    const body = h('div', {},
+      h('label', { class: 'fld' }, h('span', {}, 'Titlu'), titleInp),
+      h('label', { class: 'fld' }, h('span', {}, 'Text'), ta)
+    );
+    let started = false;
+    const finish = (m) => {
+      const full = (ta.value || '').trim();
+      const first = full.split('\n')[0] || '';
+      const title = (titleInp.value || first).trim();
+      if (full) {
+        const text = title && title !== first ? title + '\n' + full : full;
+        updateTemporary(rec.id, { text });
+      } else {
+        deleteTemporary(rec.id);
       }
-    }, 250);
-    render();
+      stopDictation();
+      if (m) m.close();
+      render();
+    };
+    openModal({
+      title: 'Dictare temporară',
+      body,
+      dismissable: false,
+      actions: [
+        { label: 'Renunță', cls: 'ghost', onClick: m => { deleteTemporary(rec.id); stopDictation(); m.close(); render(); } },
+        { label: 'Salvează în Temporar', cls: 'primary', onClick: finish }
+      ]
+    });
+    setTimeout(async () => {
+      setTarget(ta);
+      await startDictation(ta);
+      started = true;
+      // Auto-fill title from first line while dictating
+      const syncTitle = () => {
+        if (!titleInp.value) {
+          const first = (ta.value || '').split('\n')[0] || '';
+          if (first) titleInp.value = first;
+        }
+      };
+      ta.addEventListener('input', syncTitle);
+    }, 200);
   } }, 'Dictează');
   header.append(dictBtn);
 
@@ -243,13 +268,24 @@ function renderTemporaryZone(tab) {
     if (!rec) return;
     expanded = true;
     listEl.style.display = 'block';
-    // pornește înregistrarea reală și o leagă de notița temporară
     window._lsoTempRecId = rec.id;
     if (typeof startRecording === 'function') {
       await startRecording(tab.id);
       toast('Înregistrare pornită. Oprește din butonul de microfon.');
     }
     updateTemporary(rec.id, { text: '🎙️ Înregistrare în curs…' });
+    // Arată status live în zona Temporar
+    const status = h('div', { id: 'temp-rec-status', style: { fontSize: '0.8rem', opacity: 0.85, marginTop: '4px' } }, '● Înregistrare…');
+    listEl.prepend(status);
+    const tick = setInterval(() => {
+      if (!window._lsoTempRecId) { clearInterval(tick); return; }
+      const el = document.getElementById('temp-rec-status');
+      if (el) {
+        const sec = Math.round((Date.now() - (window._lsoRecStart || Date.now())) / 1000);
+        el.textContent = '● Înregistrare… ' + sec + 's';
+      }
+    }, 1000);
+    window._lsoRecStart = Date.now();
     render();
   } }, 'Înregistrează');
   header.append(recBtn);
@@ -397,17 +433,9 @@ function renderTemporaryZone(tab) {
   };
   setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 50);
 
-  // Reapare la swipe vertical (doar dacă e ascuns)
-  let startY = 0;
-  document.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
-  document.addEventListener('touchend', e => {
-    const dy = Math.abs(e.changedTouches[0].clientY - startY);
-    if (dy > 50 && !expanded) {
-      expanded = true;
-      listEl.style.display = 'block';
-    }
-  }, { passive: true });
+  // Zona Temporar se deschide DOAR la tap pe linia "Temporar". Nu la swipe.
 }
+
 
 function renderUrgentClock(tab) {
   const old = document.getElementById('urgent-clock');

@@ -326,7 +326,7 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .exp-list { margin: 4px 0 10px; padding-left: 20px; color: var(--muted); }
 
 /* Dictare */
-.dict-bubble { position: fixed; left: 12px; right: 12px; bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 90; background: var(--card); border: 1px solid var(--gold-line); border-radius: 16px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; box-shadow: var(--shadow); font-style: normal; }
+.dict-bubble { position: fixed; left: 12px; right: 12px; bottom: calc(140px + env(safe-area-inset-bottom)); z-index: 90; background: var(--card); border: 1px solid var(--gold-line); border-radius: 16px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; box-shadow: var(--shadow); font-style: normal; }
 .dict-dot { width: 12px; height: 12px; border-radius: 50%; background: #d32f2f; animation: pulse 1s infinite; flex: none; }
 .dict-txt { flex: 1; min-width: 0; font-style: normal; }
 .viewer-img { max-width: 100%; max-height: 75vh; display: block; margin: 0 auto; border-radius: 8px; }

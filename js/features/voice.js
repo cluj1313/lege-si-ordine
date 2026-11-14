@@ -294,6 +294,8 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
         try { target.setSelectionRange(pos, pos); } catch {}
         target.dispatchEvent(new Event('input', { bubbles: true }));
       }
+      // IMPORTANT: commit the full partial so next partial only appends the delta
+      rec._committed = txt;
     }
     // Bula arată doar status scurt, nu tot textul (ca să nu apară dublu)
     setDictTxt(txt.length > 40 ? '…' + txt.slice(-36) : txt);
