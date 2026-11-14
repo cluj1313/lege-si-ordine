@@ -203,7 +203,7 @@ function renderTemporaryZone(tab) {
   header.append(title);
 
   const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
-  // Dictează: creează notiță goală și deschide editorul cu dictare
+  // Dictează: creează notiță în Temporar și pornește dictarea în ea
   const dictBtn = h('button', { type: 'button', title: 'Dictează', style: {
     fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
     border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
@@ -212,33 +212,41 @@ function renderTemporaryZone(tab) {
     const rec = createTemporary('', tab.id, ['dict']);
     if (!rec) return;
     expanded = true;
-    await openEditor(tab.id, null, { kind: 'note', preset: { body: '' } });
+    listEl.style.display = 'block';
+    // deschide editorul pe notița temporară (nu pe tab principal)
+    await openEditor(tab.id, null, { kind: 'note', preset: { body: '', tempId: rec.id } });
     setTimeout(async () => {
       const ta = document.querySelector('.editor textarea.voice-target');
       if (ta) {
         setTarget(ta);
         await startDictation(ta);
+        // la oprire, salvează textul în notița temporară
+        const stop = () => {
+          const txt = ta.value || '';
+          if (txt.trim()) updateTemporary(rec.id, { text: txt });
+          render();
+        };
+        ta.addEventListener('blur', stop, { once: true });
       }
-    }, 200);
+    }, 250);
     render();
   } }, 'Dictează');
   header.append(dictBtn);
 
-  // Înregistrează: creează notiță goală și pornește înregistrarea
+  // Înregistrează: rămâne în Temporar (nu pornește înregistrarea externă)
   const recBtn = h('button', { type: 'button', title: 'Înregistrează', style: {
     fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
     border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
   }, onclick: async (e) => {
     e.stopPropagation();
-    const rec = createTemporary('', tab.id, ['rec']);
+    const rec = createTemporary('🎙️ Înregistrare…', tab.id, ['rec']);
     if (!rec) return;
     expanded = true;
-    await openEditor(tab.id, null, { kind: 'note', preset: { body: '' } });
-    setTimeout(async () => {
-      const ta = document.querySelector('.editor textarea.voice-target');
-      if (ta) setTarget(ta);
-      if (typeof startRecording === 'function') await startRecording(tab.id);
-    }, 200);
+    listEl.style.display = 'block';
+    toast('Înregistrare pornită în Temporar. Apasă din nou pentru a opri.');
+    // simplu: marchează ca înregistrare activă; la oprire se poate atașa audio mai târziu
+    rec._recording = true;
+    updateTemporary(rec.id, { text: '🎙️ Înregistrare în curs…' });
     render();
   } }, 'Înregistrează');
   header.append(recBtn);
@@ -287,10 +295,20 @@ function renderTemporaryZone(tab) {
       } }, '✕');
       row.append(delBtn);
 
+      // click pe rând → deschide toată notița (nu doar prima linie)
+      let fullOpen = false;
+      const fullText = h('div', { style: { display: 'none', fontSize: '0.85rem', marginTop: '4px', whiteSpace: 'pre-wrap', opacity: 0.9 } }, it.text || '');
+      left.append(fullText);
       row.onclick = async (e) => {
         if (e.target === delBtn) return;
-        const action = await sheet(firstLine.slice(0, 40), [
-          { label: 'Citește', value: 'read', icon: '🔊' },
+        if (!fullOpen) {
+          fullOpen = true;
+          textSpan.style.display = 'none';
+          fullText.style.display = 'block';
+          return;
+        }
+        const action = await sheet((it.text || '').slice(0, 40) || 'Notiță', [
+          { label: 'Ascultă', value: 'read', icon: '🔊' },
           { label: 'Editează', value: 'edit', icon: '✏️' },
           { label: 'Copiază', value: 'copy', icon: '📋' },
           { label: 'Share', value: 'share', icon: '📤' },
@@ -346,18 +364,32 @@ function renderUrgentClock(tab) {
   const old = document.getElementById('urgent-clock');
   if (old) old.remove();
   if (!tab || tab.name !== 'Urgențe') return;
-  const clk = h('button', { id: 'urgent-clock', type: 'button', style: { position: 'fixed', bottom: '80px', right: '16px', background: 'rgba(11,26,51,0.9)', color: '#d4af37', border: '1px solid #d4af37', borderRadius: '12px', padding: '8px 12px', fontFamily: 'Cinzel, serif', fontSize: '1.1rem', zIndex: 40 } },
-    new Date().toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' })
-  );
+  const pos = JSON.parse(localStorage.getItem('lso_clock_pos') || '{"bottom":"160","right":"16"}');
+  const clk = h('button', { id: 'urgent-clock', type: 'button', style: {
+    position: 'fixed', bottom: pos.bottom + 'px', right: pos.right + 'px',
+    background: 'rgba(11,26,51,0.92)', color: '#d4af37', border: '1px solid #d4af37',
+    borderRadius: '12px', padding: '6px 10px', fontFamily: 'Cinzel, serif', fontSize: '1rem',
+    zIndex: 40, touchAction: 'none', cursor: 'grab'
+  } }, new Date().toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' }));
+  let drag = null;
+  clk.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, b: parseInt(clk.style.bottom), r: parseInt(clk.style.right) }; clk.setPointerCapture(e.pointerId); });
+  clk.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dy = drag.y - e.clientY, dx = drag.x - e.clientX;
+    clk.style.bottom = Math.max(80, drag.b + dy) + 'px';
+    clk.style.right = Math.max(8, drag.r + dx) + 'px';
+  });
+  clk.addEventListener('pointerup', e => {
+    if (!drag) return;
+    localStorage.setItem('lso_clock_pos', JSON.stringify({ bottom: parseInt(clk.style.bottom), right: parseInt(clk.style.right) }));
+    drag = null;
+  });
   clk.addEventListener('click', () => {
+    if (drag) return;
     const t = prompt('Setează alarmă (HH:MM)', '09:00');
-    if (t && /^\d{1,2}:\d{2}$/.test(t)) {
-      toast('Alarmă setată la ' + t);
-      // aici se poate lega de sistemul de alarme existent
-    }
+    if (t && /^\d{1,2}:\d{2}$/.test(t)) toast('Alarmă setată la ' + t);
   });
   document.body.append(clk);
-  // actualizare la fiecare minut
   setTimeout(() => renderUrgentClock(tab), 60000);
 }
 

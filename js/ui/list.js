@@ -213,42 +213,35 @@ export function card(it) {
     r1.prepend(h('span', { style: { marginRight: '6px', color: '#d4af37' } }, '📌'));
   }
 
-  // Long-press pe card → redenumire + pin
-  onLongPress(el, async () => {
-    const K = KINDS[it.kind] || KINDS.note;
-    const d = dataOf(it);
-    const current = d ? (K.title ? K.title(d) : d.name || d.text || '') : '';
-    const v = await sheet('Acțiuni', [
-      { label: 'Redenumește', value: 'ren' },
-      { label: d?.pinned ? 'Desfixează' : 'Fixează sus 📌', value: 'pin' }
-    ]);
-    if (v === 'ren') {
-      const n = await promptDlg('Redenumește', { value: current });
-      if (n && n.trim()) {
-        if (it.kind === 'folder') await saveItem(it, { ...d, name: n.trim() });
-        else if (d) await saveItem(it, { ...d, name: n.trim(), text: n.trim() });
-        toast('Redenumit');
-      }
-    } else if (v === 'pin') {
-      await saveItem(it, { ...d, pinned: !d?.pinned });
-      toast(d?.pinned ? 'Desfixat' : 'Fixat sus');
-    }
-    app.render();
-  });
+  // Long-press doar pentru drag-and-drop (mânerul ≡ sau rândul 1)
 
   return el;
 }
 
 async function openItemMenu(it) {
   const d = dataOf(it);
+  const K = KINDS[it.kind] || KINDS.note;
+  const current = d ? (K.title ? K.title(d) : d.name || d.text || '') : '';
   const v = await sheet('Acțiuni', [
+    { label: 'Redenumește', value: 'ren', icon: '✏️' },
+    { label: d?.pinned ? 'Desfixează' : 'Fixează sus 📌', value: 'pin', icon: '📌' },
     { label: 'Alarmă', value: 'alarm', icon: '⏰' },
     { label: 'Trimite', value: 'share', icon: '↗' },
     { label: it.lock ? 'Deblochează' : 'Blochează', value: 'lock', icon: '🔒' },
     { label: 'Etichete 🏷️', value: 'tags', icon: '🏷️' },
     { label: 'Șterge', value: 'del', icon: '🗑', cls: 'danger' }
   ]);
-  if (v === 'alarm') toast('Alarmă (în dezvoltare)');
+  if (v === 'ren') {
+    const n = await promptDlg('Redenumește', { value: current });
+    if (n && n.trim()) {
+      if (it.kind === 'folder') await saveItem(it, { ...d, name: n.trim() });
+      else if (d) await saveItem(it, { ...d, name: n.trim(), text: n.trim() });
+      toast('Redenumit');
+    }
+  } else if (v === 'pin') {
+    await saveItem(it, { ...d, pinned: !d?.pinned });
+    toast(d?.pinned ? 'Desfixat' : 'Fixat sus');
+  } else if (v === 'alarm') toast('Alarmă (în dezvoltare)');
   else if (v === 'share') shareText(d?.title || d?.name || '', d?.text || '');
   else if (v === 'lock') toast('Blocare (folosește meniul existent)');
   else if (v === 'tags') {
