@@ -237,6 +237,7 @@ async function checkUpdate(statusEl) {
 
 // Alarme și notificări: stare reală (Permise / Refuzate / Neîntrebat), cerere de permisiune, test.
 function alarmsSection() {
+  const s = state.settings || {};
   const hideClock = h('label', { class: 'fld-check' },
     h('input', { type: 'checkbox', checked: !!s.hideClock, onchange: async e => { s.hideClock = e.target.checked; await saveSettings(); const { render } = await import('../app.js'); render(); } }),
     h('span', {}, 'Ascunde ceasul'));
