@@ -807,5 +807,65 @@ export async function startApp() {
   if (tb) requestAnimationFrame(() => window.scrollTo(0, state.ui.scroll[tb.id] || 0));
 }
 
-
-
+function openTabAppearance() {
+  const cur = currentTab();
+  if (!cur) return;
+  const s = state.settings || {};
+  const fs = s.fontScale || 'md';
+  const lh = parseFloat(s.lineHeight) || 1.3;
+  const curColor = s.textColor || '#ffffff';
+  const colors = [
+    { c: 'linear-gradient(90deg,#000 50%,#fff 50%)', v: '#ffffff' },
+    { c: '#ffffff', v: '#ffffff' },
+    { c: '#e0e0e0', v: '#e0e0e0' },
+    { c: '#7fd4ff', v: '#7fd4ff' },
+    { c: '#a8e6cf', v: '#a8e6cf' },
+    { c: '#ffe66d', v: '#ffe66d' },
+    { c: '#ffb3c1', v: '#ffb3c1' },
+    { c: '#e6d5ff', v: '#e6d5ff' },
+    { c: '#1a3a5c', v: '#1a3a5c' },
+    { c: '#1565c0', v: '#1565c0' }
+  ];
+  const modal = h('div', { class: 'm-overlay', onclick: e => { if (e.target === modal) modal.remove(); } },
+    h('div', { class: 'm-box', style: { padding: '16px 18px', maxWidth: '340px', background: '#1a1a1a', color: '#eee', borderRadius: '16px' } },
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } },
+        h('div', { style: { fontWeight: 600, fontSize: '16px' } }, 'Aspect tab · ' + (cur.name || '')),
+        h('button', { class: 'btn sm ghost', type: 'button', style: { color: '#aaa' }, onclick: () => modal.remove() }, '×')),
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' } },
+        h('span', {}, 'Mărime font'),
+        h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+          h('button', { class: 'btn sm ghost', type: 'button', style: { width: '36px', height: '36px', borderRadius: '10px' }, onclick: () => setFontScale('sm') }, '−'),
+          h('span', { style: { minWidth: '44px', textAlign: 'center' } }, fs === 'sm' ? 'Mic' : fs === 'lg' ? 'Mare' : 'Auto'),
+          h('button', { class: 'btn sm ghost', type: 'button', style: { width: '36px', height: '36px', borderRadius: '10px' }, onclick: () => setFontScale('lg') }, '+'))),
+      h('div', { style: { marginBottom: '14px' } },
+        h('div', { style: { marginBottom: '8px' } }, 'Culoare font'),
+        h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+          ...colors.map(o => h('button', { class: 'btn sm', style: { width: '30px', height: '30px', borderRadius: '50%', background: o.c, border: curColor === o.v ? '2px solid #7fd4ff' : '2px solid rgba(255,255,255,.25)', padding: 0, boxShadow: curColor === o.v ? '0 0 0 2px #7fd4ff' : '' }, type: 'button', onclick: () => setFontColor(o.v) })))),
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } },
+        h('span', {}, 'Spațiere rânduri'),
+        h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+          h('button', { class: 'btn sm ghost', type: 'button', style: { width: '36px', height: '36px', borderRadius: '10px' }, onclick: () => setLineHeight(Math.max(1.0, +(lh - 0.1).toFixed(1))) }, '−'),
+          h('span', { style: { minWidth: '36px', textAlign: 'center' } }, lh.toFixed(1)),
+          h('button', { class: 'btn sm ghost', type: 'button', style: { width: '36px', height: '36px', borderRadius: '10px' }, onclick: () => setLineHeight(Math.min(2.0, +(lh + 0.1).toFixed(1))) }, '+'))),
+      h('div', { style: { marginBottom: '12px' } },
+        h('button', { class: 'btn sm ghost', type: 'button', style: { width: '100%' }, onclick: () => changeTabBg() }, 'Schimbă fundal')),
+      h('button', { class: 'btn sm ghost', type: 'button', style: { width: '100%', color: '#e57373' }, onclick: () => resetAppearance() }, 'Resetare')));
+  document.body.append(modal);
+  function setFontScale(v) { state.settings.fontScale = v; saveSettings(); applyTheme(); modal.remove(); openTabAppearance(); }
+  function setFontColor(c) { state.settings.textColor = c; saveSettings(); applyTheme(); modal.remove(); openTabAppearance(); }
+  function setLineHeight(v) { state.settings.lineHeight = v.toFixed(1); saveSettings(); applyTheme(); modal.remove(); openTabAppearance(); }
+  function changeTabBg() {
+    modal.remove();
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.onchange = async () => { state.settings.bgColor = picker.value; state.settings.bgType = 'color'; await saveSettings(); applyTheme(); };
+    picker.click();
+  }
+  function resetAppearance() {
+    delete state.settings.textColor;
+    delete state.settings.lineHeight;
+    state.settings.fontScale = 'md';
+    state.settings.bgType = 'light';
+    saveSettings(); applyTheme(); modal.remove();
+  }
+}
