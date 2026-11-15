@@ -171,10 +171,6 @@ const ssTimeout = h("input", { class: "inp", type: "number", min: "0", max: "60"
     h('input', { type: 'checkbox', checked: s.ssTips !== false, onchange: async e => { s.ssTips = e.target.checked; await saveSettings(); } }),
     h('span', {}, 'Afișează sfaturi'));
 
-  const hideClock = h('label', { class: 'fld-check' },
-    h('input', { type: 'checkbox', checked: !!s.hideClock, onchange: async e => { s.hideClock = e.target.checked; await saveSettings(); const { render } = await import('../app.js'); render(); } }),
-    h('span', {}, 'Ascunde ceasul'));
-
   // Setări fine
   const fineRow = h('div', { style: { marginTop: '12px' } },
     h('h3', { class: 'sub-h' }, 'Setări fine'),
@@ -185,20 +181,29 @@ const ssTimeout = h("input", { class: "inp", type: "number", min: "0", max: "60"
       oninput: e => { s.noteGap = +e.target.value; document.documentElement.style.setProperty('--note-gap', s.noteGap + 'px'); document.getElementById('vNrp').textContent = s.noteGap + 'px'; saveSettings(); } })
   );
 
+  const divider = (title) => h('div', { class: 'set-divider' }, h('span', {}, title));
+
   return h('div', {},
+    divider('Design'),
     h('h3', { class: 'sub-h' }, t('setThemes')), themeRow,
+    h('h3', { class: 'sub-h' }, 'Fundal'), bgRow,
     h('h3', { class: 'sub-h' }, t('setTabStyle')), styleRow,
     h('h3', { class: 'sub-h' }, t('setFont')), fontRow,
-    h('h3', { class: 'sub-h' }, 'Fundal'), bgRow,
     fineRow,
-    hideClock,
-    h('h3', { class: 'sub-h' }, 'Dosare – tipuri'),
+    divider('Dosare'),
     h('label', { class: 'fld-check' },
       h('input', { type: 'checkbox', checked: s.showPF !== false, onchange: async e => { s.showPF = e.target.checked; await saveSettings(); } }),
       h('span', {}, 'Afișează Persoane fizice')),
     h('label', { class: 'fld-check' },
-      h('input', { type: 'checkbox', checked: s.folderBarAutoHide !== false, onchange: async e => { s.folderBarAutoHide = e.target.checked; await saveSettings(); } }),
+      h('input', { type: 'checkbox', checked: s.showFirme !== false, onchange: async e => { s.showFirme = e.target.checked; await saveSettings(); } }),
+      h('span', {}, 'Afișează firme')),
+    h('label', { class: 'fld-check' },
+      h('input', { type: 'checkbox', checked: s.showAmbele !== false, onchange: async e => { s.showAmbele = e.target.checked; await saveSettings(); } }),
+      h('span', {}, 'Afișează ambele')),
+    h('label', { class: 'fld-check' },
+      h('input', { type: 'checkbox', checked: !!s.autoHideFolders, onchange: async e => { s.autoHideFolders = e.target.checked; await saveSettings(); } }),
       h('span', {}, 'Auto-ascunde bara de foldere')),
+    divider('Lock'),
     h('div', { class: 'row-btns' },
       [['rapid', 'Rapid'], ['manual', 'Manual'], ['session', 'Sesiune']].map(([v, n]) =>
         h('button', { class: 'btn sm' + ((s.lockMode || 'background') === v ? ' primary' : ' ghost'), type: 'button', onclick: async e => {
@@ -209,6 +214,7 @@ const ssTimeout = h("input", { class: "inp", type: "number", min: "0", max: "60"
     h('button', { class: 'btn ghost sm', type: 'button', onclick: async () => { const { openPatternSetup } = await import('./lock.js'); openPatternSetup(); } }, 'Desenează pattern (9 puncte)'),
     h('button', { class: 'btn ghost sm', type: 'button', onclick: async () => { const { clearLock } = await import('./lock.js'); clearLock(); } }, 'Șterge Lock'),
     h('button', { class: 'btn ghost sm', type: 'button', onclick: async () => { const { unlockWithBiometric } = await import('./lock.js'); unlockWithBiometric(); } }, 'Deblochează cu amprentă 🫆'),
+    divider('Protecție ecran'),
     h('label', { class: 'fld' }, h('span', {}, 'Minute fără atingere (0 = oprit)'), ssTimeout),
     h('div', { class: 'row-btns' }, ssSpeed),
     ssTips,
@@ -231,6 +237,10 @@ async function checkUpdate(statusEl) {
 
 // Alarme și notificări: stare reală (Permise / Refuzate / Neîntrebat), cerere de permisiune, test.
 function alarmsSection() {
+  const hideClock = h('label', { class: 'fld-check' },
+    h('input', { type: 'checkbox', checked: !!s.hideClock, onchange: async e => { s.hideClock = e.target.checked; await saveSettings(); const { render } = await import('../app.js'); render(); } }),
+    h('span', {}, 'Ascunde ceasul'));
+
   const native = nativeNotif();
   const status = h('div', { class: 'notif-status', 'data-test': 'notif-status' });
   const allow = h('button', { class: 'btn primary', type: 'button', 'data-test': 'notif-allow' }, t('allowNotif'));
@@ -266,6 +276,7 @@ function alarmsSection() {
   document.addEventListener('visibilitychange', onVis);
   draw();
   return h('div', { 'data-test': 'alarms-sec' },
+    hideClock,
     h('p', { class: 'r2-meta' }, native ? t('alarmsHintNative') : t('alarmsHintWeb')),
     status, btns, extra);
 }

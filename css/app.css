@@ -573,3 +573,7 @@ body.reading .w.past { color: var(--muted); }
 
 .label-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .label-chip { font-size: 11px; padding: 2px 6px; border-radius: 10px; color: #fff; }
+
+.set-divider { display: flex; align-items: center; margin: 16px 0 10px; }
+.set-divider::before, .set-divider::after { content: ''; flex: 1; height: 1px; background: var(--line, #ddd); }
+.set-divider span { padding: 0 10px; font-size: 13px; font-weight: 600; color: var(--ink); letter-spacing: 0.04em; }
