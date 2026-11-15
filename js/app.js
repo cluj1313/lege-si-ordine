@@ -117,21 +117,25 @@ function enableEmptySpaceMenu() {
 function enableSwipeTabs() {
   if (document.body.dataset.swipeBound) return;
   document.body.dataset.swipeBound = '1';
-  let startX = 0, startY = 0, tracking = false, startTarget = null;
-  document.addEventListener('pointerdown', e => {
-    const view = document.getElementById('view');
-    if (!view || !view.contains(e.target)) return;
-    // ignoră butoane, inputuri, linkuri
-    if (e.target.closest('button, a, input, textarea, select, .fab, .tabbar')) return;
-    startX = e.clientX; startY = e.clientY; tracking = true; startTarget = e.target;
-  }, { passive: true, capture: true });
-  document.addEventListener('pointerup', e => {
+  let startX = 0, startY = 0, tracking = false;
+  const view = document.getElementById('view');
+  if (!view) return;
+  view.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    const t = e.target;
+    if (t.closest('button, a, input, textarea, select, .fab')) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    tracking = true;
+  }, { passive: true });
+  view.addEventListener('touchend', e => {
     if (!tracking) return;
     tracking = false;
-    const dx = e.clientX - startX;
-    const dy = Math.abs(e.clientY - startY);
-    // swipe orizontal pe conținut
-    if (Math.abs(dx) > 35 && dy < 70) {
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const dx = touch.clientX - startX;
+    const dy = Math.abs(touch.clientY - startY);
+    if (Math.abs(dx) > 30 && dy < 80) {
       const tabs = visibleTabs();
       const cur = currentTab();
       if (!cur || !tabs.length) return;
@@ -139,8 +143,8 @@ function enableSwipeTabs() {
       if (dx < 0 && idx < tabs.length - 1) goTab(tabs[idx + 1].id);
       if (dx > 0 && idx > 0) goTab(tabs[idx - 1].id);
     }
-  }, { passive: true, capture: true });
-  document.addEventListener('pointercancel', () => { tracking = false; }, { passive: true });
+  }, { passive: true });
+  view.addEventListener('touchcancel', () => { tracking = false; }, { passive: true });
 }
 function goTab(id, keepScroll) {
   const prev = currentTab();
