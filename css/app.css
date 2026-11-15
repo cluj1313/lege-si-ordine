@@ -564,5 +564,5 @@ body.reading .w.past { color: var(--muted); }
 /* Backup cards (Notis style) */
 .bk-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; background: var(--card); }
 .bk-date { font-size: 15px; font-weight: 500; margin-bottom: 8px; }
-.bk-btns { display: flex; gap: 8px; flex-wrap: wrap; }
-.bk-btns .btn { min-width: 70px; }
+.bk-btns { display: flex; gap: 4px; flex-wrap: nowrap; }
+.bk-btns .btn { flex: 1; min-width: 0; padding: 6px 4px; font-size: 0.85rem; }

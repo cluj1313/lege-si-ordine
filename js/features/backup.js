@@ -332,10 +332,10 @@ export function backupSection() {
     all.forEach(b => {
       const card = h('div', { class: 'bk-card' },
         h('div', { class: 'bk-date' }, fmtTs(b.created)),
-        h('div', { class: 'bk-btns', style: { display: 'flex', gap: '6px', flexWrap: 'nowrap' } },
-          h('button', { class: 'btn sm', type: 'button', style: { flex: 1, padding: '6px 8px' }, onclick: e => act(e.currentTarget, () => restoreInternal(b)) }, 'Refă'),
-          h('button', { class: 'btn sm ghost', type: 'button', style: { flex: 1, padding: '6px 8px' }, onclick: e => act(e.currentTarget, () => sendBackup(b)) }, 'Trimite'),
-          h('button', { class: 'btn sm ghost danger', type: 'button', style: { flex: 1, padding: '6px 8px' }, onclick: e => act(e.currentTarget, () => deleteManual(b, drawManual)) }, 'Șterge')));
+        h('div', { class: 'bk-btns' },
+          h('button', { class: 'btn sm', type: 'button', onclick: e => act(e.currentTarget, () => restoreInternal(b)) }, 'Refă'),
+          h('button', { class: 'btn sm ghost', type: 'button', onclick: e => act(e.currentTarget, () => sendBackup(b)) }, 'Trimite'),
+          h('button', { class: 'btn sm ghost danger', type: 'button', onclick: e => act(e.currentTarget, () => deleteManual(b, drawManual)) }, 'Șterge')));
       manualList.append(card);
     });
   };
