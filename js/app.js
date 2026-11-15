@@ -115,21 +115,23 @@ function enableEmptySpaceMenu() {
 }
 
 function enableSwipeTabs() {
-  const view = document.getElementById('view');
-  if (!view || view.dataset.swipeBound) return;
-  view.dataset.swipeBound = '1';
-  let startX = 0, startY = 0, tracking = false;
-  view.addEventListener('pointerdown', e => {
-    // pe toată zona de conținut (mijlocul ecranului, sub bara de taburi)
-    startX = e.clientX; startY = e.clientY; tracking = true;
-  }, { passive: true });
-  view.addEventListener('pointerup', e => {
+  if (document.body.dataset.swipeBound) return;
+  document.body.dataset.swipeBound = '1';
+  let startX = 0, startY = 0, tracking = false, startTarget = null;
+  document.addEventListener('pointerdown', e => {
+    const view = document.getElementById('view');
+    if (!view || !view.contains(e.target)) return;
+    // ignoră butoane, inputuri, linkuri
+    if (e.target.closest('button, a, input, textarea, select, .fab, .tabbar')) return;
+    startX = e.clientX; startY = e.clientY; tracking = true; startTarget = e.target;
+  }, { passive: true, capture: true });
+  document.addEventListener('pointerup', e => {
     if (!tracking) return;
     tracking = false;
     const dx = e.clientX - startX;
     const dy = Math.abs(e.clientY - startY);
-    // swipe orizontal clar pe conținut
-    if (Math.abs(dx) > 40 && dy < 60) {
+    // swipe orizontal pe conținut
+    if (Math.abs(dx) > 35 && dy < 70) {
       const tabs = visibleTabs();
       const cur = currentTab();
       if (!cur || !tabs.length) return;
@@ -137,8 +139,8 @@ function enableSwipeTabs() {
       if (dx < 0 && idx < tabs.length - 1) goTab(tabs[idx + 1].id);
       if (dx > 0 && idx > 0) goTab(tabs[idx - 1].id);
     }
-  }, { passive: true });
-  view.addEventListener('pointercancel', () => { tracking = false; }, { passive: true });
+  }, { passive: true, capture: true });
+  document.addEventListener('pointercancel', () => { tracking = false; }, { passive: true });
 }
 function goTab(id, keepScroll) {
   const prev = currentTab();
