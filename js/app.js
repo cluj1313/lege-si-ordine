@@ -118,12 +118,21 @@ function enableSwipeTabs() {
   const view = document.getElementById('view');
   if (!view || view.dataset.swipeBound) return;
   view.dataset.swipeBound = '1';
-  let startX = 0, startY = 0;
-  view.addEventListener('pointerdown', e => { startX = e.clientX; startY = e.clientY; }, { passive: true });
+  let startX = 0, startY = 0, tracking = false;
+  view.addEventListener('pointerdown', e => {
+    // doar pe mijlocul ecranului (nu pe margini sau pe carduri interactive)
+    const rect = view.getBoundingClientRect();
+    const mid = rect.left + rect.width / 2;
+    if (Math.abs(e.clientX - mid) > rect.width * 0.35) return;
+    startX = e.clientX; startY = e.clientY; tracking = true;
+  }, { passive: true });
   view.addEventListener('pointerup', e => {
+    if (!tracking) return;
+    tracking = false;
     const dx = e.clientX - startX;
     const dy = Math.abs(e.clientY - startY);
-    if (Math.abs(dx) > 60 && dy < 40) {
+    // swipe orizontal clar, pe mijloc
+    if (Math.abs(dx) > 50 && dy < 50) {
       const tabs = visibleTabs();
       const cur = currentTab();
       if (!cur || !tabs.length) return;
@@ -132,6 +141,7 @@ function enableSwipeTabs() {
       if (dx > 0 && idx > 0) goTab(tabs[idx - 1].id);
     }
   }, { passive: true });
+  view.addEventListener('pointercancel', () => { tracking = false; }, { passive: true });
 }
 function goTab(id, keepScroll) {
   const prev = currentTab();
