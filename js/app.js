@@ -118,24 +118,23 @@ function enableSwipeTabs() {
   if (document.body.dataset.swipeBound) return;
   document.body.dataset.swipeBound = '1';
   let S = null;
-  const view = document.getElementById('view');
-  if (!view) return;
   function blocked(t) {
-    return t.closest && t.closest('button, a, input, textarea, select, .fab, .tabbar, .modal, .sheet');
+    if (!t || !t.closest) return true;
+    return !!t.closest('button, a, input, textarea, select, .fab, .tabbar, .hdr, .modal, .sheet, .m-overlay');
   }
-  view.addEventListener('touchstart', e => {
+  document.addEventListener('touchstart', e => {
     S = null;
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
-    if (t.clientX < 24 || t.clientX > window.innerWidth - 24 || blocked(e.target)) return;
+    if (t.clientX < 20 || t.clientX > window.innerWidth - 20 || blocked(e.target)) return;
     S = { x: t.clientX, y: t.clientY, t: Date.now() };
-  }, { passive: true });
-  view.addEventListener('touchmove', e => {
+  }, { passive: true, capture: true });
+  document.addEventListener('touchmove', e => {
     if (!S) return;
     const t = e.touches[0];
-    if (Math.abs(t.clientY - S.y) > 40 && Math.abs(t.clientY - S.y) > Math.abs(t.clientX - S.x)) S = null;
-  }, { passive: true });
-  view.addEventListener('touchend', e => {
+    if (Math.abs(t.clientY - S.y) > 50 && Math.abs(t.clientY - S.y) > Math.abs(t.clientX - S.x)) S = null;
+  }, { passive: true, capture: true });
+  document.addEventListener('touchend', e => {
     if (!S) return;
     const t = e.changedTouches[0];
     if (!t) { S = null; return; }
@@ -143,8 +142,8 @@ function enableSwipeTabs() {
     const dy = t.clientY - S.y;
     const s0 = S;
     S = null;
-    if (Date.now() - s0.t > 800) return;
-    if (Math.abs(dx) >= 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) {
+    if (Date.now() - s0.t > 700) return;
+    if (Math.abs(dx) >= 40 && Math.abs(dx) > 1.4 * Math.abs(dy)) {
       const tabs = visibleTabs();
       const cur = currentTab();
       if (!cur || !tabs.length) return;
@@ -152,8 +151,8 @@ function enableSwipeTabs() {
       if (dx < 0 && idx < tabs.length - 1) goTab(tabs[idx + 1].id);
       if (dx > 0 && idx > 0) goTab(tabs[idx - 1].id);
     }
-  }, { passive: true });
-  view.addEventListener('touchcancel', () => { S = null; }, { passive: true });
+  }, { passive: true, capture: true });
+  document.addEventListener('touchcancel', () => { S = null; }, { passive: true, capture: true });
 }
 function goTab(id, keepScroll) {
   const prev = currentTab();
