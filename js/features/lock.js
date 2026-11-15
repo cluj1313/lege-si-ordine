@@ -1,8 +1,7 @@
 import { state, saveSettings } from '../core/store.js';
-import { toast } from '../ui/modal.js';
+import { toast, confirmDlg } from '../ui/modal.js';
 
 export function startLock() {
-  // Placeholder for now – full PIN/pattern can be expanded later
   console.log('Lock system ready');
 }
 
@@ -15,11 +14,20 @@ export async function setPin(pin) {
 }
 
 export async function openPatternSetup() {
-  toast('Pattern (în dezvoltare)');
+  toast('Desenează pattern-ul (în dezvoltare)');
+  // Placeholder for 9-dot pattern
 }
 
 export async function clearLock() {
+  if (!(await confirmDlg('Ștergi Lock-ul? Va trebui să setezi din nou PIN-ul.', { danger: true }))) return;
   delete state.settings.appPin;
+  delete state.settings.appPattern;
   await saveSettings();
   toast('Lock eliminat');
+}
+
+export async function unlockWithBiometric() {
+  // Placeholder for fingerprint – Capacitor BiometricAuth can be added later
+  toast('Deblocare cu amprentă (în dezvoltare)');
+  return false;
 }
