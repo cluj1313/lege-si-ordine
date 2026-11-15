@@ -186,7 +186,7 @@ function renderTemporaryZone(tab) {
   const listEl = h('div', { style: { display: 'none', marginTop: '8px' } });
 
   const header = h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
-  const title = h('strong', { style: { fontSize: '0.95rem', flex: 1, cursor: 'pointer' } }, 'Temporar');
+  const title = h('strong', { style: { fontSize: '1.25rem', flex: 1, cursor: 'pointer', letterSpacing: '0.02em' } }, 'Temporar');
   title.onclick = (e) => {
     e.stopPropagation();
     expanded = !expanded;
