@@ -21,7 +21,7 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { font-size: 16px; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Oswald LSO', 'Oswald', 'Roboto Condensed', 'Arial Narrow', system-ui, sans-serif;
-  font-weight: 300; letter-spacing: .015em; line-height: 1.35; min-height: 100vh; overflow-x: hidden; padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+  font-weight: 300; letter-spacing: .015em; line-height: 1.25; min-height: 100vh; overflow-x: hidden; padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 button, input, textarea, select { font: inherit; color: inherit; font-weight: 300; letter-spacing: inherit; }
 b, strong, h1, h2, h3, th { font-weight: 400; }
 em, i { font-style: normal; }
@@ -61,7 +61,7 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .sep-label { color: var(--muted); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; margin: 10px 4px 0; padding-top: 8px; border-top: 1px solid var(--line); }
 .pad { padding: 8px 4px; }
 
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; position: relative; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; position: relative; margin-bottom: var(--note-gap, 4px); }
 .card::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--accent); opacity: .85; }
 .card.flash { animation: flash 2.2s ease; }
 @keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px var(--gold2); background: var(--gold-soft); } 100% { box-shadow: var(--shadow); } }
