@@ -117,34 +117,43 @@ function enableEmptySpaceMenu() {
 function enableSwipeTabs() {
   if (document.body.dataset.swipeBound) return;
   document.body.dataset.swipeBound = '1';
-  let startX = 0, startY = 0, tracking = false;
+  let S = null;
   const view = document.getElementById('view');
   if (!view) return;
+  function blocked(t) {
+    return t.closest && t.closest('button, a, input, textarea, select, .fab, .tabbar, .modal, .sheet');
+  }
   view.addEventListener('touchstart', e => {
+    S = null;
     if (e.touches.length !== 1) return;
-    const t = e.target;
-    if (t.closest('button, a, input, textarea, select, .fab')) return;
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    tracking = true;
+    const t = e.touches[0];
+    if (t.clientX < 24 || t.clientX > window.innerWidth - 24 || blocked(e.target)) return;
+    S = { x: t.clientX, y: t.clientY, t: Date.now() };
+  }, { passive: true });
+  view.addEventListener('touchmove', e => {
+    if (!S) return;
+    const t = e.touches[0];
+    if (Math.abs(t.clientY - S.y) > 40 && Math.abs(t.clientY - S.y) > Math.abs(t.clientX - S.x)) S = null;
   }, { passive: true });
   view.addEventListener('touchend', e => {
-    if (!tracking) return;
-    tracking = false;
-    const touch = e.changedTouches[0];
-    if (!touch) return;
-    const dx = touch.clientX - startX;
-    const dy = Math.abs(touch.clientY - startY);
-    if (Math.abs(dx) > 30 && dy < 80) {
+    if (!S) return;
+    const t = e.changedTouches[0];
+    if (!t) { S = null; return; }
+    const dx = t.clientX - S.x;
+    const dy = t.clientY - S.y;
+    const s0 = S;
+    S = null;
+    if (Date.now() - s0.t > 800) return;
+    if (Math.abs(dx) >= 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) {
       const tabs = visibleTabs();
       const cur = currentTab();
       if (!cur || !tabs.length) return;
-      const idx = tabs.findIndex(t => t.id === cur.id);
+      const idx = tabs.findIndex(tb => tb.id === cur.id);
       if (dx < 0 && idx < tabs.length - 1) goTab(tabs[idx + 1].id);
       if (dx > 0 && idx > 0) goTab(tabs[idx - 1].id);
     }
   }, { passive: true });
-  view.addEventListener('touchcancel', () => { tracking = false; }, { passive: true });
+  view.addEventListener('touchcancel', () => { S = null; }, { passive: true });
 }
 function goTab(id, keepScroll) {
   const prev = currentTab();
