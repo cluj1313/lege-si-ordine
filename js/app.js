@@ -479,7 +479,8 @@ function renderTemporaryZone(tab) {
           const text = (it.text || '').trim();
           if (!text) { toast('Notița e goală'); return; }
           const first = text.split('\n')[0] || 'Notiță';
-          const data = { text };
+          const title = first.length > 60 ? first.slice(0, 57) + '…' : first;
+          const data = { title, text };
           if (it.mid) data.media = [{ id: it.mid, kind: 'audio' }];
           await newItem(dest, 'note', data);
           deleteTemporary(it.id);

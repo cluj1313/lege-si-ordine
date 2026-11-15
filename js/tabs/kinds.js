@@ -56,8 +56,14 @@ export const KINDS = {
       { k: 'text', type: 'textarea', label: () => t('fText'), main: true, rows: 8 },
       { k: 'files', type: 'files', label: () => t('fAttachments') },
     ],
-    row2: (it, d) => h('div', { class: 'r2-col' }, d.text ? h('div', { class: 'r2-text' }, excerpt(d.text, 220)) : null,
-      h('div', { class: 'r2-meta' }, fmtTsDate(it.updated), d.files?.length ? ` • 📎 ${d.files.length}` : '')),
+    row2: (it, d) => {
+      const rest = String(d.text || '').split('\n').slice(1).join('\n').trim();
+      const box = h('div', { class: 'r2-col' });
+      if (rest) box.append(h('div', { class: 'r2-text pre' }, rest));
+      const when = new Date(it.created || it.updated).toLocaleString('ro-RO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      box.append(h('div', { class: 'r2-meta' }, when, d.files?.length ? ` • 📎 ${d.files.length}` : ''));
+      return box;
+    },
     search: d => [d.title, d.text, ...(d.files || []).map(f => f.name)].join(' \n '),
   },
   case: {
