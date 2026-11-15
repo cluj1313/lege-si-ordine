@@ -12,7 +12,31 @@ export async function setPin(pin) {
 }
 
 export async function openPatternSetup() {
-  toast('Desenează pattern-ul (în dezvoltare)');
+  const pts = [];
+  const box = h('div', { class: 'm-overlay', onclick: e => { if (e.target === box) box.remove(); } },
+    h('div', { class: 'm-box', style: { padding: '16px', maxWidth: '280px', background: '#1a1a1a', color: '#eee', borderRadius: '16px', textAlign: 'center' } },
+      h('div', { style: { fontWeight: 600, marginBottom: '12px' } }, 'Desenează pattern (4 din 9)'),
+      h('div', { id: 'pat-grid', style: { display: 'grid', gridTemplateColumns: 'repeat(3, 48px)', gap: '16px', justifyContent: 'center', margin: '12px 0' } },
+        ...[0,1,2,3,4,5,6,7,8].map(i => h('div', { 
+          'data-i': i,
+          style: { width: '48px', height: '48px', borderRadius: '50%', border: '2px solid #555', background: '#222', cursor: 'pointer' },
+          onclick: (e) => {
+            const el = e.currentTarget;
+            const idx = +el.dataset.i;
+            if (pts.includes(idx)) return;
+            pts.push(idx);
+            el.style.background = '#d4af37';
+            el.style.borderColor = '#d4af37';
+            if (pts.length >= 4) {
+              state.settings.appPattern = pts.join(',');
+              saveSettings();
+              toast('Pattern salvat');
+              box.remove();
+            }
+          }
+        }))),
+      h('button', { class: 'btn sm ghost', type: 'button', style: { color: '#aaa', marginTop: '8px' }, onclick: () => box.remove() }, 'Anulează')));
+  document.body.append(box);
 }
 
 export async function clearLock() {
@@ -24,9 +48,16 @@ export async function clearLock() {
 }
 
 export async function unlockWithBiometric() {
-  toast('Deblocare cu amprentă (în dezvoltare)');
+  if (window.PublicKeyCredential) {
+    try {
+      const cred = await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32), timeout: 60000, userVerification: 'required' } });
+      if (cred) { toast('Deblocat cu amprentă'); return true; }
+    } catch (e) { /* fall through */ }
+  }
+  toast('Amprentă nu este disponibilă pe acest dispozitiv. Folosește PIN.');
   return false;
 }
+
 
 export async function lockItem(item) {
   const method = await promptDlg('Cum vrei să blochezi?', {

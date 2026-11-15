@@ -197,7 +197,7 @@ function renderTemporaryZone(tab) {
   const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
   // Dictează: creează notiță în Temporar și pornește dictarea în ea
   const dictBtn = h('button', { type: 'button', title: 'Dictează', style: {
-    fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
+    fontSize: '0.95rem', padding: '4px 10px', borderRadius: '8px',
     border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
   }, onclick: async (e) => {
     e.stopPropagation();
@@ -261,7 +261,7 @@ function renderTemporaryZone(tab) {
 
   // Înregistrează: card complet (timer + bifă transcriere) în Temporar
   const recBtn = h('button', { type: 'button', title: 'Înregistrează', style: {
-    fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
+    fontSize: '0.95rem', padding: '4px 10px', borderRadius: '8px',
     border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
   }, onclick: async (e) => {
     e.stopPropagation();

@@ -21,7 +21,7 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { font-size: 16px; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Oswald LSO', 'Oswald', 'Roboto Condensed', 'Arial Narrow', system-ui, sans-serif;
-  font-weight: 300; letter-spacing: .015em; line-height: 1.25; min-height: 100vh; overflow-x: hidden; padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+  font-weight: 300; letter-spacing: .015em; line-height: 1.15; min-height: 100vh; overflow-x: hidden; padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
 button, input, textarea, select { font: inherit; color: inherit; font-weight: 300; letter-spacing: inherit; }
 b, strong, h1, h2, h3, th { font-weight: 400; }
 em, i { font-style: normal; }
