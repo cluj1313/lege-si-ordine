@@ -69,17 +69,19 @@ export function render() {
 function enableEmptySpaceMenu() {
   if (document.body.dataset.emptyMenu) return;
   document.body.dataset.emptyMenu = '1';
-  let timer, startX = 0, startY = 0;
+  let timer = null, startX = 0, startY = 0;
+  const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
   document.addEventListener('pointerdown', e => {
-    if (e.target.closest('.card, button, a, input, textarea, .fab, .pill, .news-sec-header, .tabbar, #temporary-zone, .hdr, .modal, .sheet')) return;
+    clear();
+    if (e.target.closest('button, a, input, textarea, select, .fab, .tabbar, #temporary-zone, .hdr, .m-overlay, .sheet, #urgent-clock')) return;
     startX = e.clientX; startY = e.clientY;
-    timer = setTimeout(() => { timer = null; openTabAppearance(); }, 600);
+    timer = setTimeout(() => { timer = null; openTabAppearance(); }, 550);
   }, { passive: true });
   document.addEventListener('pointermove', e => {
-    if (timer && (Math.abs(e.clientX - startX) > 15 || Math.abs(e.clientY - startY) > 15)) { clearTimeout(timer); timer = null; }
+    if (timer && (Math.abs(e.clientX - startX) > 18 || Math.abs(e.clientY - startY) > 18)) clear();
   }, { passive: true });
-  document.addEventListener('pointerup', () => { if (timer) { clearTimeout(timer); timer = null; } }, { passive: true });
-  document.addEventListener('pointercancel', () => { if (timer) { clearTimeout(timer); timer = null; } }, { passive: true });
+  document.addEventListener('pointerup', clear, { passive: true });
+  document.addEventListener('pointercancel', clear, { passive: true });
 }
 
 
@@ -507,6 +509,7 @@ function renderTemporaryZone(tab) {
 function renderUrgentClock(tab) {
   const old = document.getElementById('urgent-clock');
   if (old) old.remove();
+  if (state.settings && state.settings.hideClock) return;
   // Ceasul apare pe toate taburile
   const pos = JSON.parse(localStorage.getItem('lso_clock_pos') || '{"top":"72","right":"12"}');
   const now = new Date();

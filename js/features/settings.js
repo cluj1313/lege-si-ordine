@@ -35,7 +35,14 @@ export function applyTheme() {
     body.style.backgroundSize = 'cover';
     body.style.backgroundPosition = 'center';
   }
-  if (s.textColor) body.style.color = s.textColor;
+  if (s.textColor) {
+    const view = document.getElementById('view');
+    if (view) view.style.color = s.textColor;
+    body.style.color = '';
+  } else {
+    const view = document.getElementById('view');
+    if (view) view.style.color = '';
+  }
   if (s.lineHeight) body.style.lineHeight = s.lineHeight;
 }
 
@@ -163,11 +170,16 @@ const ssTimeout = h("input", { class: "inp", type: "number", min: "0", max: "60"
     h('input', { type: 'checkbox', checked: s.ssTips !== false, onchange: async e => { s.ssTips = e.target.checked; await saveSettings(); } }),
     h('span', {}, 'Afișează sfaturi'));
 
+  const hideClock = h('label', { class: 'fld-check' },
+    h('input', { type: 'checkbox', checked: !!s.hideClock, onchange: async e => { s.hideClock = e.target.checked; await saveSettings(); const { render } = await import('../app.js'); render(); } }),
+    h('span', {}, 'Ascunde ceasul'));
+
   return h('div', {},
     h('h3', { class: 'sub-h' }, t('setThemes')), themeRow,
     h('h3', { class: 'sub-h' }, t('setTabStyle')), styleRow,
     h('h3', { class: 'sub-h' }, t('setFont')), fontRow,
     h('h3', { class: 'sub-h' }, 'Fundal'), bgRow,
+    hideClock,
     h('h3', { class: 'sub-h' }, 'Dosare – tipuri'),
     h('label', { class: 'fld-check' },
       h('input', { type: 'checkbox', checked: s.showPF !== false, onchange: async e => { s.showPF = e.target.checked; await saveSettings(); } }),
