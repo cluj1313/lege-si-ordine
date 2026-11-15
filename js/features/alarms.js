@@ -61,3 +61,18 @@ function ring(it, due) {
     ],
   });
 }
+
+
+export async function setAlarm(it) {
+  const now = new Date();
+  const dateStr = await promptDlg('Data alarmei (YYYY-MM-DD)', { value: now.toISOString().slice(0, 10) });
+  if (!dateStr) return;
+  const timeStr = await promptDlg('Ora (HH:MM)', { value: now.toTimeString().slice(0, 5) });
+  if (!timeStr) return;
+  const dt = new Date(dateStr + 'T' + timeStr);
+  if (isNaN(dt.getTime())) { toast('Dată invalidă'); return; }
+  it.alarmAt = dt.getTime();
+  delete it.firedAt; delete it.snoozeAt;
+  await saveMeta(it);
+  toast('Alarmă setată pentru ' + dt.toLocaleString('ro-RO'));
+}

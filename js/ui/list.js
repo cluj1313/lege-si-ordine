@@ -241,7 +241,10 @@ async function openItemMenu(it) {
   } else if (v === 'pin') {
     await saveItem(it, { ...d, pinned: !d?.pinned });
     toast(d?.pinned ? 'Desfixat' : 'Fixat sus');
-  } else if (v === 'alarm') toast('Alarmă (în dezvoltare)');
+  } else if (v === 'alarm') {
+    const { setAlarm } = await import('../features/alarms.js');
+    await setAlarm(it);
+  }
   else if (v === 'share') shareText(d?.title || d?.name || '', d?.text || '');
   else if (v === 'lock') {
     const { lockItem } = await import('../features/lock.js');
