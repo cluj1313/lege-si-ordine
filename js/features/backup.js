@@ -329,20 +329,28 @@ export function backupSection() {
     manualList.innerHTML = '';
     const all = await listManual();
     if (!all.length) manualList.append(h('div', { class: 'r2-meta' }, t('noManualBackups')));
-    all.forEach(b => manualList.append(h('div', { class: 'bk-row' },
-      h('div', {}, h('div', {}, fmtTs(b.created)), h('div', { class: 'r2-meta' }, `${t('nItems', { n: b.counts.items })}${b.omitted && b.omitted.length ? ' • ' + t('backupOmittedShort', { n: b.omitted.length }) : ''}`)),
-      h('div', { class: 'row-btns' },
-        h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'bk-restore-manual', onclick: e => act(e.currentTarget, () => restoreInternal(b)) }, t('restore')),
-        h('button', { class: 'btn sm ghost', type: 'button', onclick: e => act(e.currentTarget, () => sendBackup(b)) }, t('backupSend')),
-        h('button', { class: 'btn sm danger-ghost', type: 'button', onclick: e => act(e.currentTarget, () => deleteManual(b, drawManual)) }, t('delete'))))));
+    all.forEach(b => {
+      const card = h('div', { class: 'bk-card' },
+        h('div', { class: 'bk-date' }, fmtTs(b.created)),
+        h('div', { class: 'bk-btns' },
+          h('button', { class: 'btn sm', type: 'button', onclick: e => act(e.currentTarget, () => restoreInternal(b)) }, 'Refă'),
+          h('button', { class: 'btn sm ghost', type: 'button', onclick: e => act(e.currentTarget, () => sendBackup(b)) }, 'Trimite'),
+          h('button', { class: 'btn sm ghost danger', type: 'button', onclick: e => act(e.currentTarget, () => deleteManual(b, drawManual)) }, 'Șterge')));
+      manualList.append(card);
+    });
   };
   const drawAuto = async () => {
     autoList.innerHTML = '';
     const all = await listInternal();
     if (!all.length) autoList.append(h('div', { class: 'r2-meta' }, t('noInternalBackups')));
-    all.forEach(b => autoList.append(h('div', { class: 'bk-row' },
-      h('div', {}, h('div', {}, fmtTs(b.created)), h('div', { class: 'r2-meta' }, `${t('bkReason_' + (b.reason || 'auto'))} • ${t('nItems', { n: b.counts.items })}`)),
-      h('button', { class: 'btn sm ghost', type: 'button', onclick: e => act(e.currentTarget, () => restoreInternal(b)) }, t('restore')))));
+    all.forEach(b => {
+      const reason = b.reason === 'update' ? `înainte de actualizare (${b.version || ''} → ${APP_VERSION})` : (t('bkReason_' + (b.reason || 'auto')) || '');
+      const card = h('div', { class: 'bk-card' },
+        h('div', { class: 'bk-date' }, fmtTs(b.created) + (reason ? ' · ' + reason : '')),
+        h('div', { class: 'bk-btns' },
+          h('button', { class: 'btn sm', type: 'button', onclick: e => act(e.currentTarget, () => restoreInternal(b)) }, 'Restaurează')));
+      autoList.append(card);
+    });
   };
   drawManual(); drawAuto();
 
@@ -366,8 +374,8 @@ export function backupSection() {
     sub('manual', t('backupManual'),
       h('p', { class: 'r2-meta' }, t('backupManualHint')),
       h('div', { class: 'row-btns' },
-        h('button', { class: 'btn', type: 'button', 'data-test': 'export', onclick: e => act(e.currentTarget, async () => { await exportJSON(); drawManual(); }) }, t('backupExport')),
-        h('button', { class: 'btn ghost', type: 'button', 'data-test': 'import', onclick: e => act(e.currentTarget, () => importJSON()) }, t('backupImport'))),
+        h('button', { class: 'btn', type: 'button', 'data-test': 'export', onclick: e => act(e.currentTarget, async () => { await exportJSON(); drawManual(); }) }, 'Salvează backup'),
+        h('button', { class: 'btn ghost', type: 'button', 'data-test': 'import', onclick: e => act(e.currentTarget, () => importJSON()) }, 'Importă fișier')),
       manualList),
     sub('auto', t('backupAuto'),
       h('p', { class: 'r2-meta' }, t('backupAutoHint')),

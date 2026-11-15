@@ -560,3 +560,9 @@ body.reading .w.past { color: var(--muted); }
 .sparr { width: 20px; height: 20px; display: inline-block; }
 .sparr::after { content: '▾'; font-style: normal; opacity: .6; }
 .sh-row.open .sparr::after { content: '▴'; }
+
+/* Backup cards (Notis style) */
+.bk-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; background: var(--card); }
+.bk-date { font-size: 15px; font-weight: 500; margin-bottom: 8px; }
+.bk-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.bk-btns .btn { min-width: 70px; }

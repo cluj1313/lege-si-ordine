@@ -3,7 +3,7 @@ import { db, S } from './db.js';
 import { uid } from './util.js';
 import * as C from './crypto.js';
 
-export const APP_VERSION = '1.1.30';
+export const APP_VERSION = '1.1.31';
 
 export const state = {
   settings: {},
