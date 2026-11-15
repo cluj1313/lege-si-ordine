@@ -11,6 +11,7 @@ import { shareFile } from './share.js';
 
 const KEEP_AUTO = 5;
 const KEEP_MANUAL = 20;
+const KEEP_MANUAL_FILES = 5;
 const KEEP_WEEKLY_FILES = 4;
 const MAX_MEDIA_BYTES = 12 * 1024 * 1024;
 const FOLDER = 'LEGE-SI-ORDINE';
@@ -195,6 +196,28 @@ async function listWeeklyFiles() {
   }
   return found;
 }
+
+async function pruneManualFiles() {
+  const FS = fsPlugin();
+  if (!FS) return;
+  const found = [];
+  for (const directory of ['EXTERNAL_STORAGE', 'DOCUMENTS', 'DATA']) {
+    const roots = directory === 'EXTERNAL_STORAGE' ? [`Download/${FOLDER}`, `DOWNLOAD/${FOLDER}`] : [FOLDER];
+    for (const path of roots) {
+      try {
+        const r = await FS.readdir({ path, directory });
+        const files = (r.files || r).map(f => (typeof f === 'string' ? f : f.name)).filter(n => /lege-si-ordine-backup-/.test(n));
+        for (const name of files) found.push({ path: `${path}/${name}`, directory, name });
+      } catch {}
+    }
+    if (found.length) break;
+  }
+  found.sort((a, b) => a.name < b.name ? 1 : -1);
+  for (const old of found.slice(KEEP_MANUAL_FILES)) {
+    try { await FS.deleteFile({ path: old.path, directory: old.directory }); } catch {}
+  }
+}
+
 async function pruneWeeklyFiles() {
   const FS = fsPlugin();
   if (!FS) return;
@@ -220,6 +243,7 @@ export async function exportJSON() {
   await pruneBackups();
   const written = await writePublicFile(name, text);
   if (!written) downloadBlob(blobFromPacked(packed), name);
+  await pruneManualFiles();
   if (packed.omittedMedia && packed.omittedMedia.length) toast(t('backupOmitted', { n: packed.omittedMedia.length }), 4000);
   else toast(written ? t('backupSavedPlace') : t('backupSaved'));
   return name;

@@ -170,10 +170,14 @@ export async function speak(text) {
 
 // Citire 📖 din meniul Voce: tot ce se vede pe ecran, cu bara sub cuvântul citit (reader.js, preluat din Notis).
 // Al doilea tap pe Citire / pe butonul de voce oprește.
-export async function readScreenAloud() {
+export async function readScreenAloud(text) {
   if (isReading() || speakSt.playing) { await stopSpeak(); return false; }
   await yieldMic();
   if (isDictating()) await stopDictation();
+  if (text && typeof text === 'string') {
+    const { speak } = await import('./reader.js');
+    return speak(text);
+  }
   return readScreen({
     emit: emitSpeak,
     engineCheck: async opts => {
