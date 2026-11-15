@@ -67,20 +67,19 @@ export function render() {
 
 // Ținere scurtă pe spațiu gol → meniu aspect
 function enableEmptySpaceMenu() {
-  const view = document.getElementById('view');
-  if (!view || view.dataset.emptyMenu) return;
-  view.dataset.emptyMenu = '1';
+  if (document.body.dataset.emptyMenu) return;
+  document.body.dataset.emptyMenu = '1';
   let timer, startX = 0, startY = 0;
-  view.addEventListener('pointerdown', e => {
-    if (e.target.closest('.card, button, a, input, textarea, .fab, .pill, .news-sec-header, .tabbar')) return;
+  document.addEventListener('pointerdown', e => {
+    if (e.target.closest('.card, button, a, input, textarea, .fab, .pill, .news-sec-header, .tabbar, #temporary-zone, .hdr, .modal, .sheet')) return;
     startX = e.clientX; startY = e.clientY;
-    timer = setTimeout(() => { timer = null; openTabAppearance(); }, 500);
+    timer = setTimeout(() => { timer = null; openTabAppearance(); }, 600);
   }, { passive: true });
-  view.addEventListener('pointermove', e => {
-    if (timer && (Math.abs(e.clientX - startX) > 12 || Math.abs(e.clientY - startY) > 12)) { clearTimeout(timer); timer = null; }
+  document.addEventListener('pointermove', e => {
+    if (timer && (Math.abs(e.clientX - startX) > 15 || Math.abs(e.clientY - startY) > 15)) { clearTimeout(timer); timer = null; }
   }, { passive: true });
-  view.addEventListener('pointerup', () => { if (timer) { clearTimeout(timer); timer = null; } }, { passive: true });
-  view.addEventListener('pointercancel', () => { if (timer) { clearTimeout(timer); timer = null; } }, { passive: true });
+  document.addEventListener('pointerup', () => { if (timer) { clearTimeout(timer); timer = null; } }, { passive: true });
+  document.addEventListener('pointercancel', () => { if (timer) { clearTimeout(timer); timer = null; } }, { passive: true });
 }
 
 
@@ -175,10 +174,10 @@ function renderTemporaryZone(tab) {
   if (!tab) return;
   const items = listTemporary();
   const box = h('div', { id: 'temporary-zone', style: {
-    position: 'fixed', bottom: '148px', left: '12px', right: '12px', zIndex: 35,
-    background: 'rgba(11,26,51,0.95)', border: '1px solid #d4af37', borderRadius: '12px',
-    padding: '8px 12px', maxHeight: '48vh', overflowY: 'auto', color: '#f7efd4',
-    boxShadow: '0 4px 16px rgba(0,0,0,0.4)'
+    position: 'fixed', bottom: '148px', left: '0', right: '0', zIndex: 35,
+    background: 'rgba(11,26,51,0.95)', borderTop: '1px solid #d4af37', borderBottom: '1px solid #d4af37',
+    padding: '12px 16px', maxHeight: '55vh', overflowY: 'auto', color: '#f7efd4',
+    boxShadow: '0 4px 16px rgba(0,0,0,0.4)', fontSize: '16px'
   } });
 
   let expanded = false;
