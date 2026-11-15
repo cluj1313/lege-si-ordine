@@ -1,7 +1,7 @@
 // Controlerul aplicației: randare, navigare între taburi, poziție, selecție, FAB, ciclul de viață.
 import { h, $, debounce, onLongPress } from './core/util.js';
 import { t } from './core/i18n.js';
-import { state, tabById, visibleTabs, liveTabs, saveUI, onChange, isOpen, relock, relockAll, item as getItem, trash, isHiddenByTrash, canView, dataOf, itemsOf, trashedAll, saveMeta, relocate, unlockTemp } from './core/store.js';
+import { state, tabById, visibleTabs, liveTabs, saveUI, onChange, isOpen, relock, relockAll, item as getItem, trash, isHiddenByTrash, canView, dataOf, itemsOf, trashedAll, saveMeta, relocate, unlockTemp, newItem } from './core/store.js';
 import { db, S } from './core/db.js';
 import { app } from './ui/registry.js';
 import { renderTabBar, tabDrag } from './ui/tabsbar.js';
@@ -432,6 +432,7 @@ function renderTemporaryZone(tab) {
         const action = await sheet((it.text || '').slice(0, 40) || 'Notiță', [
           { label: 'Ascultă', value: 'read', icon: '🔊' },
           { label: 'Editează', value: 'edit', icon: '✏️' },
+          { label: 'Mută în tab', value: 'move', icon: '📁' },
           { label: 'Copiază', value: 'copy', icon: '📋' },
           { label: 'Share', value: 'share', icon: '📤' },
           { label: 'Șterge', value: 'del', icon: '🗑️', cls: 'danger' }
@@ -455,6 +456,21 @@ function renderTemporaryZone(tab) {
               }}
             ]
           });
+        } else if (action === 'move') {
+          const tabs = liveTabs();
+          if (!tabs.length) { toast('Niciun tab disponibil'); return; }
+          const choices = tabs.map(t => ({ label: t.name || 'Tab', value: t.id }));
+          const dest = await sheet('Mută în', choices);
+          if (!dest) return;
+          const text = (it.text || '').trim();
+          if (!text) { toast('Notița e goală'); return; }
+          const first = text.split('\n')[0] || 'Notiță';
+          const data = { text };
+          if (it.mid) data.media = [{ id: it.mid, kind: 'audio' }];
+          await newItem(dest, 'note', data);
+          deleteTemporary(it.id);
+          toast('Mutat în tab');
+          render();
         } else if (action === 'copy') {
           await copyText(it.text || '');
         } else if (action === 'share') {
