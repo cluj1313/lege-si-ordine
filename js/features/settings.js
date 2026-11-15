@@ -44,6 +44,7 @@ export function applyTheme() {
     if (view) view.style.color = '';
   }
   if (s.lineHeight) body.style.lineHeight = s.lineHeight;
+  if (s.noteGap != null) document.documentElement.style.setProperty('--note-gap', s.noteGap + 'px');
 }
 
 function section(id, title, body) {
@@ -174,11 +175,22 @@ const ssTimeout = h("input", { class: "inp", type: "number", min: "0", max: "60"
     h('input', { type: 'checkbox', checked: !!s.hideClock, onchange: async e => { s.hideClock = e.target.checked; await saveSettings(); const { render } = await import('../app.js'); render(); } }),
     h('span', {}, 'Ascunde ceasul'));
 
+  // Setări fine
+  const fineRow = h('div', { style: { marginTop: '12px' } },
+    h('h3', { class: 'sub-h' }, 'Setări fine'),
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } },
+      h('span', {}, 'Spațiu între notițe'),
+      h('span', { id: 'vNrp', style: { fontWeight: 600 } }, (s.noteGap || 8) + 'px')),
+    h('input', { type: 'range', min: 0, max: 16, value: s.noteGap || 8, style: { width: '100%' },
+      oninput: e => { s.noteGap = +e.target.value; document.documentElement.style.setProperty('--note-gap', s.noteGap + 'px'); document.getElementById('vNrp').textContent = s.noteGap + 'px'; saveSettings(); } })
+  );
+
   return h('div', {},
     h('h3', { class: 'sub-h' }, t('setThemes')), themeRow,
     h('h3', { class: 'sub-h' }, t('setTabStyle')), styleRow,
     h('h3', { class: 'sub-h' }, t('setFont')), fontRow,
     h('h3', { class: 'sub-h' }, 'Fundal'), bgRow,
+    fineRow,
     hideClock,
     h('h3', { class: 'sub-h' }, 'Dosare – tipuri'),
     h('label', { class: 'fld-check' },

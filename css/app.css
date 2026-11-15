@@ -566,3 +566,7 @@ body.reading .w.past { color: var(--muted); }
 .bk-date { font-size: 15px; font-weight: 500; margin-bottom: 8px; }
 .bk-btns { display: flex; gap: 4px; flex-wrap: nowrap; }
 .bk-btns .btn { flex: 1; min-width: 0; padding: 6px 4px; font-size: 0.85rem; }
+
+/* Fine settings */
+:root { --note-gap: 8px; }
+.card, .r1, .r2 { margin-bottom: var(--note-gap); }
