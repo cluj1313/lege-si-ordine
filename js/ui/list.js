@@ -243,7 +243,11 @@ async function openItemMenu(it) {
     toast(d?.pinned ? 'Desfixat' : 'Fixat sus');
   } else if (v === 'alarm') toast('Alarmă (în dezvoltare)');
   else if (v === 'share') shareText(d?.title || d?.name || '', d?.text || '');
-  else if (v === 'lock') toast('Blocare (folosește meniul existent)');
+  else if (v === 'lock') {
+    const { lockItem } = await import('../features/lock.js');
+    await lockItem(it);
+    if (typeof render === 'function') render();
+  }
   else if (v === 'tags') {
     const { addTag, removeTag, getTags } = await import('../features/tags.js');
     const current = getTags(it).join(', ');

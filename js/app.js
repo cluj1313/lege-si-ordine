@@ -846,11 +846,11 @@ function openTabAppearance() {
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' } },
         h('span', {}, 'Spațiere rânduri'),
         h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
-          h('button', { class: 'btn sm ghost', type: 'button', style: { width: '36px', height: '36px', borderRadius: '10px', color: '#eee', border: '1px solid #555' }, onclick: () => setLineHeight(Math.max(1.0, +(lh - 0.1).toFixed(1))) }, '−'),
+          h('button', { class: 'btn sm ghost', type: 'button', style: { width: '36px', height: '36px', borderRadius: '10px', color: '#eee', border: '1px solid #555' }, onclick: () => setLineHeight(Math.max(0.8, +(lh - 0.1).toFixed(1))) }, '−'),
           h('span', { style: { minWidth: '36px', textAlign: 'center', color: '#eee' } }, lh.toFixed(1)),
           h('button', { class: 'btn sm ghost', type: 'button', style: { width: '36px', height: '36px', borderRadius: '10px', color: '#eee', border: '1px solid #555' }, onclick: () => setLineHeight(Math.min(2.0, +(lh + 0.1).toFixed(1))) }, '+'))),
       h('div', { style: { marginBottom: '12px' } },
-        h('button', { class: 'btn sm ghost', type: 'button', style: { width: '100%' }, onclick: () => changeTabBg() }, 'Schimbă fundal')),
+        h('button', { class: 'btn sm ghost', type: 'button', style: { width: '100%', color: '#eee' }, onclick: () => changeTabBg() }, 'Schimbă fundal')),
       h('button', { class: 'btn sm ghost', type: 'button', style: { width: '100%', color: '#e57373' }, onclick: () => resetAppearance() }, 'Resetare')));
   document.body.append(modal);
   function setFontScale(v) { state.settings.fontScale = v; saveSettings(); applyTheme(); modal.remove(); openTabAppearance(); }
