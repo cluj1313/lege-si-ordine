@@ -570,3 +570,6 @@ body.reading .w.past { color: var(--muted); }
 /* Fine settings */
 :root { --note-gap: 8px; }
 .card, .r1, .r2 { margin-bottom: var(--note-gap); }
+
+.label-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.label-chip { font-size: 11px; padding: 2px 6px; border-radius: 10px; color: #fff; }

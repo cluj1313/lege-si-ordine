@@ -226,6 +226,7 @@ async function openItemMenu(it) {
     { label: 'Redenumește', value: 'ren', icon: '✏️' },
     { label: d?.pinned ? 'Desfixează' : 'Fixează sus', value: 'pin', icon: '📌' },
     { label: 'Alarmă', value: 'alarm', icon: '⏰' },
+    { label: 'Etichete', value: 'labels', icon: '🏷️' },
     { label: 'Share', value: 'share', icon: '📤' },
     { label: it.lock ? 'Deblochează' : 'Blochează', value: 'lock', icon: '🔒' },
     { label: 'Etichete', value: 'tags', icon: '🏷️' },
@@ -241,6 +242,9 @@ async function openItemMenu(it) {
   } else if (v === 'pin') {
     await saveItem(it, { ...d, pinned: !d?.pinned });
     toast(d?.pinned ? 'Desfixat' : 'Fixat sus');
+  } else if (v === 'labels') {
+    const { openLabels } = await import('../features/labels.js');
+    await openLabels(it);
   } else if (v === 'alarm') {
     const { setAlarm } = await import('../features/alarms.js');
     await setAlarm(it);
