@@ -48,13 +48,15 @@ export async function clearLock() {
 }
 
 export async function unlockWithBiometric() {
-  if (window.PublicKeyCredential) {
-    try {
-      const cred = await navigator.credentials.get({ publicKey: { challenge: new Uint8Array(32), timeout: 60000, userVerification: 'required' } });
-      if (cred) { toast('Deblocat cu amprentă'); return true; }
-    } catch (e) { /* fall through */ }
-  }
-  toast('Amprentă nu este disponibilă pe acest dispozitiv. Folosește PIN.');
+  try {
+    const { Bio } = await import('@capacitor/core').then(m => m.Plugins || {});
+    if (Bio && Bio.auth) {
+      await Bio.auth({ title: 'Deblochează', cancel: 'Anulează' });
+      toast('Deblocat cu amprentă');
+      return true;
+    }
+  } catch (e) { /* fall through */ }
+  toast('Amprentă nu este disponibilă sau a fost anulată.');
   return false;
 }
 
