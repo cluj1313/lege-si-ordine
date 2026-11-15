@@ -858,10 +858,28 @@ function openTabAppearance() {
   function setLineHeight(v) { state.settings.lineHeight = v.toFixed(1); saveSettings(); applyTheme(); modal.remove(); openTabAppearance(); }
   function changeTabBg() {
     modal.remove();
-    const picker = document.createElement('input');
-    picker.type = 'color';
-    picker.onchange = async () => { state.settings.bgColor = picker.value; state.settings.bgType = 'color'; await saveSettings(); applyTheme(); };
-    picker.click();
+    const pales = [
+      { c: '#f7f5f0', n: 'Crem' },
+      { c: '#f0f4f8', n: 'Alb-albastru' },
+      { c: '#f5f0e8', n: 'Bej' },
+      { c: '#e8f5e9', n: 'Verde pal' },
+      { c: '#e3f2fd', n: 'Albastru pal' },
+      { c: '#fff8e1', n: 'Galben pal' },
+      { c: '#fce4ec', n: 'Roz pal' },
+      { c: '#f3e5f5', n: 'Violet pal' },
+      { c: '#efebe9', n: 'Gri cald' },
+      { c: '#e0f7fa', n: 'Cyan pal' }
+    ];
+    const box = h('div', { class: 'm-overlay', onclick: e => { if (e.target === box) box.remove(); } },
+      h('div', { class: 'm-box', style: { padding: '16px', maxWidth: '320px', background: '#1a1a1a', color: '#eee', borderRadius: '16px' } },
+        h('div', { style: { fontWeight: 600, marginBottom: '12px' } }, 'Fundal pale'),
+        h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' } },
+          ...pales.map(p => h('button', { class: 'btn sm', type: 'button', title: p.n,
+            style: { width: '36px', height: '36px', borderRadius: '50%', background: p.c, border: '2px solid rgba(255,255,255,.3)', padding: 0 },
+            onclick: async () => { state.settings.bgColor = p.c; state.settings.bgType = 'color'; await saveSettings(); applyTheme(); box.remove(); }
+          }))),
+        h('button', { class: 'btn sm ghost', type: 'button', style: { width: '100%', marginTop: '12px', color: '#aaa' }, onclick: () => box.remove() }, 'Anulează')));
+    document.body.append(box);
   }
   function resetAppearance() {
     delete state.settings.textColor;
