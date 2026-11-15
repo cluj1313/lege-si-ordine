@@ -70,49 +70,19 @@ function enableEmptySpaceMenu() {
   const view = document.getElementById('view');
   if (!view || view.dataset.emptyMenu) return;
   view.dataset.emptyMenu = '1';
-  let timer;
+  let timer, startX = 0, startY = 0;
   view.addEventListener('pointerdown', e => {
-    if (e.target.closest('.card, button, a, input, .fab, .pill, .news-sec-header')) return;
-    timer = setTimeout(async () => {
-      const tab = currentTab();
-      if (!tab) return;
-      const v = await sheet('Aspect', [
-        { label: 'Mărime font', value: 'font' },
-        { label: 'Culoare font', value: 'color' },
-        { label: 'Spațiere rânduri', value: 'spacing' },
-        { label: 'Schimbă fundal', value: 'bg' },
-        { label: 'Resetare', value: 'reset', cls: 'danger' }
-      ]);
-      if (v === 'font') {
-        const s = prompt('Mărime font (sm / md / lg)', state.settings.fontScale || 'md');
-        if (s) { state.settings.fontScale = s; applyTheme(); await saveSettings(); }
-      } else if (v === 'color') {
-        const picker = document.createElement('input');
-        picker.type = 'color';
-        picker.onchange = async () => { state.settings.textColor = picker.value; applyTheme(); await saveSettings(); };
-        picker.click();
-      } else if (v === 'spacing') {
-        const sp = prompt('Spațiere (1.0 - 2.0)', '1.3');
-        if (sp) { state.settings.lineHeight = sp; applyTheme(); await saveSettings(); }
-      } else if (v === 'bg') {
-        const picker = document.createElement('input');
-        picker.type = 'color';
-        picker.onchange = async () => { state.settings.bgColor = picker.value; state.settings.bgType = 'color'; applyTheme(); await saveSettings(); };
-        picker.click();
-      } else if (v === 'reset') {
-        delete state.settings.textColor;
-        delete state.settings.lineHeight;
-        state.settings.fontScale = 'md';
-        state.settings.bgType = 'light';
-        applyTheme(); await saveSettings();
-      }
-      app.render();
-    }, 500);
-  });
-  view.addEventListener('pointerup', () => clearTimeout(timer));
-  view.addEventListener('pointercancel', () => clearTimeout(timer));
-  view.addEventListener('pointermove', () => clearTimeout(timer));
+    if (e.target.closest('.card, button, a, input, textarea, .fab, .pill, .news-sec-header, .tabbar')) return;
+    startX = e.clientX; startY = e.clientY;
+    timer = setTimeout(() => { timer = null; openTabAppearance(); }, 500);
+  }, { passive: true });
+  view.addEventListener('pointermove', e => {
+    if (timer && (Math.abs(e.clientX - startX) > 12 || Math.abs(e.clientY - startY) > 12)) { clearTimeout(timer); timer = null; }
+  }, { passive: true });
+  view.addEventListener('pointerup', () => { if (timer) { clearTimeout(timer); timer = null; } }, { passive: true });
+  view.addEventListener('pointercancel', () => { if (timer) { clearTimeout(timer); timer = null; } }, { passive: true });
 }
+
 
 function enableSwipeTabs() {
   if (document.body.dataset.swipeBound) return;
@@ -836,3 +806,6 @@ export async function startApp() {
   const tb = currentTab();
   if (tb) requestAnimationFrame(() => window.scrollTo(0, state.ui.scroll[tb.id] || 0));
 }
+
+
+
