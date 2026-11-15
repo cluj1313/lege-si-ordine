@@ -120,10 +120,7 @@ function enableSwipeTabs() {
   view.dataset.swipeBound = '1';
   let startX = 0, startY = 0, tracking = false;
   view.addEventListener('pointerdown', e => {
-    // doar pe mijlocul ecranului (nu pe margini sau pe carduri interactive)
-    const rect = view.getBoundingClientRect();
-    const mid = rect.left + rect.width / 2;
-    if (Math.abs(e.clientX - mid) > rect.width * 0.35) return;
+    // pe toată zona de conținut (mijlocul ecranului, sub bara de taburi)
     startX = e.clientX; startY = e.clientY; tracking = true;
   }, { passive: true });
   view.addEventListener('pointerup', e => {
@@ -131,8 +128,8 @@ function enableSwipeTabs() {
     tracking = false;
     const dx = e.clientX - startX;
     const dy = Math.abs(e.clientY - startY);
-    // swipe orizontal clar, pe mijloc
-    if (Math.abs(dx) > 50 && dy < 50) {
+    // swipe orizontal clar pe conținut
+    if (Math.abs(dx) > 40 && dy < 60) {
       const tabs = visibleTabs();
       const cur = currentTab();
       if (!cur || !tabs.length) return;
