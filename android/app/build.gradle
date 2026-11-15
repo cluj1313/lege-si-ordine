@@ -3,12 +3,20 @@ apply plugin: 'com.android.application'
 android {
     namespace = "ro.legesiordine.app"
     compileSdk = rootProject.ext.compileSdkVersion
+    signingConfigs {
+        release {
+            storeFile file('release.keystore')
+            storePassword 'lege2026'
+            keyAlias 'lege'
+            keyPassword 'lege2026'
+        }
+    }
     defaultConfig {
         applicationId "ro.legesiordine.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 47
-        versionName "1.1.34"
+        versionCode 48
+        versionName "1.1.35"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -21,9 +29,11 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
         debug {
             minifyEnabled false
+            signingConfig signingConfigs.release
         }
     }
 }
