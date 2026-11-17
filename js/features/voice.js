@@ -29,9 +29,11 @@ export function sttErrMsg(code) {
 }
 
 
-const WebSR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+function speechRecCtor() {
+  return (typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)) || null;
+}
 
-export const canDictate = () => !!(nativeStt.hasNativeStt() || WebSR);
+export const canDictate = () => !!(nativeStt.hasNativeStt() || speechRecCtor());
 export const canSpeak = () => !!(nativeTts.hasNativeTts() || (typeof window !== 'undefined' && 'speechSynthesis' in window));
 
 // ---- câmpul țintă pentru dictare (ultimul câmp de text atins) ----
@@ -246,13 +248,110 @@ function removePunctPill() {
 }
 function setDictTxt(s) { if (bubble) bubble.querySelector('.dict-txt').textContent = s || t('listening'); }
 
+
+// Punctuație rostită (dacă motorul o transcrie ca text). Nu atingem cuvintele din interiorul altora.
+const SPOKEN_PUNCT = [
+  [/semnul\s+întreb[aă]rii/gi, '?'],
+  [/semnul\s+intrebarii/gi, '?'],
+  [/semnul\s+exclam[aă]rii/gi, '!'],
+  [/punct\s+[sș]i\s+virgul[aă]/gi, ';'],
+  [/dou[aă]\s+puncte/gi, ':'],
+  [/linie\s+nou[aă]/gi, '\n'],
+  [/r[aâ]nd\s+nou/gi, '\n'],
+  [/\bquestion\s+mark\b/gi, '?'],
+  [/\bexclamation\s+mark\b/gi, '!'],
+  [/\bfull\s+stop\b/gi, '.'],
+  [/\bnew\s+line\b/gi, '\n'],
+  [/\bvirgule?\b/gi, ','],
+  [/\bvirgul[aă]\b/gi, ','],
+  [/\bpunct\b/gi, '.'],
+  [/\bcomma\b/gi, ','],
+  [/\bperiod\b/gi, '.'],
+  [/\bcolon\b/gi, ':'],
+  [/\bsemicolon\b/gi, ';'],
+];
+export function applySpokenPunct(txt) {
+  let s = String(txt || '');
+  for (const [re, ch] of SPOKEN_PUNCT) s = s.replace(re, ch);
+  s = s.replace(/\s+([.,;:!?])/g, '$1').replace(/([.,;:!?])(?!\s|$|\n)/g, '$1 ');
+  return s.replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n');
+}
+
+function normWords(s) {
+  return String(s || '').toLowerCase().replace(/[\s.,;:!?+\-]+/g, ' ').trim().split(' ').filter(Boolean);
+}
+
+// Dacă motorul retrimite text deja aflat înainte de cursor (aceeași frază), păstrăm doar partea nouă.
+function leftoverTranscript(base, incoming) {
+  const raw = String(incoming || '').trim();
+  if (!raw) return '';
+  const bw = normWords(base), tw = normWords(raw);
+  let n = 0;
+  for (let k = Math.min(bw.length, tw.length); k > 0; k--) {
+    if (bw.slice(-k).join(' ') === tw.slice(0, k).join(' ')) { n = k; break; }
+  }
+  if (!n) return raw;
+  let left = n;
+  return raw.replace(/^\s+/, '').replace(/^\S+(?:\s+|$)/g, m => { if (left > 0) { left--; return ''; } return m; }).trim();
+}
+
+function isGrowingChunk(prev, next) {
+  if (!prev) return true;
+  const a = String(prev).trim().toLowerCase(), b = String(next).trim().toLowerCase();
+  if (!b) return true;
+  return b.startsWith(a) || a.startsWith(b);
+}
+
+// Baza de inserție = valoarea curentă a câmpului + cursor. Orice editare manuală (punctuație, tastatură)
+// reia baza, ca un rezultat nou să nu șteargă ce s-a scris între timp.
+function bindDictationField(el) {
+  const st = { el, start: 0, after: '', applying: false, lastChunk: '' };
+  const snap = () => {
+    if (!el) return;
+    const pos = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? pos;
+    st.start = pos;
+    st.after = el.value.slice(end);
+    st.lastChunk = '';
+  };
+  const onInput = () => { if (!st.applying) snap(); };
+  if (el) { snap(); el.addEventListener('input', onInput); }
+  const detach = () => { if (el) el.removeEventListener('input', onInput); };
+  const write = (chunk, commit) => {
+    if (!el) return;
+    const incoming = applySpokenPunct(chunk);
+    if (st.lastChunk && incoming && !isGrowingChunk(st.lastChunk, incoming)) {
+      st.start = el.selectionStart ?? el.value.length;
+      st.after = el.value.slice(el.selectionEnd ?? st.start);
+      st.lastChunk = '';
+    }
+    const before = el.value.slice(0, st.start);
+    const use = leftoverTranscript(before, incoming);
+    const sep = use && before && !/\s$/.test(before) && !/^[\s.,;:!?]/.test(use) ? ' ' : '';
+    st.applying = true;
+    el.value = before + sep + use + afterSafe();
+    const pos = (before + sep + use).length;
+    try { el.setSelectionRange(pos, pos); } catch {}
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    st.applying = false;
+    st.lastChunk = use;
+    if (commit) {
+      st.start = pos;
+      st.after = el.value.slice(pos);
+      st.lastChunk = '';
+    }
+  };
+  function afterSafe() { return st.after; }
+  return { snap, paint: chunk => write(chunk, false), commit: chunk => write(chunk, true), detach };
+}
+
 export async function startDictation(target, { lang, onFinal, onEnd, onInterim, quiet = false, keepRecording = false } = {}) {
   // Transcrierea live din timpul înregistrării folosește același microfon; nu o oprim.
   if (!keepRecording) await yieldMic();
   if (!keepRecording && isSpeaking()) await stopSpeak();
   if (rec) await stopDictation();
   if (nativeStt.hasNativeStt()) return startNativeDictation(target, { lang, onFinal, onEnd, quiet });
-  if (!WebSR) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
+  if (!speechRecCtor()) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
   return startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet });
 }
 
@@ -261,23 +360,14 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
   if (!(await nativeStt.ensurePermission())) { if (!quiet) toast(t('micDenied'), 4000); return false; }
 
   if (!quiet) showDictBubble();
-  rec = { kind: 'native', _keep: true };
+  const field = bindDictationField(target);
+  rec = { kind: 'native', _keep: true, _field: field };
   let last = '';
-  const applyPartial = txt => {
+  const applyPartial = (txt, ev) => {
     if (!txt) return;
     last = txt;
-    if (target) {
-      const start = rec._start ?? (target.selectionStart ?? target.value.length);
-      rec._start = start;
-      const after = rec._after ?? target.value.slice(target.selectionEnd ?? start);
-      rec._after = after;
-      const before = target.value.slice(0, start);
-      const sep = before && !/\s$/.test(before) ? ' ' : '';
-      target.value = before + sep + txt + after;
-      const pos = (before + sep + txt).length;
-      try { target.setSelectionRange(pos, pos); } catch {}
-      target.dispatchEvent(new Event('input', { bubbles: true }));
-    }
+    const isFinal = !!(ev && (ev.kind === 'final' || ev.isFinal));
+    if (target) (isFinal ? field.commit : field.paint)(txt);
     setDictTxt(txt);
   };
   try {
@@ -291,31 +381,38 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
       onError: code => { if (!quiet) toast(sttErrMsg(code), 4000); },
     });
   } catch (e) {
-    rec = null; if (bubble) { bubble.remove(); bubble = null; }
-  removePunctPill();
+    rec = null; field.detach(); if (bubble) { bubble.remove(); bubble = null; }
+    removePunctPill();
     if (!quiet) toast(sttErrMsg((e && e.message) || 'noservice'), 4000);
     return false;
   }
   rec._onFinal = onFinal; rec._onEnd = onEnd; rec._last = () => last;
+  rec._field = field;
   return true;
 }
 
 function startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet }) {
-  const r = new WebSR();
+  const Ctor = speechRecCtor();
+  if (!Ctor) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
+  const r = new Ctor();
   r.lang = lang || state.settings.voiceLang || 'ro-RO';
   r.continuous = true; r.interimResults = true;
   let interim = '';
+  const field = bindDictationField(target);
+  r._field = field;
   if (!quiet) showDictBubble();
   r.onresult = e => {
     interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const res = e.results[i];
+      const txt = (res[0] && res[0].transcript || '').trim();
+      if (!txt) continue;
       if (res.isFinal) {
-        const txt = res[0].transcript.trim();
-        if (target) insertAtCursor(target, txt);
+        if (target) field.commit(txt);
         onFinal && onFinal(txt);
-      } else interim += res[0].transcript;
+      } else interim += (interim ? ' ' : '') + txt;
     }
+    if (interim && target) field.paint(interim);
     setDictTxt(interim || t('listening'));
     onInterim && onInterim(interim);
   };
@@ -323,12 +420,13 @@ function startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet }) {
   r.onend = () => {
     if (rec === r && r._keep) { try { r.start(); return; } catch {} }
     if (rec === r) rec = null;
+    field.detach();
     if (bubble) { bubble.remove(); bubble = null; }
-  removePunctPill();
+    removePunctPill();
     onEnd && onEnd();
   };
   r._keep = true; rec = r;
-  try { r.start(); } catch (e) { rec = null; if (bubble) { bubble.remove(); bubble = null; }
+  try { r.start(); } catch (e) { rec = null; field.detach(); if (bubble) { bubble.remove(); bubble = null; }
   removePunctPill(); toast(t('dictationMissing')); return false; }
   return true;
 }
@@ -343,14 +441,16 @@ export async function stopDictation() {
     await nativeStt.stop();
     nativeHandles = [];
     const end = r._onEnd;
+    if (r._field) r._field.detach();
     rec = null;
     if (bubble) { bubble.remove(); bubble = null; }
-  removePunctPill();
+    removePunctPill();
     end && end();
     return;
   }
   r._keep = false;
   try { r.stop(); } catch {}
+  if (r._field) r._field.detach();
   rec = null;
   if (bubble) { bubble.remove(); bubble = null; }
   removePunctPill();
@@ -416,7 +516,7 @@ export function insertPunctuation(el, punct) {
 // pe web (Chrome) Web Speech în paralel cu MediaRecorder.
 export function canLiveTranscribe() {
   if (isNative()) return nativeStt.hasNativeTranscribe();
-  return !!WebSR;
+  return !!speechRecCtor();
 }
 
 // ---- Alegere limbă și voce (apăsare lungă pe butonul de voce) ----

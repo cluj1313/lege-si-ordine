@@ -237,6 +237,78 @@ async function run(vp, label, full) {
     await p.locator('#selbar').waitFor({ state: 'hidden' });
   });
 
+  await step(`[${label}] [v1.2.1] Dictare: punctuația inserată manual rămâne la următoarea recunoaștere`, async () => {
+    await p.evaluate(() => {
+      class MockSR {
+        constructor() {
+          this.lang = ''; this.continuous = false; this.interimResults = false;
+          this.onresult = null; this.onerror = null; this.onend = null; this._keep = true;
+          window.__lsoSR = this;
+        }
+        start() { window.__lsoSR = this; }
+        stop() { this._keep = false; if (this.onend) this.onend(); }
+        abort() { this.stop(); }
+      }
+      window.SpeechRecognition = window.webkitSpeechRecognition = MockSR;
+    });
+    const emitSR = (transcript, isFinal) => p.evaluate(({ transcript, isFinal }) => {
+      const sr = window.__lsoSR;
+      if (!sr || !sr.onresult) throw new Error('recunoașterea nu e pornită');
+      const alt = { transcript, confidence: 1 };
+      const res = { isFinal, 0: alt, length: 1 };
+      sr.onresult({ resultIndex: 0, results: { 0: res, length: 1 } });
+    }, { transcript, isFinal });
+    await goTab('Taskuri');
+    await tap('[data-test=fab-voice]');
+    await p.locator('.m-sheet .sheet-opt', { hasText: 'Dictare' }).tap();
+    const ta = p.locator('[data-test=editor] textarea.voice-target').first();
+    await ta.waitFor();
+    await p.locator('#punct-pill').waitFor();
+    await emitSR('Salut', false);
+    await emitSR('Salut', true);
+    assert(/Salut/i.test(await ta.inputValue()), 'textul dictat lipsește: ' + await ta.inputValue());
+    await p.locator('#punct-pill .punct-btn', { hasText: '.' }).tap();
+    const afterPunct = await ta.inputValue();
+    assert(/Salut\s*\./i.test(afterPunct), 'punctul nu s-a inserat: ' + afterPunct);
+    await emitSR('lume', false);
+    await emitSR('lume', true);
+    const after = await ta.inputValue();
+    assert(/Salut/i.test(after) && /\./.test(after), 'punctuația a dispărut după dictare: ' + after);
+    assert(/lume/i.test(after), 'textul nou nu s-a adăugat: ' + after);
+    await p.locator('.dict-bubble .btn').tap().catch(() => {});
+    await p.evaluate(() => { if (window.__lsoSR && window.__lsoSR.stop) window.__lsoSR.stop(); });
+    if (await p.locator('[data-test=editor] .m-back').count()) await p.locator('[data-test=editor] .m-back').tap();
+    const confirmDa = p.locator('[data-test=confirm] .m-actions .btn').last();
+    if (await confirmDa.isVisible().catch(() => false)) await confirmDa.tap();
+    await p.locator('[data-test=editor]').first().waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
+  });
+
+  await step(`[${label}] [v1.2.1] Setări › Taburi: „Monitorul Oficial” pe cel mult 2 rânduri, fără rupere în cuvânt`, async () => {
+    await openSet();
+    await p.locator('[data-test=settings] details[data-sec=tabs] summary').tap();
+    const name = p.locator('[data-test=tab-order] .to-name', { hasText: 'Monitorul Oficial' });
+    await name.waitFor();
+    await name.scrollIntoViewIfNeeded();
+    const info = await name.evaluate(el => {
+      const s = getComputedStyle(el);
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const rects = [...range.getClientRects()].filter(r => r.width && r.height);
+      const lh = parseFloat(s.lineHeight) || parseFloat(s.fontSize) * 1.25;
+      const byH = Math.max(1, Math.round(el.getBoundingClientRect().height / lh));
+      return {
+        lines: Math.max(rects.length, byH),
+        wrap: s.overflowWrap, wordBreak: s.wordBreak,
+        w: el.getBoundingClientRect().width, h: el.getBoundingClientRect().height,
+        text: (el.textContent || '').replace(/\s+/g, ' ').trim(),
+      };
+    });
+    assert(info.lines <= 2, 'prea multe rânduri (' + info.lines + '): ' + JSON.stringify(info));
+    assert(info.wrap !== 'anywhere' && info.wordBreak !== 'break-all' && info.wordBreak !== 'break-word', 'rupere în cuvânt: ' + JSON.stringify(info));
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v121-tabs.png` });
+    await tap('[data-test=settings] .m-back'); await gone('[data-test=settings]');
+  });
+
   await step(`[${label}] clienți: 2 rânduri, rândul 2 apare/dispare la atingere, deschide elementul`, async () => {
     await goTab('Clienți');
     const c = p.locator('#view .card').first();
@@ -1387,7 +1459,7 @@ async function run(vp, label, full) {
   await step(`[${label}] [v1.0.6] Contor anonim: ping o dată pe zi la serverul simulat (id anonim, versiune, sursă); bifă în Confidențialitate`, async () => {
     assert(mock.pings.length >= 1, 'niciun ping');
     const pg = mock.pings[0];
-    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.2.0' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
+    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.2.1' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
     assert((await ls('lso_ping_day')) === new Date().toISOString().slice(0, 10));
     await openSet();
     await tap('[data-sec=privacy] summary');
