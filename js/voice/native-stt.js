@@ -25,8 +25,9 @@ export async function ensurePermission() {
   }
 }
 
-function lastOf(acc, ev) {
-  return (ev && (ev.accumulatedText || ev.text || (ev.matches && ev.matches[0])) || acc || '').trim();
+function textOf(ev, txt) {
+  const v = (ev && (ev.accumulatedText || ev.text || (ev.matches && ev.matches[0]))) || txt || '';
+  return String(v).trim();
 }
 
 export async function start({ language, maxResults = 1, partialResults = true, popup = false, onPartial, onState, onError } = {}) {
@@ -35,18 +36,25 @@ export async function start({ language, maxResults = 1, partialResults = true, p
   if (P.removeAllListeners) try { await P.removeAllListeners(); } catch {}
 
   let last = '';
+  let lastKey = '';
   const apply = (txt, ev) => {
-    last = lastOf(last, { text: txt, ...ev });
-    if (onPartial && last) onPartial(last, ev);
+    const next = textOf(ev, txt);
+    if (!next) return;
+    const kind = (ev && (ev.kind || ev.isFinal && 'final')) || 'partial';
+    const key = kind + ':' + next;
+    if (key === lastKey) return; // același eveniment pe două canale (partialResults + stt)
+    lastKey = key;
+    last = next;
+    if (onPartial) onPartial(next, ev || { text: next, kind });
   };
 
   // Rezultat ținut cât WebView e pauzat (dialog RECOGNIZE_SPEECH) și livrat la resume.
   window.__lsoStt = (kind, text) => {
     try {
-      if (kind === 'partial' || kind === 'final') apply(text, { text, accumulatedText: text });
+      if (kind === 'partial' || kind === 'final') apply(text, { text, accumulatedText: text, kind });
       if (kind === 'end' && onState) onState('stopped', { status: 'stopped' });
       if (kind === 'err' && onError) onError(String(text || 'noservice'));
-      if (kind === 'final' && !String(text || '').trim() && last && onPartial) onPartial(last, { text: last });
+      if (kind === 'final' && !String(text || '').trim() && last && onPartial) onPartial(last, { text: last, kind: 'final' });
     } catch {}
     return 'ok';
   };
@@ -54,17 +62,17 @@ export async function start({ language, maxResults = 1, partialResults = true, p
   const handles = [];
   if (P.addListener) {
     handles.push(await P.addListener('partialResults', ev => {
-      const txt = lastOf(last, ev);
-      if (txt) apply(txt, ev);
+      const txt = textOf(ev);
+      if (txt) apply(txt, { ...ev, kind: ev && ev.kind ? ev.kind : 'partial' });
     }));
     handles.push(await P.addListener('stt', ev => {
       const kind = ev && ev.kind;
-      if (kind === 'partial' || kind === 'final') apply(ev.text, ev);
+      if (kind === 'partial' || kind === 'final') apply(ev && ev.text, ev);
       if (kind === 'end' && onState) onState('stopped', ev);
-      if (kind === 'err' && onError) onError(String(ev.text || ev.kind || 'noservice'));
+      if (kind === 'err' && onError) onError(String((ev && (ev.text || ev.kind)) || 'noservice'));
     }));
-    handles.push(await P.addListener('listeningState', ev => { if (onState) onState(ev.status, ev); }));
-    handles.push(await P.addListener('sttError', ev => { if (onError) onError(String(ev.text || ev.kind || 'noservice')); }));
+    handles.push(await P.addListener('listeningState', ev => { if (onState) onState(ev && ev.status, ev); }));
+    handles.push(await P.addListener('sttError', ev => { if (onError) onError(String((ev && (ev.text || ev.kind)) || 'noservice')); }));
   }
 
   try {

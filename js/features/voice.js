@@ -228,27 +228,135 @@ export async function stopSpeak() {
 let rec = null, bubble = null, nativeHandles = [];
 export const isDictating = () => !!rec;
 
-function showDictBubble() {
-  bubble = h('div', { class: 'dict-bubble', role: 'status' }, h('span', { class: 'dict-dot' }), h('span', { class: 'dict-txt' }, t('listening')),
-    h('button', { class: 'btn sm', type: 'button', onclick: () => stopDictation() }, t('stop')));
-  document.body.append(bubble);
-  // Punctuation pill
-  const pill = h('div', { class: 'punct-pill', id: 'punct-pill' },
-    ...['-', '+', ',', '.', 'Enter'].map(p =>
-      h('button', { type: 'button', class: 'punct-btn', onclick: () => {
-        const target = getTarget && getTarget();
-        if (target) insertPunctuation(target, p);
-      } }, p === 'Enter' ? '↵' : p)
-    )
-  );
-  document.body.append(pill);
-}
-
-function removePunctPill() {
+function hideDictUi() {
   const p = document.getElementById('punct-pill');
   if (p) p.remove();
+  bubble = null;
+  document.body.classList.remove('dictating');
+  detachViewportGuard();
+  clearActivePunct();
+  const el = getTarget && getTarget();
+  if (el && el.style) { el.style.paddingBottom = ''; delete el.dataset.lsoPad; }
 }
-function setDictTxt(s) { if (bubble) bubble.querySelector('.dict-txt').textContent = s || t('listening'); }
+
+function showDictBubble() {
+  hideDictUi();
+  const marks = ['-', '+', ',', '.', 'Enter'];
+  const btns = marks.map(p => {
+    const b = h('button', { type: 'button', class: 'punct-btn', 'data-punct': p, onpointerdown: e => e.preventDefault() }, p === 'Enter' ? '↵' : p);
+    b.addEventListener('click', e => {
+      e.preventDefault();
+      const target = getTarget && getTarget();
+      if (target) insertPunctuation(target, p, b);
+    });
+    return b;
+  });
+  bubble = h('div', { class: 'punct-pill', id: 'punct-pill', 'data-test': 'dict-bar', role: 'status' },
+    h('span', { class: 'dict-dot', 'aria-hidden': 'true' }),
+    h('button', { class: 'dict-stop', type: 'button', 'data-test': 'dict-stop', onpointerdown: e => e.preventDefault(), onclick: () => stopDictation() }, t('stop')),
+    ...btns);
+  document.body.append(bubble);
+  document.body.classList.add('dictating');
+  attachViewportGuard();
+  placeDictBar();
+  revealDictCaret(getTarget && getTarget());
+}
+
+function removePunctPill() { hideDictUi(); }
+function setDictTxt() { /* textul dictat stă doar în câmp, nu într-un panou deasupra */ }
+
+let activePunctBtn = null;
+function clearActivePunct() {
+  document.querySelectorAll('.punct-btn.on').forEach(b => b.classList.remove('on'));
+  activePunctBtn = null;
+}
+function markPunctActive(btn) {
+  clearActivePunct();
+  if (!btn) return;
+  btn.classList.add('on', 'flash');
+  activePunctBtn = btn;
+  setTimeout(() => btn.classList.remove('flash'), 220);
+}
+
+let vvGuards = [];
+function attachViewportGuard() {
+  detachViewportGuard();
+  const on = () => { placeDictBar(); revealDictCaret(getTarget && getTarget()); };
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', on);
+    window.visualViewport.addEventListener('scroll', on);
+    vvGuards.push(['vv', on]);
+  }
+  window.addEventListener('resize', on);
+  vvGuards.push(['win', on]);
+}
+function detachViewportGuard() {
+  for (const [k, on] of vvGuards) {
+    if (k === 'vv' && window.visualViewport) {
+      window.visualViewport.removeEventListener('resize', on);
+      window.visualViewport.removeEventListener('scroll', on);
+    } else window.removeEventListener('resize', on);
+  }
+  vvGuards = [];
+}
+
+function placeDictBar() {
+  const bar = document.getElementById('punct-pill');
+  if (!bar) return;
+  const vv = window.visualViewport;
+  const gap = vv ? Math.max(0, window.innerHeight - (vv.offsetTop + vv.height)) : 0;
+  bar.style.bottom = 'calc(' + Math.max(8, gap + 8) + 'px + env(safe-area-inset-bottom, 0px))';
+}
+
+function dictObstructionTop() {
+  const vv = window.visualViewport;
+  const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  const bar = document.getElementById('punct-pill');
+  const barTop = bar ? bar.getBoundingClientRect().top : viewBottom;
+  return Math.min(viewBottom, barTop) - 8;
+}
+
+function caretClientRect(el) {
+  if (!el) return null;
+  const pos = el.selectionStart ?? (el.value || '').length;
+  if (el.nodeName !== 'TEXTAREA' && el.nodeName !== 'INPUT') return el.getBoundingClientRect();
+  const div = document.createElement('div');
+  const s = getComputedStyle(el);
+  ['boxSizing','fontFamily','fontSize','fontWeight','fontStyle','letterSpacing','lineHeight','paddingTop','paddingRight','paddingBottom','paddingLeft','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth','textAlign','width','wordSpacing','whiteSpace','wordWrap','overflowWrap'].forEach(p => { div.style[p] = s[p]; });
+  div.style.position = 'absolute';
+  div.style.visibility = 'hidden';
+  div.style.whiteSpace = 'pre-wrap';
+  div.style.wordWrap = 'break-word';
+  div.style.overflow = 'hidden';
+  div.style.left = '0';
+  div.style.top = '0';
+  div.style.width = s.width;
+  div.textContent = (el.value || '').slice(0, pos);
+  const marker = document.createElement('span');
+  marker.textContent = '​';
+  div.append(marker);
+  document.body.append(div);
+  const er = el.getBoundingClientRect(), dr = div.getBoundingClientRect(), mr = marker.getBoundingClientRect();
+  const top = er.top - el.scrollTop + (mr.top - dr.top);
+  const height = mr.height || parseFloat(s.lineHeight) || 20;
+  div.remove();
+  return { top, bottom: top + height, height };
+}
+
+function revealDictCaret(el) {
+  if (!el || !document.body.classList.contains('dictating')) return;
+  const bar = document.getElementById('punct-pill');
+  const pad = Math.round((bar ? bar.getBoundingClientRect().height : 52) + 16);
+  if (el.style && el.style.paddingBottom !== pad + 'px') el.style.paddingBottom = pad + 'px';
+  const r = caretClientRect(el);
+  if (!r) return;
+  const limit = dictObstructionTop();
+  const delta = r.bottom - limit;
+  if (delta > 0 && el.scrollHeight > el.clientHeight + 2) el.scrollTop += delta;
+  const sc = el.closest('.m-body') || el.closest('.m-page');
+  const r2 = caretClientRect(el);
+  if (sc && r2 && r2.bottom > limit) sc.scrollTop += r2.bottom - limit;
+}
 
 
 // Punctuație rostită (dacă motorul o transcrie ca text). Nu atingem cuvintele din interiorul altora.
@@ -372,6 +480,8 @@ function bindDictationField(el) {
       st.after = el.value.slice(pos);
       st.lastChunk = '';
     }
+    clearActivePunct();
+    revealDictCaret(el);
   };
   function afterSafe() { return st.after; }
   return {
@@ -401,27 +511,38 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
   rec = { kind: 'native', _keep: true, _field: field };
   let last = '';
   let lastFinal = '';
+  let finalized = false;
   const applyPartial = (txt, ev) => {
     if (!txt) return;
     last = txt;
     const isFinal = !!(ev && (ev.kind === 'final' || ev.isFinal));
-    if (target) {
-      if (isFinal) {
-        const piece = leftoverTranscript(lastFinal, txt);
-        if (!piece && lastFinal && isCumulativeOf(lastFinal, txt)) return;
-        field.commit(piece || txt, { newResult: !piece && !isCumulativeOf(lastFinal, txt) });
-        lastFinal = piece ? (lastFinal ? lastFinal + ' ' + piece : piece) : (lastFinal && isCumulativeOf(lastFinal, txt) ? lastFinal : (lastFinal ? lastFinal + ' ' + txt : txt));
-      } else field.paint(txt);
+    if (!target) return;
+    if (!isFinal) {
+      field.paint(txt); // rezultatele parțiale native sunt cumulative: înlocuim, nu adăugăm
+      finalized = false;
+      return;
     }
-    setDictTxt(txt);
+    if (finalized && lastFinal && isCumulativeOf(lastFinal, txt) && !leftoverTranscript(lastFinal, txt)) return;
+    const piece = leftoverTranscript(lastFinal, txt);
+    if (!piece && lastFinal && isCumulativeOf(lastFinal, txt)) { finalized = true; return; }
+    field.commit(piece || txt, { newResult: !piece && !isCumulativeOf(lastFinal, txt) });
+    lastFinal = piece ? (lastFinal ? lastFinal + ' ' + piece : piece) : txt;
+    finalized = true;
   };
   try {
     nativeHandles = await nativeStt.start({
       language: lang || state.settings.voiceLang || 'ro-RO',
       maxResults: 1, partialResults: true, popup: false,
       onPartial: applyPartial,
-      onState: status => {
-        if (status === 'stopped' && rec && rec.kind === 'native' && rec._keep) rec._keep = false;
+      onState: (status, ev) => {
+        if (status !== 'stopped') return;
+        // listeningState/stopped poate relua ultimul parțial: îl consolidăm o singură dată, nu îl mai scriem.
+        if (target && last && !finalized) {
+          field.commit(last);
+          lastFinal = last;
+          finalized = true;
+        }
+        if (rec && rec.kind === 'native' && rec._keep) rec._keep = false;
       },
       onError: code => { if (!quiet) toast(sttErrMsg(code), 4000); },
     });
@@ -482,7 +603,6 @@ function startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet }) {
     }
     if (interim && target) field.paint(interim);
     else if (!interim && target) field.paint('');
-    setDictTxt(interim || t('listening'));
     onInterim && onInterim(interim);
   };
   r.onerror = e => { if (!quiet && e.error !== 'no-speech' && e.error !== 'aborted') toast(t('dictationError', { e: e.error }), 3500); };
@@ -557,7 +677,7 @@ export function insertAtCursor(el, txt, { forceCapital = false } = {}) {
   }, 1800);
 }
 
-export function insertPunctuation(el, punct) {
+export function insertPunctuation(el, punct, btn) {
   if (!el) return;
   const start = el.selectionStart ?? el.value.length;
   let ins = punct;
@@ -575,10 +695,9 @@ export function insertPunctuation(el, punct) {
   }
   el.setRangeText(ins, start, start, 'end');
   el.dispatchEvent(new Event('input', { bubbles: true }));
-  // Niciodată nu deschidem tastatura din bara de punctuație
-  try { el.blur(); } catch {}
-  // prevenim focus accidental
-  setTimeout(() => { try { el.blur(); } catch {} }, 50);
+  markPunctActive(btn || document.querySelector('.punct-btn[data-punct="' + punct + '"]'));
+  try { el.focus({ preventScroll: true }); } catch { try { el.focus(); } catch {} }
+  revealDictCaret(el);
 }
 
 // Transcrierea în timpul înregistrării: pe Android prin transcriere nativă continuă (LsoVoice),
