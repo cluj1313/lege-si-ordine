@@ -259,13 +259,13 @@ export async function stopReading() {
  * Citește ce e pe ecran (lista tabului sau documentul deschis), de la primul element vizibil până la final.
  * engineCheck(text) → { native, voice } sau null dacă nu se poate citi (mesajul a fost deja arătat).
  */
-export async function readScreen({ engineCheck, emit } = {}) {
+export async function readScreen({ engineCheck, emit, root } = {}) {
   if (R.on) { await stopReading(); return false; }
-  const root = screenRoot();
-  if (!root) { toast(t('nothingToRead')); return false; }
-  const segs = collect(root);
+  const useRoot = root || screenRoot();
+  if (!useRoot) { toast(t('nothingToRead')); return false; }
+  const segs = collect(useRoot);
   if (!segs.length) { restore(); toast(t('nothingToRead')); return false; }
-  const start = firstVisible(segs);
+  const start = root ? 0 : firstVisible(segs);
   const text = segs.slice(start).map(s => s.text).join('.\n');
   if (emit) emit(text);
   const s = state.settings;

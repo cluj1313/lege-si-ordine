@@ -181,6 +181,117 @@ export async function deleteItem(it) {
   return true;
 }
 
+let tmpExpanded = false;
+const TMP_POS_KEY = 'lso_tmp_pos';
+const TMP_GAP = 10;
+
+function fabTopY() {
+  const f = document.getElementById('fabs') || document.querySelector('.fabs');
+  if (f) {
+    const r = f.getBoundingClientRect();
+    if (r.height) return r.top;
+  }
+  return window.innerHeight - 74;
+}
+
+function headerBottomY() {
+  const tab = document.getElementById('tabbar');
+  const hdr = document.querySelector('.top') || document.getElementById('hdr') || document.querySelector('header');
+  const b1 = tab ? tab.getBoundingClientRect().bottom : 0;
+  const b2 = hdr ? hdr.getBoundingClientRect().bottom : 0;
+  return Math.max(b1, b2, 72);
+}
+
+function defaultTmpBottom() {
+  return Math.max(0, window.innerHeight - fabTopY() + TMP_GAP);
+}
+
+function clampTmpBottom(bottom, boxH) {
+  const minB = defaultTmpBottom();
+  const maxB = window.innerHeight - headerBottomY() - Math.max(48, boxH || 56) - 8;
+  return Math.max(minB, Math.min(Number(bottom) || minB, Math.max(minB, maxB)));
+}
+
+function savedTmpBottom() {
+  try {
+    const j = JSON.parse(localStorage.getItem(TMP_POS_KEY) || 'null');
+    if (j && typeof j.bottom === 'number' && Number.isFinite(j.bottom)) return j.bottom;
+  } catch {}
+  return null;
+}
+
+function saveTmpBottom(bottom) {
+  try { localStorage.setItem(TMP_POS_KEY, JSON.stringify({ bottom: Math.round(bottom) })); } catch {}
+}
+
+function applyTmpPos(box) {
+  if (!box) return;
+  const hgt = box.getBoundingClientRect().height || box.offsetHeight || 56;
+  const raw = savedTmpBottom();
+  const bottom = clampTmpBottom(raw == null ? defaultTmpBottom() : raw, hgt);
+  box.style.bottom = bottom + 'px';
+  const topLimit = headerBottomY() + 8;
+  const boxBottomY = window.innerHeight - bottom;
+  box.style.maxHeight = Math.max(56, boxBottomY - topLimit) + 'px';
+}
+
+function bindTmpDrag(box, title) {
+  let pressTimer = 0;
+  let drag = null;
+  let origin = null;
+  let skipClick = false;
+  const clearPress = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = 0; } };
+  const endDrag = () => {
+    if (!drag) return;
+    const bottom = clampTmpBottom(drag.bottom, box.getBoundingClientRect().height);
+    saveTmpBottom(bottom);
+    box.style.bottom = bottom + 'px';
+    box.classList.remove('tmp-dragging');
+    applyTmpPos(box);
+    skipClick = true;
+    drag = null;
+  };
+  title.addEventListener('pointerdown', e => {
+    if (e.button && e.button !== 0) return;
+    origin = { x: e.clientX, y: e.clientY };
+    const y0 = e.clientY;
+    const id = e.pointerId;
+    const startBottom = parseFloat(box.style.bottom) || defaultTmpBottom();
+    clearPress();
+    pressTimer = setTimeout(() => {
+      pressTimer = 0;
+      drag = { y0, startBottom, bottom: startBottom };
+      box.classList.add('tmp-dragging');
+      try { title.setPointerCapture(id); } catch {}
+      try { if (navigator.vibrate) navigator.vibrate(12); } catch {}
+    }, 550);
+  });
+  title.addEventListener('pointermove', e => {
+    if (pressTimer && origin && Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > 10) clearPress();
+    if (!drag) return;
+    e.preventDefault();
+    const dy = drag.y0 - e.clientY;
+    drag.bottom = clampTmpBottom(drag.startBottom + dy, box.getBoundingClientRect().height);
+    box.style.bottom = drag.bottom + 'px';
+    const topLimit = headerBottomY() + 8;
+    const boxBottomY = window.innerHeight - drag.bottom;
+    box.style.maxHeight = Math.max(56, boxBottomY - topLimit) + 'px';
+  });
+  const stop = () => { clearPress(); if (drag) endDrag(); };
+  title.addEventListener('pointerup', stop);
+  title.addEventListener('pointercancel', stop);
+  title.addEventListener('click', e => {
+    if (skipClick) { e.preventDefault(); e.stopPropagation(); skipClick = false; }
+  }, true);
+  if (!window.__lsoTmpResize) {
+    window.__lsoTmpResize = () => {
+      const el = document.getElementById('temporary-zone');
+      if (el) applyTmpPos(el);
+    };
+    window.addEventListener('resize', window.__lsoTmpResize);
+  }
+}
+
 function renderTemporaryZone(tab) {
   const old = document.getElementById('temporary-zone');
   if (old) old.remove();
@@ -189,34 +300,31 @@ function renderTemporaryZone(tab) {
   const items = listTemporary();
   const box = h('div', { id: 'temporary-zone', class: 'tmp-zone', 'data-test': 'temporary-zone' });
 
-  let expanded = false;
-  const listEl = h('div', { style: { display: 'none', marginTop: '8px' } });
+  const listEl = h('div', { class: 'tmp-list', style: { display: tmpExpanded ? 'block' : 'none', marginTop: '8px' } });
 
   const header = h('div', { class: 'tmp-head' });
-  const title = h('strong', { class: 'tmp-title' }, 'Temporar');
+  const title = h('strong', { class: 'tmp-title', 'data-test': 'tmp-title' }, 'Temporar');
   title.onclick = (e) => {
     e.stopPropagation();
-    expanded = !expanded;
-    listEl.style.display = expanded ? 'block' : 'none';
+    tmpExpanded = !tmpExpanded;
+    listEl.style.display = tmpExpanded ? 'block' : 'none';
+    applyTmpPos(box);
   };
   header.append(title);
 
   const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
-  // Dictează: creează notiță în Temporar și pornește dictarea în ea
-  const dictBtn = h('button', { class: 'tmp-btn', type: 'button', title: 'Dictează', onclick: async (e) => {
+  const dictBtn = h('button', { class: 'tmp-btn', type: 'button', title: 'Dictează', 'data-test': 'tmp-dict', onclick: async (e) => {
     e.stopPropagation();
     const rec = createTemporary('', tab.id, ['dict']);
     if (!rec) return;
-    expanded = true;
+    tmpExpanded = true;
     listEl.style.display = 'block';
-    // deschide editorul pe notița temporară (nu pe tab principal)
     await openEditor(tab.id, null, { kind: 'note', preset: { body: '', tempId: rec.id } });
     setTimeout(async () => {
       const ta = document.querySelector('.editor textarea.voice-target');
       if (ta) {
         setTarget(ta);
         await startDictation(ta);
-        // la oprire, salvează textul în notița temporară
         const stop = () => {
           const txt = ta.value || '';
           if (txt.trim()) updateTemporary(rec.id, { text: txt });
@@ -229,14 +337,12 @@ function renderTemporaryZone(tab) {
   } }, 'Dictează');
   header.append(dictBtn);
 
-  // Înregistrează: pornește exact ca înregistrarea externă, rezultatul rămâne în Temporar
-  const recBtn = h('button', { class: 'tmp-btn', type: 'button', title: 'Înregistrează', onclick: async (e) => {
+  const recBtn = h('button', { class: 'tmp-btn', type: 'button', title: 'Înregistrează', 'data-test': 'tmp-rec', onclick: async (e) => {
     e.stopPropagation();
     const rec = createTemporary('🎙️ Înregistrare…', tab.id, ['rec']);
     if (!rec) return;
-    expanded = true;
+    tmpExpanded = true;
     listEl.style.display = 'block';
-    // pornește înregistrarea reală și o leagă de notița temporară
     window._lsoTempRecId = rec.id;
     if (typeof startRecording === 'function') {
       await startRecording(tab.id);
@@ -247,14 +353,14 @@ function renderTemporaryZone(tab) {
   } }, 'Înregistrează');
   header.append(recBtn);
 
-  const addBtn = h('button', { class: 'tmp-add', type: 'button', onclick: async (e) => {
+  const addBtn = h('button', { class: 'tmp-add', type: 'button', 'data-test': 'tmp-add', onclick: async (e) => {
     e.stopPropagation();
     const txt = await promptDlg('Notiță rapidă');
     if (txt && txt.trim()) {
       let t = txt.trim();
       if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
       createTemporary(t, tab.id, ['read']);
-      expanded = true;
+      tmpExpanded = true;
       render();
     }
   } }, '+');
@@ -266,14 +372,13 @@ function renderTemporaryZone(tab) {
   } else {
     items.forEach(it => {
       const lines = (it.text || '').split('\n');
-      const title = lines[0] || '(gol)';
-      const rest = lines.slice(1).join('\n');
-      const row = h('div', { style: {
+      const rowTitle = lines[0] || '(gol)';
+      const row = h('div', { class: 'tmp-item', style: {
         padding: '10px 4px', borderBottom: '1px solid rgba(212,175,55,0.25)',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer'
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer'
       } });
       const left = h('div', { style: { flex: 1, minWidth: 0 } });
-      const textSpan = h('div', { style: { fontSize: '1.05rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 } }, title);
+      const textSpan = h('div', { class: 'tmp-item-title', style: { fontSize: '1.05rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 } }, rowTitle);
       left.append(textSpan);
       if (it.modes && it.modes.length) {
         const modeLabel = it.modes.map(m => labels[m] || m).join(' · ');
@@ -291,15 +396,18 @@ function renderTemporaryZone(tab) {
       } }, '✕');
       row.append(delBtn);
 
-      // click pe rând → deschide restul textului (titlul rămâne vizibil)
       let fullOpen = false;
-      const fullText = h('div', { style: { display: 'none', fontSize: '0.85rem', marginTop: '4px', whiteSpace: 'pre-wrap', opacity: 0.9 } }, rest || '');
-      left.append(fullText);
-      // dacă e înregistrare, arată player + durată + share
+      const noteView = h('div', { class: 'tmp-note-text', 'data-test': 'tmp-note-text', style: { display: 'none', fontSize: '0.95rem', marginTop: '6px', whiteSpace: 'pre-wrap', opacity: 0.95 } }, it.text || '');
+      left.append(noteView);
+      const openNote = () => {
+        fullOpen = true;
+        noteView.style.display = 'block';
+        textSpan.style.display = 'none';
+      };
       if (it.mid) {
         const playerWrap = h('div', { style: { display: 'none', marginTop: '6px' } });
         const audio = h('audio', { controls: true, style: { width: '100%', height: '32px' }, preload: 'none' });
-        audio.src = ''; // se va încărca la cerere
+        audio.src = '';
         const loadAudio = async () => {
           if (audio.src) return;
           try {
@@ -326,36 +434,30 @@ function renderTemporaryZone(tab) {
         } }, 'Share');
         playerWrap.append(audio, info, shareBtn);
         left.append(playerWrap);
-        // deschide playerul la expand
-        const origClick = row.onclick;
-        row.onclick = async (e) => {
-          if (e.target === delBtn) return;
-          if (!fullOpen) {
-            fullOpen = true;
-            fullText.style.display = 'block';
-            playerWrap.style.display = 'block';
-            loadAudio();
-            return;
-          }
-          if (origClick) origClick(e);
-        };
+        row._tmpOpenRec = () => { playerWrap.style.display = 'block'; loadAudio(); };
       }
-      row.onclick = async (e) => {
+      row.addEventListener('click', async (e) => {
         if (e.target === delBtn) return;
-        if (!fullOpen && rest) {
-          fullOpen = true;
-          fullText.style.display = 'block';
+        if (!fullOpen) {
+          openNote();
+          if (row._tmpOpenRec) row._tmpOpenRec();
           return;
         }
         const action = await sheet((it.text || '').slice(0, 40) || 'Notiță', [
-          { label: 'Ascultă', value: 'read', icon: '🔊' },
+          { label: 'Citește', value: 'read', icon: '🔊', test: 'tmp-read' },
           { label: 'Editează', value: 'edit', icon: '✏️' },
           { label: 'Copiază', value: 'copy', icon: '📋' },
           { label: 'Share', value: 'share', icon: '📤' },
           { label: 'Șterge', value: 'del', icon: '🗑️', cls: 'danger' }
         ]);
         if (action === 'read') {
-          if (it.text) await readScreenAloud(it.text);
+          if (!it.text) return;
+          tmpExpanded = true;
+          listEl.style.display = 'block';
+          openNote();
+          applyTmpPos(box);
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          await readScreenAloud({ root: noteView });
         } else if (action === 'edit') {
           const newText = await promptDlg('Editează notița', { value: it.text || '' });
           if (newText != null) {
@@ -373,33 +475,44 @@ function renderTemporaryZone(tab) {
           deleteTemporary(it.id);
           render();
         }
-      };
+      });
       listEl.append(row);
     });
   }
   box.append(listEl);
   document.body.append(box);
+  applyTmpPos(box);
+  bindTmpDrag(box, title);
 
-  // Nu auto-hide când e deschis. Ascunde doar la click în exterior.
+  if (window.__lsoTmpUi) {
+    document.removeEventListener('pointerdown', window.__lsoTmpUi.onOutside, true);
+    document.removeEventListener('touchstart', window.__lsoTmpUi.ts, { passive: true });
+    document.removeEventListener('touchend', window.__lsoTmpUi.te, { passive: true });
+  }
   const onOutside = (e) => {
-    if (!box.contains(e.target) && expanded) {
-      expanded = false;
+    if (!box.contains(e.target) && tmpExpanded) {
+      tmpExpanded = false;
       listEl.style.display = 'none';
+      applyTmpPos(box);
     }
   };
-  setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 50);
-
-  // Reapare la swipe vertical (doar dacă e ascuns)
   let startY = 0;
-  document.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
-  document.addEventListener('touchend', e => {
+  const ts = e => { startY = e.touches[0].clientY; };
+  const te = e => {
+    if (box.classList.contains('tmp-dragging')) return;
     const dy = Math.abs(e.changedTouches[0].clientY - startY);
-    if (dy > 50 && !expanded) {
-      expanded = true;
+    if (dy > 50 && !tmpExpanded) {
+      tmpExpanded = true;
       listEl.style.display = 'block';
+      applyTmpPos(box);
     }
-  }, { passive: true });
+  };
+  window.__lsoTmpUi = { onOutside, ts, te };
+  setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 50);
+  document.addEventListener('touchstart', ts, { passive: true });
+  document.addEventListener('touchend', te, { passive: true });
 }
+
 
 let clockTimer = 0;
 function isClockOn() {

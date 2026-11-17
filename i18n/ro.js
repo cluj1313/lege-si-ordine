@@ -28,7 +28,7 @@ export default {
   calendarAlarm: 'Alarmă la {h}', monthsLong: 'Ianuarie,Februarie,Martie,Aprilie,Mai,Iunie,Iulie,August,Septembrie,Octombrie,Noiembrie,Decembrie',
   aspect: 'Aspect', aspectPreview: 'Așa va arăta textul în acest element.',
   aspectFontSize: 'Mărime font', aspectFontColor: 'Culoare font', aspectBgColor: 'Culoare fundal', aspectLineHeight: 'Spațiere rânduri',
-  colorHint: 'Alege culoarea barei din stânga.', showClock: 'Arată ceasul în antet',
+  colorHint: 'Alege culoarea barei din stânga.', showClock: 'Arată ceasul în antet', resetTmpPos: 'Repoziționează Temporar', tmpPosReset: 'Temporar a revenit la poziția implicită',
   pinnedOn: 'Fixat sus', pinnedOff: 'Desfixat', anuleaza: 'Anulează',
  cancel: 'Renunță', clear: 'Golește', clientIs: 'Client: {c}', clientNew: '+ Client nou', clientPerson: 'Persoană', clientFirm: 'Firmă', clientType: 'Tip', clientNamePh: 'Nume Prenume', firmNamePh: 'Denumirea firmei', firmNew: '+ Firmă nouă', clientSearchPh: 'Caută client sau firmă…', createClient: 'Client nou', createFirm: 'Firmă nouă', createCase: 'Dosar nou', caseNew: '+ Dosar nou', caseSearchPh: 'Caută dosar…', color: 'Culoare', confirm: 'Confirmare',
   confirmDeleteFile: 'Ștergi fișierul „{n}” din acest element?', confirmDeleteSub: 'Ștergi acest subtask?',

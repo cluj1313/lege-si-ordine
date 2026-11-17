@@ -283,6 +283,84 @@ async function run(vp, label, full) {
     await p.locator('[data-test=editor]').first().waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
   });
 
+  await step(`[${label}] [v1.2.2] Dictare: interimarul se înlocuiește, finalele repetate (Android) apar o singură dată, punctuația rămâne`, async () => {
+    await p.evaluate(() => {
+      class MockSR {
+        constructor() {
+          this.lang = ''; this.continuous = false; this.interimResults = false;
+          this.onresult = null; this.onerror = null; this.onend = null; this._keep = true;
+          window.__lsoSR = this;
+        }
+        start() { window.__lsoSR = this; }
+        stop() { this._keep = false; if (this.onend) this.onend(); }
+        abort() { this.stop(); }
+      }
+      window.SpeechRecognition = window.webkitSpeechRecognition = MockSR;
+    });
+    const emitSRResults = (items, resultIndex = 0) => p.evaluate(({ items, resultIndex }) => {
+      const sr = window.__lsoSR;
+      if (!sr || !sr.onresult) throw new Error('recunoașterea nu e pornită');
+      const results = { length: items.length };
+      items.forEach((it, i) => {
+        const alt = { transcript: it.transcript, confidence: 1 };
+        results[i] = { isFinal: !!it.isFinal, 0: alt, length: 1 };
+      });
+      sr.onresult({ resultIndex, results });
+    }, { items, resultIndex });
+    await goTab('Taskuri');
+    await tap('[data-test=fab-voice]');
+    await p.locator('.m-sheet .sheet-opt', { hasText: 'Dictare' }).tap();
+    const ta = p.locator('[data-test=editor] textarea.voice-target').first();
+    await ta.waitFor();
+    await p.locator('#punct-pill').waitFor();
+    // interimar + final, apoi aceeași finală repetată
+    await emitSRResults([{ transcript: 'Bună ziua', isFinal: false }], 0);
+    await emitSRResults([{ transcript: 'Bună ziua', isFinal: true }], 0);
+    let cur = await ta.inputValue();
+    assert(/bună\s+ziua/i.test(cur), 'lipsește textul inițial: ' + cur);
+    assert((cur.match(/bună/gi) || []).length === 1, 'interimarul s-a dublat: ' + cur);
+    // Android: resultIndex 0 retrimite finala anterioară + interimar nou, apoi finale cumulative, apoi replay complet
+    await emitSRResults([
+      { transcript: 'Bună ziua', isFinal: true },
+      { transcript: 'cum sunteți', isFinal: false },
+    ], 0);
+    await emitSRResults([
+      { transcript: 'Bună ziua', isFinal: true },
+      { transcript: 'cum sunteți', isFinal: true },
+    ], 0);
+    await emitSRResults([
+      { transcript: 'Bună ziua', isFinal: true },
+      { transcript: 'cum sunteți', isFinal: true },
+    ], 0);
+    // un singur rezultat cumulativ pe același index
+    await emitSRResults([{ transcript: 'Bună ziua cum sunteți', isFinal: true }], 0);
+    cur = await ta.inputValue();
+    const buna = (cur.match(/bună/gi) || []).length;
+    const ziua = (cur.match(/ziua/gi) || []).length;
+    const cum = (cur.match(/sunteți|sunteti/gi) || []).length;
+    assert(buna === 1 && ziua === 1 && cum === 1, 'text dublat după replay Android: ' + cur);
+    await p.locator('#punct-pill .punct-btn', { hasText: '.' }).tap();
+    const afterPunct = await ta.inputValue();
+    assert(/\./.test(afterPunct), 'punctul nu s-a inserat: ' + afterPunct);
+    await emitSRResults([{ transcript: 'bine', isFinal: false }], 0);
+    await emitSRResults([{ transcript: 'bine', isFinal: true }], 0);
+    await emitSRResults([
+      { transcript: 'Bună ziua cum sunteți', isFinal: true },
+      { transcript: 'bine', isFinal: true },
+    ], 0);
+    const after = await ta.inputValue();
+    assert(/\./.test(after), 'punctuația a dispărut: ' + after);
+    assert(/bine/i.test(after), 'textul nou lipsește: ' + after);
+    assert((after.match(/bună/gi) || []).length === 1, 'dublat după punct: ' + after);
+    assert((after.match(/bine/gi) || []).length === 1, '„bine” dublat: ' + after);
+    await p.locator('.dict-bubble .btn').tap().catch(() => {});
+    await p.evaluate(() => { if (window.__lsoSR && window.__lsoSR.stop) window.__lsoSR.stop(); });
+    if (await p.locator('[data-test=editor] .m-back').count()) await p.locator('[data-test=editor] .m-back').tap();
+    const confirmDa = p.locator('[data-test=confirm] .m-actions .btn').last();
+    if (await confirmDa.isVisible().catch(() => false)) await confirmDa.tap();
+    await p.locator('[data-test=editor]').first().waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
+  });
+
   await step(`[${label}] [v1.2.1] Setări › Taburi: „Monitorul Oficial” pe cel mult 2 rânduri, fără rupere în cuvânt`, async () => {
     await openSet();
     await p.locator('[data-test=settings] details[data-sec=tabs] summary').tap();
@@ -307,6 +385,123 @@ async function run(vp, label, full) {
     assert(info.wrap !== 'anywhere' && info.wordBreak !== 'break-all' && info.wordBreak !== 'break-word', 'rupere în cuvânt: ' + JSON.stringify(info));
     if (label === '360x780') await p.screenshot({ path: `${SHOTS}v121-tabs.png` });
     await tap('[data-test=settings] .m-back'); await gone('[data-test=settings]');
+  });
+
+  await step(`[${label}] [v1.2.2] Temporar e lipit deasupra butoanelor + / 🎙️, fără suprapunere`, async () => {
+    await goTab('Dosare');
+    const zone = p.locator('[data-test=temporary-zone]');
+    await zone.waitFor({ state: 'visible' });
+    await p.waitForFunction(() => {
+      const el = document.querySelector('[data-test=temporary-zone]');
+      return el && el.getBoundingClientRect().width > 100;
+    });
+    const g = await p.evaluate(() => {
+      const t = document.querySelector('[data-test=temporary-zone]').getBoundingClientRect();
+      const f = (document.getElementById('fabs') || document.querySelector('.fabs')).getBoundingClientRect();
+      return { tmpBottom: t.bottom, fabTop: f.top, gap: f.top - t.bottom, left: t.left, right: t.right, w: innerWidth };
+    });
+    assert(g.tmpBottom <= g.fabTop + 1, 'Temporar acoperă butoanele: ' + JSON.stringify(g));
+    assert(g.gap >= 0 && g.gap <= 24, 'spațiu prea mare sau negativ între Temporar și butoane: ' + JSON.stringify(g));
+    assert(g.left <= 2 && g.right >= g.w - 2, 'Temporar nu e de la un capăt la altul: ' + JSON.stringify(g));
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v122-home.png` });
+  });
+
+  await step(`[${label}] [v1.2.2] Dictează, Înregistrează și (+) au inel auriu, fără fond plin`, async () => {
+    const st = await p.evaluate(() => ['tmp-dict', 'tmp-rec', 'tmp-add'].map(id => {
+      const el = document.querySelector(`[data-test=${id}]`);
+      const s = getComputedStyle(el);
+      const bg = s.backgroundColor;
+      const parse = c => (c.match(/[\d.]+/g) || []).map(Number);
+      const [r, g, b] = parse(bg);
+      return {
+        id, bg, color: s.color, border: s.borderTopColor, bw: parseFloat(s.borderTopWidth) || 0,
+        h: Math.round(el.getBoundingClientRect().height),
+        filledGold: r > 180 && g > 140 && b < 130 && (s.backgroundImage === 'none' || !s.backgroundImage),
+      };
+    }));
+    for (const s of st) {
+      assert(s.bw >= 1, 'fără inel: ' + JSON.stringify(s));
+      assert(!s.filledGold, 'fond plin auriu: ' + JSON.stringify(s));
+      assert(s.h >= 32 && s.h <= 42, 'înălțime diferită: ' + JSON.stringify(s));
+    }
+    const hs = new Set(st.map(s => s.h));
+    assert(hs.size === 1, 'înălțimi diferite: ' + JSON.stringify(st));
+  });
+
+  await step(`[${label}] [v1.2.2] Citește din Temporar citește textul notiței, nu tabul principal`, async () => {
+    await goTab('Dosare');
+    const NOTE = 'Text numai în Temporar XYZ123';
+    await tap('[data-test=tmp-add]');
+    await p.locator('.m-dialog input.inp').waitFor();
+    await p.locator('.m-dialog input.inp').fill(NOTE);
+    await p.locator('.m-dialog .m-actions .btn.primary').tap();
+    const item = p.locator('[data-test=temporary-zone] .tmp-item').filter({ hasText: 'Text numai în Temporar' }).first();
+    await item.waitFor();
+    await item.tap();
+    await p.locator('[data-test=tmp-note-text]').first().waitFor();
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v122-temporar.png` });
+    await item.tap();
+    await p.locator('.m-sheet .sheet-opt', { hasText: 'Citește' }).waitFor();
+    await p.evaluate(() => {
+      const st = window.__tts = { utts: [], cancels: 0, timers: [] };
+      const clear = () => { st.timers.forEach(clearTimeout); st.timers = []; };
+      const mock = {
+        speaking: false, pending: false, paused: false,
+        getVoices: () => [{ name: 'Română test', lang: 'ro-RO', localService: true, default: true, voiceURI: 'ro' }],
+        addEventListener() {}, removeEventListener() {},
+        cancel() { st.cancels++; clear(); mock.speaking = false; },
+        pause() {}, resume() {},
+        speak(u) {
+          st.utts.push(u.text); mock.speaking = true;
+          st.timers.push(setTimeout(() => { u.onstart && u.onstart({}); }, 10));
+          st.timers.push(setTimeout(() => { mock.speaking = false; u.onend && u.onend({}); }, 80));
+        },
+      };
+      Object.defineProperty(window, 'speechSynthesis', { value: mock, configurable: true, writable: true });
+    });
+    await sheetOpt('Citește');
+    await p.waitForFunction(() => window.__tts && window.__tts.utts.length > 0, null, { timeout: 5000 });
+    const spoken = await p.evaluate(() => (window.__tts.utts || []).join(' '));
+    assert(spoken.includes('XYZ123') && spoken.includes('Temporar'), 'a citit alt text: ' + spoken);
+    const main = await p.evaluate(() => (document.querySelector('#view .card .r1t, #view .card') || {}).textContent || '');
+    if (main && !main.includes('XYZ123')) {
+      assert(!spoken.includes(main.trim().slice(0, 18)), 'a citit tabul principal: ' + spoken + ' / ' + main);
+    }
+  });
+
+  await step(`[${label}] [v1.2.2] poziția Temporar, ținut lung, se păstrează după reîncărcare`, async () => {
+    const title = p.locator('[data-test=tmp-title]');
+    await title.waitFor({ state: 'visible' });
+    const before = await p.evaluate(() => document.querySelector('[data-test=temporary-zone]').getBoundingClientRect().bottom);
+    const box = await title.boundingBox();
+    await p.mouse.move(box.x + 24, box.y + box.height / 2);
+    await p.mouse.down();
+    await p.waitForTimeout(2800);
+    await p.mouse.move(box.x + 24, Math.max(80, box.y - 140), { steps: 14 });
+    await p.mouse.up();
+    await p.waitForTimeout(200);
+    const mid = await p.evaluate(() => {
+      const t = document.querySelector('[data-test=temporary-zone]').getBoundingClientRect();
+      const f = (document.getElementById('fabs') || document.querySelector('.fabs')).getBoundingClientRect();
+      const hdr = document.querySelector('.top, #hdr, header, #tabbar');
+      const top = hdr ? hdr.getBoundingClientRect().bottom : 0;
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem('lso_tmp_pos') || 'null'); } catch {}
+      return { bottom: t.bottom, top: t.top, fabTop: f.top, hdrBottom: top, saved, dragging: document.querySelector('.tmp-zone')?.classList.contains('tmp-dragging') };
+    });
+    assert(mid.bottom + 2 < before, 'nu s-a mutat în sus: before=' + before + ' after=' + JSON.stringify(mid));
+    assert(mid.bottom <= mid.fabTop + 1, 'după mutare acoperă butoanele: ' + JSON.stringify(mid));
+    assert(mid.top >= mid.hdrBottom - 1, 'acoperă antetul: ' + JSON.stringify(mid));
+    assert(mid.saved && typeof mid.saved.bottom === 'number', 'nu s-a salvat lso_tmp_pos: ' + JSON.stringify(mid));
+    await p.reload();
+    await p.waitForSelector('.tab-pill');
+    await p.locator('[data-test=temporary-zone]').waitFor({ state: 'visible' });
+    await p.waitForFunction(() => {
+      const el = document.querySelector('[data-test=temporary-zone]');
+      return el && el.getBoundingClientRect().width > 100;
+    });
+    const after = await p.evaluate(() => document.querySelector('[data-test=temporary-zone]').getBoundingClientRect().bottom);
+    assert(Math.abs(after - mid.bottom) <= 8, 'poziția nu persistă: ' + after + ' vs ' + mid.bottom);
   });
 
   await step(`[${label}] clienți: 2 rânduri, rândul 2 apare/dispare la atingere, deschide elementul`, async () => {
@@ -1459,7 +1654,7 @@ async function run(vp, label, full) {
   await step(`[${label}] [v1.0.6] Contor anonim: ping o dată pe zi la serverul simulat (id anonim, versiune, sursă); bifă în Confidențialitate`, async () => {
     assert(mock.pings.length >= 1, 'niciun ping');
     const pg = mock.pings[0];
-    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.2.1' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
+    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.2.2' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
     assert((await ls('lso_ping_day')) === new Date().toISOString().slice(0, 10));
     await openSet();
     await tap('[data-sec=privacy] summary');

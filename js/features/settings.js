@@ -172,8 +172,13 @@ const ssTimeout = h("input", { class: "inp", type: "number", min: "0", max: "60"
       if (window.LSO && typeof window.LSO.render === 'function') window.LSO.render();
     } }),
     h('span', {}, t('showClock')));
+  const resetTmp = h('button', { class: 'btn ghost sm', type: 'button', 'data-test': 'reset-tmp-pos', onclick: async () => {
+    try { localStorage.removeItem('lso_tmp_pos'); } catch {}
+    toast(t('tmpPosReset'));
+    if (window.LSO && typeof window.LSO.render === 'function') window.LSO.render();
+  } }, t('resetTmpPos'));
   return h('div', {},
-    h('h3', { class: 'sub-h' }, t('showClock')), clockRow,
+    h('h3', { class: 'sub-h' }, t('showClock')), clockRow, resetTmp,
     h('h3', { class: 'sub-h' }, t('setThemes')), themeRow,
     h('h3', { class: 'sub-h' }, t('setTabStyle')), styleRow,
     h('h3', { class: 'sub-h' }, t('setFont')), fontRow,

@@ -172,11 +172,13 @@ export async function speak(text) {
 
 // Citire 📖 din meniul Voce: tot ce se vede pe ecran, cu bara sub cuvântul citit (reader.js, preluat din Notis).
 // Al doilea tap pe Citire / pe butonul de voce oprește.
-export async function readScreenAloud() {
+export async function readScreenAloud(arg) {
   if (isReading() || speakSt.playing) { await stopSpeak(); return false; }
   await yieldMic();
   if (isDictating()) await stopDictation();
+  const opts = !arg ? {} : (typeof arg === 'string' ? { text: arg } : arg);
   return readScreen({
+    root: opts.root,
     emit: emitSpeak,
     engineCheck: async opts => {
       if (nativeTts.hasNativeTts()) {
@@ -277,33 +279,54 @@ export function applySpokenPunct(txt) {
   return s.replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n');
 }
 
-function normWords(s) {
-  return String(s || '').toLowerCase().replace(/[\s.,;:!?+\-]+/g, ' ').trim().split(' ').filter(Boolean);
+function foldWords(s) {
+  const t = String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return t.replace(/ș|ş/g, 's').replace(/ț|ţ/g, 't')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean);
 }
 
-// Dacă motorul retrimite text deja aflat înainte de cursor (aceeași frază), păstrăm doar partea nouă.
 function leftoverTranscript(base, incoming) {
   const raw = String(incoming || '').trim();
   if (!raw) return '';
-  const bw = normWords(base), tw = normWords(raw);
+  const bw = foldWords(base), tw = foldWords(raw);
   let n = 0;
   for (let k = Math.min(bw.length, tw.length); k > 0; k--) {
     if (bw.slice(-k).join(' ') === tw.slice(0, k).join(' ')) { n = k; break; }
   }
   if (!n) return raw;
-  let left = n;
-  return raw.replace(/^\s+/, '').replace(/^\S+(?:\s+|$)/g, m => { if (left > 0) { left--; return ''; } return m; }).trim();
+  const parts = raw.trim().match(/\S+|\s+/g) || [];
+  let left = n, out = [];
+  for (const tok of parts) {
+    if (/^\s+$/.test(tok)) { if (left <= 0) out.push(tok); continue; }
+    if (left > 0) { left--; continue; }
+    out.push(tok);
+  }
+  return out.join('').trim();
 }
 
 function isGrowingChunk(prev, next) {
   if (!prev) return true;
-  const a = String(prev).trim().toLowerCase(), b = String(next).trim().toLowerCase();
+  const a = foldWords(prev).join(' '), b = foldWords(next).join(' ');
   if (!b) return true;
-  return b.startsWith(a) || a.startsWith(b);
+  return !a || b.startsWith(a) || a.startsWith(b);
+}
+
+function isCumulativeOf(base, incoming) {
+  const bw = foldWords(base), iw = foldWords(incoming);
+  if (!iw.length) return false;
+  const b = bw.join(' '), i = iw.join(' ');
+  if (!b) return false;
+  return i === b || i.startsWith(b) || b.endsWith(i) || b.startsWith(i);
+}
+
+function isPrefixPhrase(base, incoming) {
+  const b = foldWords(base).join(' '), i = foldWords(incoming).join(' ');
+  return !!i && (b === i || b.startsWith(i + ' '));
 }
 
 // Baza de inserție = valoarea curentă a câmpului + cursor. Orice editare manuală (punctuație, tastatură)
 // reia baza, ca un rezultat nou să nu șteargă ce s-a scris între timp.
+// Textul provizoriu înlocuiește doar textul provizoriu anterior (nu se adaugă peste el).
 function bindDictationField(el) {
   const st = { el, start: 0, after: '', applying: false, lastChunk: '' };
   const snap = () => {
@@ -317,16 +340,25 @@ function bindDictationField(el) {
   const onInput = () => { if (!st.applying) snap(); };
   if (el) { snap(); el.addEventListener('input', onInput); }
   const detach = () => { if (el) el.removeEventListener('input', onInput); };
-  const write = (chunk, commit) => {
+  const write = (chunk, commit, opts = {}) => {
     if (!el) return;
     const incoming = applySpokenPunct(chunk);
-    if (st.lastChunk && incoming && !isGrowingChunk(st.lastChunk, incoming)) {
-      st.start = el.selectionStart ?? el.value.length;
-      st.after = el.value.slice(el.selectionEnd ?? st.start);
-      st.lastChunk = '';
-    }
+    if (!incoming) return;
+    // Provizoriul se înlocuiește la aceeași bază; nu mutăm cursorul pe un interimar revizuit.
     const before = el.value.slice(0, st.start);
-    const use = leftoverTranscript(before, incoming);
+    // Replay Android: fraza deja aflată la începutul câmpului nu se mai inserează (păstrăm punctuația).
+    if (commit && incoming && isPrefixPhrase(before, incoming) && !(opts.newResult && foldWords(incoming).length === 1)) return;
+    let use = leftoverTranscript(before, incoming);
+    if (commit && !use && incoming) {
+      if (opts.newResult && !isCumulativeOf(before, incoming)) use = incoming;
+      else return;
+    }
+    if (!commit && !use) {
+      el.value = before + afterSafe();
+      try { el.setSelectionRange(before.length, before.length); } catch {}
+      st.lastChunk = '';
+      return;
+    }
     const sep = use && before && !/\s$/.test(before) && !/^[\s.,;:!?]/.test(use) ? ' ' : '';
     st.applying = true;
     el.value = before + sep + use + afterSafe();
@@ -342,7 +374,12 @@ function bindDictationField(el) {
     }
   };
   function afterSafe() { return st.after; }
-  return { snap, paint: chunk => write(chunk, false), commit: chunk => write(chunk, true), detach };
+  return {
+    snap,
+    paint: chunk => write(chunk, false),
+    commit: (chunk, opts) => write(chunk, true, opts || {}),
+    detach,
+  };
 }
 
 export async function startDictation(target, { lang, onFinal, onEnd, onInterim, quiet = false, keepRecording = false } = {}) {
@@ -363,11 +400,19 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
   const field = bindDictationField(target);
   rec = { kind: 'native', _keep: true, _field: field };
   let last = '';
+  let lastFinal = '';
   const applyPartial = (txt, ev) => {
     if (!txt) return;
     last = txt;
     const isFinal = !!(ev && (ev.kind === 'final' || ev.isFinal));
-    if (target) (isFinal ? field.commit : field.paint)(txt);
+    if (target) {
+      if (isFinal) {
+        const piece = leftoverTranscript(lastFinal, txt);
+        if (!piece && lastFinal && isCumulativeOf(lastFinal, txt)) return;
+        field.commit(piece || txt, { newResult: !piece && !isCumulativeOf(lastFinal, txt) });
+        lastFinal = piece ? (lastFinal ? lastFinal + ' ' + piece : piece) : (lastFinal && isCumulativeOf(lastFinal, txt) ? lastFinal : (lastFinal ? lastFinal + ' ' + txt : txt));
+      } else field.paint(txt);
+    }
     setDictTxt(txt);
   };
   try {
@@ -398,21 +443,45 @@ function startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet }) {
   r.lang = lang || state.settings.voiceLang || 'ro-RO';
   r.continuous = true; r.interimResults = true;
   let interim = '';
+  let nextIndex = 0;
+  const seen = [];
   const field = bindDictationField(target);
   r._field = field;
   if (!quiet) showDictBubble();
   r.onresult = e => {
     interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const res = e.results[i];
+    const results = e.results;
+    const len = results.length;
+    const from = Math.max(0, e.resultIndex | 0);
+    // Android / WebView: resultIndex rămâne 0 și retrimite finalele; dacă lista se resetează, o luăm de la capăt.
+    if (len < nextIndex) nextIndex = from;
+    if (len < seen.length) seen.length = len;
+    for (let i = from; i < len; i++) {
+      const res = results[i];
       const txt = (res[0] && res[0].transcript || '').trim();
-      if (!txt) continue;
+      if (!txt) { if (res.isFinal && i >= nextIndex) nextIndex = i + 1; continue; }
       if (res.isFinal) {
-        if (target) field.commit(txt);
-        onFinal && onFinal(txt);
-      } else interim += (interim ? ' ' : '') + txt;
+        const prev = seen[i] || '';
+        if (prev && (txt === prev || leftoverTranscript(prev, txt) === '')) {
+          nextIndex = Math.max(nextIndex, i + 1);
+          continue;
+        }
+        let piece = txt;
+        let newResult = i >= nextIndex && !prev;
+        if (prev && leftoverTranscript(prev, txt)) {
+          piece = leftoverTranscript(prev, txt);
+          newResult = false;
+        }
+        seen[i] = txt;
+        if (target) field.commit(piece, { newResult });
+        onFinal && onFinal(piece);
+        nextIndex = Math.max(nextIndex, i + 1);
+      } else if (i >= nextIndex || !seen[i]) {
+        interim += (interim ? ' ' : '') + txt;
+      }
     }
     if (interim && target) field.paint(interim);
+    else if (!interim && target) field.paint('');
     setDictTxt(interim || t('listening'));
     onInterim && onInterim(interim);
   };

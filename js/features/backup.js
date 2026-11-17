@@ -59,6 +59,7 @@ async function rawSnapshot() {
       defaultColor: (typeof localStorage !== 'undefined' ? localStorage.getItem('lso_defaultColor') : null),
       defaultAspect: (typeof localStorage !== 'undefined' ? localStorage.getItem('lso_defaultAspect') : null),
       clockPos: (typeof localStorage !== 'undefined' ? localStorage.getItem('lso_clock_pos') : null),
+      tmpPos: (typeof localStorage !== 'undefined' ? localStorage.getItem('lso_tmp_pos') : null),
     },
   };
 }
@@ -88,6 +89,7 @@ async function restoreRaw(snap) {
       if (p.defaultColor != null) localStorage.setItem('lso_defaultColor', p.defaultColor);
       if (p.defaultAspect != null) localStorage.setItem('lso_defaultAspect', p.defaultAspect);
       if (p.clockPos != null) localStorage.setItem('lso_clock_pos', p.clockPos);
+      if (p.tmpPos != null) localStorage.setItem('lso_tmp_pos', p.tmpPos);
     } catch {}
   }
 }
