@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LEGE ȘI ORDINE</title>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="LEGE ȘI ORDINE">
+<meta property="og:title" content="LEGE ȘI ORDINE">
+<meta property="og:description" content="Descarcă aplicația LEGE ȘI ORDINE pentru Android.">
+<meta property="og:url" content="https://cluj1313.github.io/lege-si-ordine/apk/">
+<meta property="og:image" content="https://cluj1313.github.io/lege-si-ordine/apk/og-icon.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="512">
+<meta property="og:image:height" content="512">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="LEGE ȘI ORDINE">
+<meta name="twitter:image" content="https://cluj1313.github.io/lege-si-ordine/apk/og-icon.png">
+<link rel="icon" href="og-icon.png">
+<style>
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#0f1a2e;color:#eef0f5;text-align:center;padding:24px}
+img{width:160px;height:160px;border-radius:36px;box-shadow:0 8px 30px #0008,0 0 0 1px #7e6a3a}
+h1{margin:18px 0 4px;font-size:28px;color:#e2c172}
+p{margin:0 0 26px;color:#a8b0c2}
+a.btn{display:inline-block;padding:16px 44px;background:#d9b45f;color:#0b1a33;border-radius:14px;font-size:22px;font-weight:700;text-decoration:none}
+a.btn:active{background:#e2c172}
+small{margin-top:18px;color:#a8b0c2;opacity:.85}
+.tip{margin:16px 0 0;max-width:320px;font-size:13px;line-height:1.45;color:#a8b0c2}
+</style>
+</head>
+<body>
+<img src="og-icon.png" alt="LEGE ȘI ORDINE">
+<h1>LEGE ȘI ORDINE</h1>
+<p id="ver">Versiunea 1.0.8 (v9)</p>
+<a class="btn" id="dl" href="https://github.com/cluj1313/lege-si-ordine/releases/download/v1.0.8/LEGE-SI-ORDINE-v1.0.8.apk">Descarcă</a>
+<small>Descărcarea pornește automat…</small>
+<p class="tip">Dacă browserul spune «File might be harmful», apasă «Download anyway», apoi Deschide și Instalează.</p>
+<script>
+const FALLBACK = {
+  name: "1.0.8",
+  code: "9",
+  url: "https://github.com/cluj1313/lege-si-ordine/releases/download/v1.0.8/LEGE-SI-ORDINE-v1.0.8.apk"
+};
+let apkUrl = FALLBACK.url;
+
+function pickApk(assets) {
+  const urls = (assets || [])
+    .map(function (a) { return a && a.browser_download_url; })
+    .filter(function (u) { return u && /\.apk$/i.test(u); });
+  function prefer(re) {
+    return urls.find(function (u) { return re.test(decodeURIComponent(u.split("/").pop())); });
+  }
+  return prefer(/^LEGE-SI-ORDINE-v/i) ||
+         prefer(/^LEGE-SI-ORDINE\.apk$/i) ||
+         prefer(/^LSO\.apk$/i) ||
+         urls[0] ||
+         FALLBACK.url;
+}
+
+function show(name, code, url) {
+  apkUrl = url;
+  document.getElementById("ver").textContent = code
+    ? ("Versiunea " + name + " (v" + code + ")")
+    : ("Versiunea " + name);
+  document.title = "LEGE ȘI ORDINE " + name;
+  document.getElementById("dl").href = url;
+}
+
+function startDownload() {
+  if (!/[?&]nr\b/.test(location.search)) location.href = apkUrl;
+}
+
+show(FALLBACK.name, FALLBACK.code, FALLBACK.url);
+
+const started = Date.now();
+fetch("https://api.github.com/repos/cluj1313/lege-si-ordine/releases/latest")
+  .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+  .then(function (rel) {
+    const tag = String(rel.tag_name || "").replace(/^v/i, "");
+    const fromName = String(rel.name || "").match(/(\d+\.\d+\.\d+)/);
+    const name = (fromName && fromName[1]) || tag || FALLBACK.name;
+    const url = pickApk(rel.assets);
+    const ref = rel.tag_name || ("v" + name);
+    return fetch("https://raw.githubusercontent.com/cluj1313/lege-si-ordine/" + encodeURIComponent(ref) + "/android/app/build.gradle")
+      .then(function (r) { return r.ok ? r.text() : ""; })
+      .then(function (t) {
+        const code = (t.match(/versionCode\s+(\d+)/) || [])[1] || "";
+        const verName = (t.match(/versionName\s+"([^"]+)"/) || [])[1] || name;
+        show(verName, code, url);
+      })
+      .catch(function () { show(name, "", url); });
+  })
+  .catch(function () {})
+  .then(function () {
+    const wait = Math.max(0, 1000 - (Date.now() - started));
+    setTimeout(startDownload, wait);
+  });
+</script>
+</body>
+</html>
