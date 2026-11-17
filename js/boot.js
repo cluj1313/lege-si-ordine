@@ -1,5 +1,5 @@
 // Pornire: încarcă datele locale, creează taburile la prima rulare, aplică tema, pornește UI-ul și serviciile.
-import { load, state, saveUI, APP_VERSION } from './core/store.js';
+import { load, state, saveUI, APP_VERSION, APP_VERSION_CODE } from './core/store.js';
 import { seedIfNeeded, migrate } from './core/seed.js';
 import { applyTheme, maybeRemindUrgents, listenInstallPrompt } from './features/settings.js';
 import { startApp, render } from './app.js';
@@ -36,6 +36,8 @@ function isDataEmpty() {
 
 async function boot() {
   try {
+    if (window.__lsoAssetReady) await window.__lsoAssetReady;
+    document.documentElement.dataset.appVersion = APP_VERSION;
     await load();
     const empty = isDataEmpty();
     if (empty) {
@@ -78,9 +80,11 @@ async function boot() {
   startPing();
   startNews();
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !isNative()) {
-    navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
+    navigator.serviceWorker.register('sw.js?v=' + encodeURIComponent(APP_VERSION)).then(reg => {
+      try { reg.update(); } catch {}
+    }).catch(e => console.warn('SW', e));
   }
-  window.LSO = { version: APP_VERSION, state, handleBack, render };
+  window.LSO = { version: APP_VERSION, versionCode: APP_VERSION_CODE, state, handleBack, render };
 }
 boot().catch(e => {
   console.error(e);

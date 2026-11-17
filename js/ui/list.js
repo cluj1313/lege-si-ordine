@@ -127,7 +127,7 @@ function separatorCard(it) {
       { label: 'Șterge', value: 'del', cls: 'danger' }
     ]);
     if (v === 'ren') {
-      const n = await promptDlg('Text', { value: d.text || '' });
+      const n = await promptDlg('Text', { value: d.text || '', multiline: true });
       if (n != null) await saveItem(it, { ...d, text: n });
     } else if (v === 'bg') {
       const c = prompt('Culoare fundal (#hex)', d.bg || '#f7efd4');

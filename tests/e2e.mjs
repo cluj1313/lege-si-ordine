@@ -9,6 +9,7 @@ let failed = 0;
 
 let curPage = null, failN = 0;
 async function step(name, fn) {
+  if (process.env.ONLY && !new RegExp(process.env.ONLY).test(name)) return;
   const t0 = Date.now();
   try { await fn(); results.push(`PASS ${name} (${Date.now() - t0} ms)`); console.log('PASS', name); }
   catch (e) {
@@ -488,6 +489,127 @@ async function run(vp, label, full) {
     await p.evaluate(() => { try { delete window.Capacitor.Plugins.SpeechRecognition; } catch {} });
   });
 
+  await step(`[${label}] [v1.2.4] Setări arată versiunea verificabilă`, async () => {
+    await openSet();
+    const ver = p.locator('[data-test=app-version]');
+    await ver.waitFor();
+    await ver.scrollIntoViewIfNeeded();
+    const txt = ((await ver.textContent()) || '').trim();
+    assert(/Versiunea 1\.2\.4 \(27\)/.test(txt), 'versiunea nu e vizibilă: ' + txt);
+    await tap('[data-test=settings] .m-back'); await gone('[data-test=settings]');
+  });
+
+  await step(`[${label}] [v1.2.4] după Oprește, dictarea poate fi pornită din nou`, async () => {
+    await p.evaluate(() => {
+      class MockSR {
+        constructor() {
+          this.lang = ''; this.continuous = false; this.interimResults = false;
+          this.onresult = null; this.onerror = null; this.onend = null; this._keep = true;
+          window.__lsoSR = this;
+        }
+        start() { window.__lsoSR = this; }
+        stop() { this._keep = false; if (this.onend) this.onend(); }
+        abort() { this.stop(); }
+      }
+      window.SpeechRecognition = window.webkitSpeechRecognition = MockSR;
+    });
+    const emit = (transcript, isFinal) => p.evaluate(({ transcript, isFinal }) => {
+      const sr = window.__lsoSR;
+      if (!sr || !sr.onresult) throw new Error('recunoașterea nu e pornită');
+      const alt = { transcript, confidence: 1 };
+      const res = { isFinal, 0: alt, length: 1 };
+      sr.onresult({ resultIndex: 0, results: { 0: res, length: 1 } });
+    }, { transcript, isFinal });
+    await goTab('Taskuri');
+    await tap('[data-test=fab-voice]');
+    await p.locator('.m-sheet .sheet-opt', { hasText: 'Dictare' }).tap();
+    const ta = p.locator('[data-test=editor] textarea.voice-target').first();
+    await ta.waitFor();
+    await p.locator('#punct-pill').waitFor();
+    await emit('Prima sesiune', true);
+    await p.locator('[data-test=dict-stop]').tap();
+    const startBtn = p.locator('[data-test=dict-start]');
+    await startBtn.waitFor({ timeout: 8000 });
+    await startBtn.tap();
+    await p.locator('[data-test=dict-stop]').waitFor();
+    await emit('A doua sesiune', true);
+    const val = await ta.inputValue();
+    assert(/Prima sesiune/i.test(val) && /A doua sesiune/i.test(val), 'a doua dictare nu a scris: ' + val);
+    await p.locator('[data-test=dict-stop]').tap().catch(() => {});
+    await p.evaluate(() => { if (window.__lsoSR && window.__lsoSR.stop) window.__lsoSR.stop(); });
+    if (await p.locator('[data-test=editor] .m-back').count()) await p.locator('[data-test=editor] .m-back').tap();
+    const confirmDa = p.locator('[data-test=confirm] .m-actions .btn').last();
+    if (await confirmDa.isVisible().catch(() => false)) await confirmDa.tap();
+    await p.locator('[data-test=editor]').first().waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
+  });
+
+  await step(`[${label}] [v1.2.4] Editează notița e un textarea pe mai multe rânduri, textul lung se vede de la început`, async () => {
+    await goTab('Dosare');
+    const long = 'Primul rând al notiței temporare\n' + ('cuvânt '.repeat(40)) + '\nUltimul rând XYZ-LONG';
+    await tap('[data-test=tmp-add]');
+    await p.locator('.m-dialog input.inp, .m-dialog textarea.inp').waitFor();
+    // Notiță rapidă remains single-line — that's a short capture. We'll edit after.
+    const quick = p.locator('.m-dialog input.inp');
+    if (await quick.count()) { await quick.fill('Primul rând al notiței temporare'); await p.locator('.m-dialog .m-actions .btn.primary').tap(); }
+    const item = p.locator('[data-test=temporary-zone] .tmp-item').filter({ hasText: 'Primul rând' }).first();
+    await item.waitFor();
+    await item.locator('[data-test=tmp-item-menu]').tap();
+    await p.locator('.m-sheet .sheet-opt', { hasText: 'Editează' }).tap();
+    const ta = p.locator('.m-dialog textarea.prompt-ta, .m-dialog textarea[data-test=prompt-input]').first();
+    await ta.waitFor();
+    await ta.fill(long);
+    const info = await ta.evaluate(el => {
+      el.scrollTop = 0;
+      return {
+        tag: el.tagName, rows: el.rows, h: el.getBoundingClientRect().height,
+        scrollTop: el.scrollTop, valueStart: (el.value || '').slice(0, 20),
+        valueEnd: (el.value || '').slice(-15),
+      };
+    });
+    assert(info.tag === 'TEXTAREA', 'nu e textarea: ' + JSON.stringify(info));
+    assert(info.h >= 120, 'câmpul e prea scund: ' + JSON.stringify(info));
+    assert(info.valueStart.startsWith('Primul rând'), 'nu se vede începutul: ' + JSON.stringify(info));
+    assert(/XYZ-LONG/.test(info.valueEnd), 'textul lung s-a tăiat: ' + JSON.stringify(info));
+    await p.locator('.m-dialog .m-actions .btn.primary').tap();
+  });
+
+  await step(`[${label}] [v1.2.4] dictarea din Temporar nu creează elemente în Dosare`, async () => {
+    await p.evaluate(() => {
+      class MockSR {
+        constructor() {
+          this.lang = ''; this.continuous = false; this.interimResults = false;
+          this.onresult = null; this.onerror = null; this.onend = null; this._keep = true;
+          window.__lsoSR = this;
+        }
+        start() { window.__lsoSR = this; }
+        stop() { this._keep = false; if (this.onend) this.onend(); }
+        abort() { this.stop(); }
+      }
+      window.SpeechRecognition = window.webkitSpeechRecognition = MockSR;
+    });
+    await goTab('Dosare');
+    const before = await p.locator('#view .card').count();
+    await tap('[data-test=tmp-dict]');
+    const ta = p.locator('[data-test=tmp-note-ta]').first();
+    await ta.waitFor({ timeout: 8000 });
+    await p.locator('#punct-pill').waitFor();
+    await p.evaluate(() => {
+      const sr = window.__lsoSR;
+      if (!sr || !sr.onresult) throw new Error('recunoașterea nu e pornită');
+      const alt = { transcript: 'Doar în Temporar ABC999', confidence: 1 };
+      const res = { isFinal: true, 0: alt, length: 1 };
+      sr.onresult({ resultIndex: 0, results: { 0: res, length: 1 } });
+    });
+    const tmpVal = await ta.inputValue();
+    assert(/ABC999/.test(tmpVal), 'textul nu e în Temporar: ' + tmpVal);
+    await p.locator('[data-test=dict-stop]').tap().catch(() => {});
+    await p.waitForTimeout(250);
+    const after = await p.locator('#view .card').count();
+    assert(after === before, 's-au creat elemente în Dosare: ' + before + ' → ' + after);
+    const titles = await p.evaluate(() => [...document.querySelectorAll('#view .card .r1t, #view .card')].map(e => (e.textContent || '').trim()).join(' | '));
+    assert(!/ABC999/.test(titles), 'textul dictat a apărut ca dosar: ' + titles);
+  });
+
   await step(`[${label}] [v1.2.1] Setări › Taburi: „Monitorul Oficial” pe cel mult 2 rânduri, fără rupere în cuvânt`, async () => {
     await openSet();
     await p.locator('[data-test=settings] details[data-sec=tabs] summary').tap();
@@ -564,10 +686,8 @@ async function run(vp, label, full) {
     await p.locator('.m-dialog .m-actions .btn.primary').tap();
     const item = p.locator('[data-test=temporary-zone] .tmp-item').filter({ hasText: 'Text numai în Temporar' }).first();
     await item.waitFor();
-    await item.tap();
-    await p.locator('[data-test=tmp-note-text]').first().waitFor();
     if (label === '360x780') await p.screenshot({ path: `${SHOTS}v122-temporar.png` });
-    await item.tap();
+    await item.locator('[data-test=tmp-item-menu]').tap();
     await p.locator('.m-sheet .sheet-opt', { hasText: 'Citește' }).waitFor();
     await p.evaluate(() => {
       const st = window.__tts = { utts: [], cancels: 0, timers: [] };
@@ -1781,7 +1901,7 @@ async function run(vp, label, full) {
   await step(`[${label}] [v1.0.6] Contor anonim: ping o dată pe zi la serverul simulat (id anonim, versiune, sursă); bifă în Confidențialitate`, async () => {
     assert(mock.pings.length >= 1, 'niciun ping');
     const pg = mock.pings[0];
-    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.2.3' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
+    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.2.4' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
     assert((await ls('lso_ping_day')) === new Date().toISOString().slice(0, 10));
     await openSet();
     await tap('[data-sec=privacy] summary');

@@ -228,7 +228,11 @@ export async function stopSpeak() {
 let rec = null, bubble = null, nativeHandles = [];
 export const isDictating = () => !!rec;
 
+let _dictIdleObs = null;
+let _suppressIdle = false;
+
 function hideDictUi() {
+  if (_dictIdleObs) { try { _dictIdleObs.disconnect(); } catch {} _dictIdleObs = null; }
   const p = document.getElementById('punct-pill');
   if (p) p.remove();
   bubble = null;
@@ -237,6 +241,33 @@ function hideDictUi() {
   clearActivePunct();
   const el = getTarget && getTarget();
   if (el && el.style) { el.style.paddingBottom = ''; delete el.dataset.lsoPad; }
+}
+
+function showDictIdleBar(target) {
+  if (_suppressIdle || rec) return;
+  const el = target || (getTarget && getTarget());
+  if (!el || !el.isConnected) return;
+  hideDictUi();
+  const bar = h('div', { class: 'punct-pill dict-idle', id: 'punct-pill', 'data-test': 'dict-bar' });
+  const go = h('button', { type: 'button', class: 'dict-start', 'data-test': 'dict-start' }, 'Dictează');
+  go.addEventListener('click', ev => {
+    ev.preventDefault(); ev.stopPropagation();
+    startDictation(el);
+  });
+  bar.append(go);
+  document.body.append(bar);
+  if (typeof placeDictBar === 'function') placeDictBar();
+  const idleCheck = () => {
+    if (!el.isConnected) { hideDictUi(); return; }
+    const mods = document.getElementById('modals');
+    if (!mods) return;
+    for (const child of mods.children) {
+      if (child.contains(el)) continue;
+      if (child.querySelector('.m-overlay, .m-drawer, .m-box, .m-sheet')) { hideDictUi(); return; }
+    }
+  };
+  _dictIdleObs = new MutationObserver(idleCheck);
+  _dictIdleObs.observe(document.body, { childList: true, subtree: true });
 }
 
 function showDictBubble() {
@@ -496,8 +527,17 @@ export async function startDictation(target, { lang, onFinal, onEnd, onInterim, 
   // Transcrierea live din timpul înregistrării folosește același microfon; nu o oprim.
   if (!keepRecording) await yieldMic();
   if (!keepRecording && isSpeaking()) await stopSpeak();
-  if (rec) await stopDictation();
-  if (nativeStt.hasNativeStt()) return startNativeDictation(target, { lang, onFinal, onEnd, quiet });
+  _suppressIdle = true;
+  try { await stopDictation(); } finally { _suppressIdle = false; }
+  if (nativeStt.hasNativeStt()) {
+    await new Promise(r => setTimeout(r, 150));
+    let ok = await startNativeDictation(target, { lang, onFinal, onEnd, quiet });
+    if (!ok) {
+      await new Promise(r => setTimeout(r, 250));
+      ok = await startNativeDictation(target, { lang, onFinal, onEnd, quiet });
+    }
+    return ok;
+  }
   if (!speechRecCtor()) { if (!quiet) toast(t('dictationMissing'), 4000); return false; }
   return startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet });
 }
@@ -608,10 +648,9 @@ function startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet }) {
   r.onerror = e => { if (!quiet && e.error !== 'no-speech' && e.error !== 'aborted') toast(t('dictationError', { e: e.error }), 3500); };
   r.onend = () => {
     if (rec === r && r._keep) { try { r.start(); return; } catch {} }
-    if (rec === r) rec = null;
     field.detach();
-    if (bubble) { bubble.remove(); bubble = null; }
-    removePunctPill();
+    if (rec === r) rec = null;
+    if (rec == null) { hideDictUi(); showDictIdleBar(target); }
     onEnd && onEnd();
   };
   r._keep = true; rec = r;
@@ -621,28 +660,34 @@ function startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet }) {
 }
 
 export async function stopDictation() {
-  if (!rec) return;
   const r = rec;
-  if (r.kind === 'native') {
-    r._keep = false;
-    const last = r._last ? r._last() : '';
-    if (last && r._onFinal) r._onFinal(last);
-    await nativeStt.stop();
-    nativeHandles = [];
-    const end = r._onEnd;
-    if (r._field) r._field.detach();
-    rec = null;
-    if (bubble) { bubble.remove(); bubble = null; }
-    removePunctPill();
-    end && end();
-    return;
-  }
-  r._keep = false;
-  try { r.stop(); } catch {}
-  if (r._field) r._field.detach();
   rec = null;
-  if (bubble) { bubble.remove(); bubble = null; }
-  removePunctPill();
+  try {
+    if (r && r.kind === 'native') {
+      r._keep = false;
+      const last = r._last ? r._last() : '';
+      if (last && r._onFinal) { try { r._onFinal(last); } catch {} }
+      if (r._field) { try { r._field.detach(); } catch {} }
+      const end = r._onEnd;
+      try { await nativeStt.stop(); } catch {}
+      nativeHandles = [];
+      hideDictUi();
+      try { end && end(); } catch {}
+      return;
+    }
+    if (r) {
+      r._keep = false;
+      if (r._field) { try { r._field.detach(); } catch {} }
+      try { if (typeof r.abort === 'function') r.abort(); else r.stop(); } catch { try { r.stop(); } catch {} }
+    }
+    try { await nativeStt.stop(); } catch {}
+    nativeHandles = [];
+  } finally {
+    rec = null;
+    nativeHandles = [];
+    hideDictUi();
+    showDictIdleBar(getTarget && getTarget());
+  }
 }
 
 let capitalizeNext = false;

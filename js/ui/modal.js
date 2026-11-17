@@ -139,8 +139,17 @@ export function infoDlg(msg, title = '') {
 export function promptDlg(title, { value = '', placeholder = '', label = '', multiline = false } = {}) {
   return new Promise(res => {
     let done = false;
-    const inp = multiline ? h('textarea', { class: 'inp', rows: 4, placeholder }) : h('input', { class: 'inp', type: 'text', placeholder, enterkeyhint: 'done' });
+    const inp = multiline
+      ? h('textarea', { class: 'inp prompt-ta', rows: 8, placeholder, 'data-test': 'prompt-input' })
+      : h('input', { class: 'inp', type: 'text', placeholder, enterkeyhint: 'done', 'data-test': 'prompt-input' });
     inp.value = value;
+    const grow = () => {
+      if (!multiline) return;
+      inp.style.height = 'auto';
+      const cap = Math.round(window.innerHeight * 0.55);
+      inp.style.height = Math.min(Math.max(inp.scrollHeight, 140), cap) + 'px';
+    };
+    if (multiline) inp.addEventListener('input', grow);
     const ok = m => { const v = inp.value.trim(); if (!v) { inp.focus(); return; } done = true; res(v); m.close(); };
     const m = openModal({
       title, body: h('label', { class: 'fld' }, label ? h('span', {}, label) : null, inp),
@@ -148,7 +157,14 @@ export function promptDlg(title, { value = '', placeholder = '', label = '', mul
       onClose: () => { if (!done) res(null); },
     });
     if (!multiline) inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ok(m); } });
-    setTimeout(() => inp.focus(), 60);
+    setTimeout(() => {
+      inp.focus();
+      if (multiline) {
+        try { inp.setSelectionRange(0, 0); } catch {}
+        inp.scrollTop = 0;
+        grow();
+      }
+    }, 60);
   });
 }
 

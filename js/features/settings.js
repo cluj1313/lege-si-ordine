@@ -2,7 +2,7 @@
 // LEGE ȘI ORDINE (ca în Notis); secțiuni pliabile, backup manual/automat, setările LSO păstrate.
 import { h, act } from '../core/util.js';
 import { t } from '../core/i18n.js';
-import { state, liveTabs, saveTab, saveTabsOrder, saveSettings, saveUI, APP_VERSION, purge, itemsOf, dataOf, canView } from '../core/store.js';
+import { state, liveTabs, saveTab, saveTabsOrder, saveSettings, saveUI, APP_VERSION, APP_VERSION_CODE, purge, itemsOf, dataOf, canView } from '../core/store.js';
 import { openModal, confirmDlg, toast, infoDlg } from '../ui/modal.js';
 import { tabMenu, newTabFlow, renderTabBar } from '../ui/tabsbar.js';
 import { voiceMenu, LANGS, canDictate, canSpeak } from './voice.js';
@@ -304,12 +304,13 @@ export function openSettings() {
       }) }, t('removeSample')))) : null,
     installBtn,
     section('about', t('setAbout'), h('div', {},
-      h('p', {}, `LEGE ȘI ORDINE • ${t('version')} ${APP_VERSION}`),
+      h('p', {}, `LEGE ȘI ORDINE • ${t('version')} ${APP_VERSION} (${APP_VERSION_CODE})`),
       h('p', { class: 'r2-meta' }, t('aboutHint')),
       codeBlock(),
       updateStatus,
       h('button', { class: 'btn ghost', type: 'button', 'data-test': 'check-update', onclick: () => checkUpdate(updateStatus) }, t('checkUpdate')))),
   );
+  body.append(h('p', { class: 'set-ver', 'data-test': 'app-version' }, `Versiunea ${APP_VERSION} (${APP_VERSION_CODE})`));
   const m = openModal({ title: t('settings'), body, kind: 'drawer', cls: 'settings-page settings-drawer', onClose: () => app.render() });
   m.el.dataset.test = 'settings';
 }

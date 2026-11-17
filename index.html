@@ -43,6 +43,30 @@ window.addEventListener('unhandledrejection', function(e) {
   if (view) view.innerHTML = '<div style="padding:16px;color:#c00;font-size:13px;word-break:break-all">PROMISE:<br>' + (e.reason && e.reason.message ? e.reason.message : e.reason) + '</div>';
 });
 </script>
+<script>
+window.__lsoAssetReady = (async function () {
+  try {
+    var cap = window.Capacitor;
+    var native = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+    window.__lsoNative = native;
+    if (!('serviceWorker' in navigator)) return;
+    var regs = await navigator.serviceWorker.getRegistrations();
+    if (native) {
+      await Promise.all(regs.map(function (r) { return r.unregister(); }));
+      if (window.caches) {
+        var keys = await caches.keys();
+        await Promise.all(keys.filter(function (k) { return k.indexOf('lso-cache-') === 0; }).map(function (k) { return caches.delete(k); }));
+      }
+      // Un SW rămas de la o versiune veche ar servi CSS/JS vechi peste APK-ul nou.
+      if (regs.length && sessionStorage.getItem('lso_sw_gone') !== '1.2.4') {
+        sessionStorage.setItem('lso_sw_gone', '1.2.4');
+        location.reload();
+        return new Promise(function () {});
+      }
+    }
+  } catch (e) {}
+})();
+</script>
 <script type="module" src="js/boot.js"></script>
 </body>
 </html>

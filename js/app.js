@@ -182,6 +182,7 @@ export async function deleteItem(it) {
 }
 
 let tmpExpanded = false;
+let lastDictTempId = null;
 const TMP_POS_KEY = 'lso_tmp_pos';
 const TMP_GAP = 10;
 
@@ -315,25 +316,21 @@ function renderTemporaryZone(tab) {
   const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
   const dictBtn = h('button', { class: 'tmp-btn', type: 'button', title: 'Dictează', 'data-test': 'tmp-dict', onclick: async (e) => {
     e.stopPropagation();
-    const rec = createTemporary('', tab.id, ['dict']);
-    if (!rec) return;
+    if (isDictating()) { await stopDictation(); return; }
+    let rec = lastDictTempId && listTemporary().find(x => x.id === lastDictTempId);
+    if (!rec) rec = createTemporary('', tab.id, ['dict']);
+    lastDictTempId = rec.id;
     tmpExpanded = true;
-    listEl.style.display = 'block';
-    await openEditor(tab.id, null, { kind: 'note', preset: { body: '', tempId: rec.id } });
-    setTimeout(async () => {
-      const ta = document.querySelector('.editor textarea.voice-target');
-      if (ta) {
-        setTarget(ta);
-        await startDictation(ta);
-        const stop = () => {
-          const txt = ta.value || '';
-          if (txt.trim()) updateTemporary(rec.id, { text: txt });
-          render();
-        };
-        ta.addEventListener('blur', stop, { once: true });
-      }
-    }, 250);
     render();
+    await new Promise(r => setTimeout(r, 80));
+    const ta = document.querySelector('[data-tmp-id="' + rec.id + '"] textarea') || document.querySelector('[data-test=tmp-note-ta]');
+    if (!ta) { toast('Nu pot deschide câmpul de dictare.'); return; }
+    setTarget(ta);
+    try { ta.focus({ preventScroll: true }); } catch { try { ta.focus(); } catch {} }
+    const save = () => { try { updateTemporary(rec.id, { text: ta.value || '' }); } catch {} };
+    ta.addEventListener('input', save);
+    const ok = await startDictation(ta, { onEnd: save });
+    if (!ok) save();
   } }, 'Dictează');
   header.append(dictBtn);
 
@@ -394,16 +391,29 @@ function renderTemporaryZone(tab) {
         deleteTemporary(it.id);
         render();
       } }, '✕');
-      row.append(delBtn);
+      const menuBtn = h('button', { type: 'button', class: 'tmp-item-menu', 'data-test': 'tmp-item-menu', 'aria-label': 'Acțiuni', title: 'Acțiuni' }, '⋯');
+      const acts = h('div', { style: { display: 'flex', alignItems: 'flex-start', flexShrink: 0 } });
+      acts.append(menuBtn, delBtn);
+      row.append(acts);
 
       let fullOpen = false;
       const noteView = h('div', { class: 'tmp-note-text', 'data-test': 'tmp-note-text', style: { display: 'none', fontSize: '0.95rem', marginTop: '6px', whiteSpace: 'pre-wrap', opacity: 0.95 } }, it.text || '');
-      left.append(noteView);
+      const taNote = h('textarea', { class: 'tmp-note-ta', 'data-test': 'tmp-note-ta', 'data-tmp-id': it.id, rows: 4 });
+      taNote.value = it.text || '';
+      taNote.style.display = 'none';
+      const growTa = () => { taNote.style.height = 'auto'; taNote.style.height = Math.min(Math.max(taNote.scrollHeight, 72), 220) + 'px'; };
+      taNote.addEventListener('input', () => { updateTemporary(it.id, { text: taNote.value }); growTa(); });
+      taNote.addEventListener('click', e => e.stopPropagation());
+      left.append(noteView, taNote);
       const openNote = () => {
         fullOpen = true;
-        noteView.style.display = 'block';
-        textSpan.style.display = 'none';
+        noteView.style.display = 'none';
+        taNote.style.display = 'block';
+        growTa();
       };
+      if (it.id === lastDictTempId || (it.modes && it.modes.includes('dict') && tmpExpanded && !it.text)) {
+        setTimeout(() => openNote(), 0);
+      }
       if (it.mid) {
         const playerWrap = h('div', { style: { display: 'none', marginTop: '6px' } });
         const audio = h('audio', { controls: true, style: { width: '100%', height: '32px' }, preload: 'none' });
@@ -436,30 +446,29 @@ function renderTemporaryZone(tab) {
         left.append(playerWrap);
         row._tmpOpenRec = () => { playerWrap.style.display = 'block'; loadAudio(); };
       }
-      row.addEventListener('click', async (e) => {
-        if (e.target === delBtn) return;
-        if (!fullOpen) {
-          openNote();
-          if (row._tmpOpenRec) row._tmpOpenRec();
-          return;
-        }
-        const action = await sheet((it.text || '').slice(0, 40) || 'Notiță', [
+      const openActions = async () => {
+        const cur = (taNote && taNote.value) || it.text || '';
+        const action = await sheet(cur.slice(0, 40) || 'Notiță', [
           { label: 'Citește', value: 'read', icon: '🔊', test: 'tmp-read' },
           { label: 'Editează', value: 'edit', icon: '✏️' },
           { label: 'Copiază', value: 'copy', icon: '📋' },
           { label: 'Share', value: 'share', icon: '📤' },
           { label: 'Șterge', value: 'del', icon: '🗑️', cls: 'danger' }
         ]);
+        if (!action) return;
         if (action === 'read') {
-          if (!it.text) return;
+          const txt = (taNote && taNote.value) || it.text || '';
+          if (!txt) return;
           tmpExpanded = true;
           listEl.style.display = 'block';
-          openNote();
+          noteView.textContent = txt;
+          noteView.style.display = 'block';
+          if (taNote) taNote.style.display = 'none';
           applyTmpPos(box);
           await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
           await readScreenAloud({ root: noteView });
         } else if (action === 'edit') {
-          const newText = await promptDlg('Editează notița', { value: it.text || '' });
+          const newText = await promptDlg('Editează notița', { value: (taNote && taNote.value) || it.text || '', multiline: true });
           if (newText != null) {
             let t = newText.trim();
             if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
@@ -467,14 +476,24 @@ function renderTemporaryZone(tab) {
             render();
           }
         } else if (action === 'copy') {
-          await copyText(it.text || '');
+          await copyText(cur);
         } else if (action === 'share') {
-          await shareText('Notiță temporară', it.text || '');
+          await shareText('Notiță temporară', cur);
         } else if (action === 'del') {
           if (!(await confirmDlg('Ștergi notița temporară?', { danger: true }))) return;
           deleteTemporary(it.id);
           render();
         }
+      };
+      menuBtn.addEventListener('click', ev => { ev.stopPropagation(); openActions(); });
+      row.addEventListener('click', ev => {
+        if (ev.target === delBtn || ev.target === menuBtn || ev.target === taNote) return;
+        if (!fullOpen) {
+          openNote();
+          if (row._tmpOpenRec) row._tmpOpenRec();
+          return;
+        }
+        openActions();
       });
       listEl.append(row);
     });
