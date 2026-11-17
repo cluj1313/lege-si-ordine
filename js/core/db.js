@@ -1,4 +1,5 @@
 // IndexedDB separat de Notis: baza „lso_db”, magazine cu prefix propriu.
+// Cheile noi de schemă se scriu doar după o citire reușită; înainte de migrare se face backup.
 const DB_NAME = 'lso_db';
 const DB_VER = 1;
 let dbp = null;

@@ -3,12 +3,26 @@ apply plugin: 'com.android.application'
 android {
     namespace = "ro.legesiordine.app"
     compileSdk = rootProject.ext.compileSdkVersion
+    // Semnare doar din LSO_KEYSTORE (env). Nu pune parole sau keystore în repo.
+    def ksPath = System.getenv("LSO_KEYSTORE")
+    def ksFile = (ksPath != null && !ksPath.isEmpty()) ? file(ksPath) : null
+    def hasStableKey = ksFile != null && ksFile.exists()
+    if (hasStableKey) {
+        signingConfigs {
+            stable {
+                storeFile ksFile
+                storePassword System.getenv("LSO_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("LSO_KEY_ALIAS")
+                keyPassword System.getenv("LSO_KEY_PASSWORD")
+            }
+        }
+    }
     defaultConfig {
         applicationId "ro.legesiordine.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 21
-        versionName "1.1.8"
+        versionCode 22
+        versionName "1.1.9"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -18,12 +32,14 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
+            minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasStableKey) signingConfig signingConfigs.stable
         }
         debug {
             minifyEnabled false
+            if (hasStableKey) signingConfig signingConfigs.stable
         }
     }
 }

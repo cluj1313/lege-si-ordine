@@ -4,6 +4,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      EXPECTED_CERT_SHA256: 2df9ee0657a37d319c83fbd52465ed44b49b9ceee082f1af7562b4cc3c220db3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -13,26 +15,65 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Setup Android SDK
+      - name: Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
+      - name: Pregătește cheia de semnare
+        env:
+          LSO_KEYSTORE_BASE64: ${{ secrets.LSO_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$LSO_KEYSTORE_BASE64" ]; then
+            echo "Lipsește secretul LSO_KEYSTORE_BASE64. Nu semnez cu o cheie aleatorie." >&2
+            exit 1
+          fi
+          echo "$LSO_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/lso.keystore"
+          echo "LSO_KEYSTORE=$RUNNER_TEMP/lso.keystore" >> "$GITHUB_ENV"
       - name: Dependențe și sincronizare
         run: |
-          npm install
-          python3 tools/sync-www.py || echo "sync-www failed"
-          python3 tools/make-android-icons.py || echo "icons failed"
+          npm ci
+          python3 tools/sync-www.py
+          python3 tools/make-android-icons.py
           npx cap sync android
-      - name: Construiește APK (debug)
+      - name: Construiește APK (release, cheia stabilă)
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
-      - name: Pregătește artefactul
+        env:
+          LSO_KEYSTORE_PASSWORD: ${{ secrets.LSO_KEYSTORE_PASSWORD }}
+          LSO_KEY_ALIAS: ${{ secrets.LSO_KEY_ALIAS }}
+          LSO_KEY_PASSWORD: ${{ secrets.LSO_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+      - name: Verifică semnătura și alinierea
         run: |
+          set -euo pipefail
+          SRC=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$SRC"
+          BT="$ANDROID_SDK_ROOT/build-tools/36.0.0"
+          if [ ! -x "$BT/apksigner" ]; then
+            BT=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -n1)
+          fi
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/LEGE-SI-ORDINE-v1.0.9.apk
-          ls -lh dist/LEGE-SI-ORDINE-v1.0.9.apk
+          cp "$SRC" dist/LSO.apk
+          cp "$SRC" dist/LEGE-SI-ORDINE.apk
+          cp "$SRC" dist/LEGE-SI-ORDINE-v1.1.9.apk
+          # Numele cu versiune: ia versionName din fișier, ca workflow-ul să rămână bun și după 1.1.9
+          VER=$("$BT/aapt" dump badging dist/LSO.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          if [ -n "$VER" ]; then
+            cp "$SRC" "dist/LEGE-SI-ORDINE-v${VER}.apk"
+          fi
+          "$BT/zipalign" -c -v 4 dist/LSO.apk
+          "$BT/apksigner" verify --print-certs -v dist/LSO.apk
+          CERT=$("$BT/apksigner" verify --print-certs dist/LSO.apk | awk '/SHA-256 digest:/{print tolower($NF); exit}')
+          if [ "$CERT" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "Certificat greșit: $CERT (așteptat $EXPECTED_CERT_SHA256). Nu încarc APK-ul." >&2
+            exit 1
+          fi
+          ls -lh dist/*.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LEGE-SI-ORDINE-v1.0.9-apk
-          path: dist/LEGE-SI-ORDINE-v1.0.9.apk
+          name: LEGE-SI-ORDINE-apk
+          path: |
+            dist/LSO.apk
+            dist/LEGE-SI-ORDINE.apk
+            dist/LEGE-SI-ORDINE-v*.apk
           if-no-files-found: error
+          overwrite: true

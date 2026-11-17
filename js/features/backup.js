@@ -13,10 +13,31 @@ const KEEP_AUTO = 5;
 const KEEP_MANUAL = 20;
 const KEEP_WEEKLY_FILES = 4;
 const MAX_MEDIA_BYTES = 12 * 1024 * 1024;
-const FOLDER = 'LEGE-SI-ORDINE';
+const FOLDER = 'LEGE SI ORDINE';
+const FOLDER_ALIASES = ['LEGE SI ORDINE', 'LEGE-SI-ORDINE'];
+const AUTO_DIR = 'autobackup';
 const cap = () => (typeof window !== 'undefined' ? window.Capacitor : null);
 const fsPlugin = () => cap()?.Plugins?.Filesystem || null;
 const sharePlugin = () => cap()?.Plugins?.Share || null;
+
+function isWeeklyName(n) {
+  if (!n || !/lege-si-ordine-saptamanal-/.test(n)) return false;
+  return /\.json(?:\s\(\d+\))?$/.test(n) || /\(\d+\)\.json$/.test(n);
+}
+function isAutoFileName(n) {
+  return !!(n && /lege-si-ordine-/.test(n) && ( /\.json(?:\s\(\d+\))?$/.test(n) || /\(\d+\)\.json$/.test(n) ));
+}
+function isLsoFolder(n) {
+  return /^LEGE[ -]SI[ -]ORDINE(?: \(\d+\))?$/.test(n || '');
+}
+function decodeFsData(data) {
+  if (data == null) return '';
+  if (typeof data !== 'string') return String(data);
+  const trimmed = data.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return trimmed;
+  try { return new TextDecoder().decode(b64ToBytes(trimmed)); } catch { return trimmed; }
+}
+
 
 // Notă: backup-ul cuprinde doar IndexedDB (setări, ui, taburi, elemente, media). Cheile Zonei secrete și ale
 // serverului (lso_crsec, lso_crtok, lso_adpw, lso_adtok, lso_iid, lso_newsBox etc.) stau în localStorage/sessionStorage
@@ -96,16 +117,76 @@ async function pruneBackups() {
 }
 
 // ---- Backup intern automat (silențios) ----
+async function writePrivateAuto(packed, name) {
+  const FS = fsPlugin();
+  if (!FS) return null;
+  const data = bytesToB64(new TextEncoder().encode(JSON.stringify(packed)));
+  try {
+    try { await FS.mkdir({ path: AUTO_DIR, directory: 'DATA', recursive: true }); } catch {}
+    const path = `${AUTO_DIR}/${name}`;
+    await FS.writeFile({ path, data, directory: 'DATA', recursive: true });
+    return { path, directory: 'DATA' };
+  } catch (e) {
+    console.warn('autoBackup.fs');
+    return null;
+  }
+}
+
+async function listPrivateAutos() {
+  const FS = fsPlugin();
+  if (!FS) return [];
+  try {
+    const r = await FS.readdir({ path: AUTO_DIR, directory: 'DATA' });
+    const files = (r.files || r).map(f => (typeof f === 'string' ? f : f.name)).filter(isAutoFileName);
+    return files.map(name => ({ path: `${AUTO_DIR}/${name}`, directory: 'DATA', name, source: 'private' }));
+  } catch { return []; }
+}
+
+async function prunePrivateAutos() {
+  const FS = fsPlugin();
+  if (!FS) return;
+  const files = (await listPrivateAutos()).sort((a, b) => a.name < b.name ? 1 : -1);
+  for (const old of files.slice(KEEP_AUTO)) {
+    try { await FS.deleteFile({ path: old.path, directory: old.directory }); } catch {}
+  }
+}
+
+async function readBackupFile(file) {
+  const FS = fsPlugin();
+  if (!FS) return null;
+  const r = await FS.readFile({ path: file.path, directory: file.directory });
+  const text = decodeFsData(r.data);
+  const snap = JSON.parse(text);
+  if (!snap || snap.app !== 'lege-si-ordine' || !Array.isArray(snap.items) || !Array.isArray(snap.tabs)) return null;
+  return snap;
+}
+
 export async function autoBackup(reason = 'auto', force = false) {
   try {
     const snap = await rawSnapshot();
     const hash = dataHash(snap);
-    if (!force && hash === state.settings.lastAutoHash) return false;
+    const FS = fsPlugin();
+    if (!force && hash === state.settings.lastAutoHash) {
+      if (FS) {
+        const existing = await listPrivateAutos();
+        if (!existing.length) {
+          const packed = await packMedia(snap, { omitLarge: false });
+          await writePrivateAuto(packed, backupName('auto'));
+          await prunePrivateAutos();
+        }
+      }
+      return false;
+    }
     await db.put(S.backups, { id: uid('b'), kind: 'auto', created: Date.now(), reason, version: APP_VERSION, counts: { tabs: snap.tabs.length, items: snap.items.length, media: snap.media.length }, snap });
     await pruneBackups();
+    try {
+      const packed = await packMedia(snap, { omitLarge: false });
+      await writePrivateAuto(packed, backupName(reason === 'auto' ? 'auto' : reason));
+      await prunePrivateAutos();
+    } catch { console.warn('autoBackup.fs'); }
     state.settings.lastAutoBackup = Date.now(); state.settings.lastAutoHash = hash; await saveSettings();
     return true;
-  } catch (e) { console.warn('autoBackup', e); return false; }
+  } catch (e) { console.warn('autoBackup'); return false; }
 }
 export async function maybeDailyBackup() {
   const versionChanged = state.settings.version !== APP_VERSION;
@@ -143,8 +224,8 @@ export async function listInternal() {
 export async function listManual() {
   return (await db.all(S.backups)).filter(b => b.kind === 'manual').sort((a, b) => b.created - a.created);
 }
-export async function restoreInternal(b) {
-  if (!(await confirmDlg(t('confirmRestore', { d: fmtTs(b.created), n: (b.counts && b.counts.items) || (b.snap && b.snap.items && b.snap.items.length) || 0 }), { danger: true }))) return false;
+export async function restoreInternal(b, { confirm = true } = {}) {
+  if (confirm && !(await confirmDlg(t('confirmRestore', { d: fmtTs(b.created), n: (b.counts && b.counts.items) || (b.snap && b.snap.items && b.snap.items.length) || 0 }), { danger: true }))) return false;
   await autoBackup('before-restore', true);
   const snap = b.snap.media && b.snap.media[0] && (b.snap.media[0].b64 != null || b.snap.media[0].enc) && !b.snap.media[0].blob
     ? unpackMedia({ ...b.snap, media: b.snap.media.map(x => ({ ...x })) })
@@ -173,25 +254,46 @@ export async function writePublicFile(name, text) {
         let uri = '';
         try { const r = await FS.getUri({ path, directory }); uri = r.uri || r.nativeURI || ''; } catch {}
         return { path, directory, uri };
-      } catch (e) { console.warn('writePublicFile', directory, path, e); }
+      } catch (e) { console.warn('writePublicFile', directory); }
     }
   }
   return null;
+}
+async function folderPaths(directory) {
+  const FS = fsPlugin();
+  const paths = new Set();
+  const parents = directory === 'EXTERNAL_STORAGE' ? ['Download', 'DOWNLOAD'] : [''];
+  for (const parent of parents) {
+    try {
+      const r = await FS.readdir({ path: parent || '.', directory });
+      const names = (r.files || r).map(f => (typeof f === 'string' ? f : f.name)).filter(isLsoFolder);
+      for (const n of names) paths.add(parent ? `${parent}/${n}` : n);
+    } catch {}
+    for (const alias of FOLDER_ALIASES) {
+      paths.add(parent ? `${parent}/${alias}` : alias);
+    }
+  }
+  return [...paths];
 }
 async function listWeeklyFiles() {
   const FS = fsPlugin();
   if (!FS) return [];
   const found = [];
+  const seen = new Set();
   for (const directory of ['EXTERNAL_STORAGE', 'DOCUMENTS', 'DATA']) {
-    const roots = directory === 'EXTERNAL_STORAGE' ? [`Download/${FOLDER}`, `DOWNLOAD/${FOLDER}`] : [FOLDER];
+    const roots = await folderPaths(directory);
     for (const path of roots) {
       try {
         const r = await FS.readdir({ path, directory });
-        const files = (r.files || r).map(f => (typeof f === 'string' ? f : f.name)).filter(n => /lege-si-ordine-saptamanal-/.test(n));
-        for (const name of files) found.push({ path: `${path}/${name}`, directory, name });
+        const files = (r.files || r).map(f => (typeof f === 'string' ? f : f.name)).filter(isWeeklyName);
+        for (const name of files) {
+          const key = `${directory}:${path}/${name}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          found.push({ path: `${path}/${name}`, directory, name, source: 'weekly' });
+        }
       } catch {}
     }
-    if (found.length) break;
   }
   return found;
 }
@@ -286,7 +388,7 @@ export async function maybeWeeklyBackup() {
         await saveSettings();
         await pruneWeeklyFiles();
       } else await saveSettings();
-    } catch (e) { console.warn('weeklyBackup', e); await saveSettings(); }
+    } catch (e) { console.warn('weeklyBackup'); await saveSettings(); }
   };
   if (typeof requestIdleCallback === 'function') requestIdleCallback(() => run(), { timeout: 8000 });
   else setTimeout(run, 400);
@@ -298,7 +400,65 @@ export function startWeeklyBackup() {
   setInterval(() => maybeWeeklyBackup(), 6 * 3600000);
 }
 
+function fileDate(file, snap) {
+  if (snap && snap.created) return snap.created;
+  const m = String(file.name || '').match(/(\d{2})-(\d{2})-(\d{4})/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1]).getTime();
+  return 0;
+}
+
+async function collectExternalBackups() {
+  const out = [];
+  for (const f of await listPrivateAutos()) out.push(f);
+  for (const f of await listWeeklyFiles()) out.push(f);
+  return out;
+}
+
+export async function restoreFromFile(file, { confirm = true } = {}) {
+  let snap;
+  try { snap = await readBackupFile(file); } catch { snap = null; }
+  if (!snap) { toast(t('backupBad'), 3500); return false; }
+  if (confirm && !(await confirmDlg(t('confirmImport', { d: fmtTs(snap.created || fileDate(file, snap)), n: snap.items.length, m: (snap.media || []).length }), { danger: true }))) return false;
+  await autoBackup('before-restore', true);
+  unpackMedia(snap);
+  await restoreRaw(snap);
+  toast(t('restoredReload'));
+  setTimeout(() => location.reload(), 500);
+  return true;
+}
+
+export async function offerRestoreIfEmpty() {
+  if (state.tabs.length || state.items.size) return false;
+  const candidates = [];
+  try {
+    const internal = (await listInternal()).filter(b => b.snap && Array.isArray(b.snap.items) && b.snap.items.length);
+    for (const b of internal) candidates.push({ kind: 'idb', created: b.created, items: (b.counts && b.counts.items) || b.snap.items.length, rec: b });
+  } catch {}
+  for (const f of await collectExternalBackups()) {
+    try {
+      const snap = await readBackupFile(f);
+      if (snap && snap.items && (snap.items.length || (snap.tabs && snap.tabs.length))) {
+        candidates.push({ kind: 'file', created: snap.created || fileDate(f, snap), items: snap.items.length, rec: f, snap });
+      }
+    } catch {}
+  }
+  if (!candidates.length) return false;
+  candidates.sort((a, b) => b.created - a.created);
+  const best = candidates[0];
+  const ok = await confirmDlg(t('backupOfferEmpty', { d: fmtTs(best.created) }), { yes: t('yes'), no: t('no'), title: t('backupOfferEmptyTitle') });
+  if (!ok) return false;
+  if (best.kind === 'idb') return restoreInternal(best.rec, { confirm: false });
+  const snap = best.snap;
+  await autoBackup('before-restore', true);
+  unpackMedia(snap);
+  await restoreRaw(snap);
+  toast(t('restoredReload'));
+  setTimeout(() => location.reload(), 500);
+  return true;
+}
+
 export function backupSection() {
+
   const manualList = h('div', { class: 'bk-list', 'data-test': 'bk-manual-list' });
   const autoList = h('div', { class: 'bk-list', 'data-test': 'bk-auto-list' });
   const drawManual = async () => {
@@ -320,7 +480,16 @@ export function backupSection() {
       h('div', {}, h('div', {}, fmtTs(b.created)), h('div', { class: 'r2-meta' }, `${t('bkReason_' + (b.reason || 'auto'))} • ${t('nItems', { n: b.counts.items })}`)),
       h('button', { class: 'btn sm ghost', type: 'button', onclick: e => act(e.currentTarget, () => restoreInternal(b)) }, t('restore')))));
   };
-  drawManual(); drawAuto();
+  const weeklyList = h('div', { class: 'bk-list', 'data-test': 'bk-weekly-list' });
+  const drawWeekly = async () => {
+    weeklyList.innerHTML = '';
+    const all = (await listWeeklyFiles()).sort((a, b) => a.name < b.name ? 1 : -1);
+    if (!all.length) weeklyList.append(h('div', { class: 'r2-meta' }, t('noWeeklyBackups')));
+    all.forEach(f => weeklyList.append(h('div', { class: 'bk-row' },
+      h('div', {}, h('div', {}, f.name), h('div', { class: 'r2-meta' }, f.path)),
+      h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'bk-restore-weekly', onclick: e => act(e.currentTarget, () => restoreFromFile(f)) }, t('restore')))));
+  };
+  drawManual(); drawAuto(); drawWeekly();
 
   const weeklyOn = state.settings.weeklyBackup !== false;
   const weeklyRow = h('label', { class: 'fld-check' },
@@ -350,5 +519,5 @@ export function backupSection() {
       h('button', { class: 'btn ghost', type: 'button', 'data-test': 'bk-auto-now', onclick: e => act(e.currentTarget, async () => { await autoBackup('manual-auto', true); toast(t('backupAutoDone')); drawAuto(); }) }, t('backupAutoNow')),
       autoList,
       h('h3', { class: 'sub-h' }, t('backupWeeklyTitle')),
-      weeklyRow, weeklyHint));
+      weeklyRow, weeklyHint, weeklyList));
 }

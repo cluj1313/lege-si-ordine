@@ -2,6 +2,10 @@
   "appId": "ro.legesiordine.app",
   "appName": "LEGE ȘI ORDINE",
   "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "hostname": "localhost"
+  },
   "android": {
     "allowMixedContent": false,
     "webContentsDebuggingEnabled": false

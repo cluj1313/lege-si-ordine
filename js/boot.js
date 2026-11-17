@@ -4,7 +4,7 @@ import { seedIfNeeded, migrate } from './core/seed.js';
 import { applyTheme, maybeRemindUrgents, listenInstallPrompt } from './features/settings.js';
 import { startApp, render } from './app.js';
 import { checkExpired } from './features/trash.js';
-import { maybeDailyBackup, startWeeklyBackup, startBackgroundBackup } from './features/backup.js';
+import { maybeDailyBackup, startWeeklyBackup, startBackgroundBackup, autoBackup, offerRestoreIfEmpty } from './features/backup.js';
 import { startAlarms } from './features/alarms.js';
 import { topModal } from './ui/modal.js';
 import { ui } from './ui/list.js';
@@ -30,15 +30,31 @@ export function handleBack() {
   return false;
 }
 
+function isDataEmpty() {
+  return state.tabs.length === 0 && state.items.size === 0;
+}
+
 async function boot() {
   try {
     await load();
-    if (await seedIfNeeded()) { await saveUI(); await load(); }
+    const empty = isDataEmpty();
+    if (empty) {
+      applyTheme();
+      listenInstallPrompt();
+      await startApp();
+      document.body.classList.add('ready');
+      if (await offerRestoreIfEmpty()) return;
+    }
+    if (await seedIfNeeded()) { await saveUI(); await load(); if (empty && typeof render === 'function') render(); }
+    // Copie completă pe disc + IndexedDB înainte de orice migrare, și la pornire.
+    await autoBackup('start', false);
     await migrate();
-    applyTheme();
-    listenInstallPrompt();
-    await startApp();
-    document.body.classList.add('ready');
+    if (!empty) {
+      applyTheme();
+      listenInstallPrompt();
+      await startApp();
+      document.body.classList.add('ready');
+    } else if (typeof render === 'function') render();
   } catch (err) {
     console.error('BOOT ERROR', err);
     const view = document.getElementById('view');
