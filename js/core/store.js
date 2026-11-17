@@ -3,7 +3,7 @@ import { db, S } from './db.js';
 import { uid } from './util.js';
 import * as C from './crypto.js';
 
-export const APP_VERSION = '1.1.9';
+export const APP_VERSION = '1.2.0';
 
 export const state = {
   settings: {},
@@ -31,7 +31,11 @@ export const DEFAULT_SETTINGS = {
   showPF: true,
   showFirme: true,
   folderBarAutoHide: true,
+  showClock: true,
+  defaultColor: '',
+  defaultAspect: null,
 };
+
 
 const listeners = new Set();
 export const onChange = fn => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -165,6 +169,8 @@ export async function saveItem(it, data, { silent = false } = {}) {
 let seq = 0;
 export async function newItem(tabId, kind, data, extra = {}) {
   const it = { id: uid('i'), tab: tabId, kind, created: Date.now(), updated: Date.now(), order: Date.now() * 1000 + (seq++ % 1000), ...extra };
+  if (it.color == null && state.settings.defaultColor) it.color = state.settings.defaultColor;
+  if (it.aspect == null && state.settings.defaultAspect) it.aspect = { ...state.settings.defaultAspect };
   return saveItem(it, data);
 }
 // Salvează metadate structurale (fără a atinge conținutul criptat).

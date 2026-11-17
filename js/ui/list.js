@@ -4,6 +4,7 @@ import { t } from '../core/i18n.js';
 import { KINDS, stagePill, recLen } from '../tabs/kinds.js';
 import { state, dataOf, canView, locksChain, isOpen, unlockTemp, relock, saveItem, newItem, liveTabs, getMedia, trash } from '../core/store.js';
 import { pinDlg, toast, promptDlg, sheet, confirmDlg } from './modal.js';
+import { pickColor, openAspectSheet, applyColorToItems, applyAspectToItem, applyCardLook } from '../features/appearance.js';
 import { app } from './registry.js';
 import { shareText, shareRecording } from '../features/share.js';
 import { draggable } from './dnd.js';
@@ -147,6 +148,7 @@ export function card(it) {
   const el = h('div', { class: 'card' + (open ? ' open' : '') + (d && d.done ? ' done' : '') + (d && K.past?.(d) ? ' past' : ''), 'data-id': it.id, 'data-kind': it.kind });
   const tab = state.tabs.find(x => x.id === it.tab);
   if (tab && tab.color) el.style.setProperty('--accent', tab.color);
+  applyCardLook(el, it);
 
   if (ui.selecting) {
     const sel = ui.selected.has(it.id);
@@ -213,7 +215,14 @@ export function card(it) {
     r1.prepend(h('span', { style: { marginRight: '6px', color: '#d4af37' } }, '📌'));
   }
 
-  // Long-press doar pentru drag-and-drop (mânerul ≡ sau rândul 1)
+  // Apăsare lungă: intră în selecție multiplă (drag-and-drop rămâne în modul Mutare).
+  if (!ui.dragMode) {
+    onLongPress(el, () => {
+      ui.selecting = true;
+      ui.selected.add(it.id);
+      app.render();
+    }, 500);
+  }
 
   return el;
 }
@@ -229,6 +238,8 @@ async function openItemMenu(it) {
     { label: 'Trimite', value: 'share', icon: '↗' },
     { label: it.lock ? 'Deblochează' : 'Blochează', value: 'lock', icon: '🔒' },
     { label: 'Etichete 🏷️', value: 'tags', icon: '🏷️' },
+    { label: t('color'), value: 'color', icon: '🎨' },
+    { label: t('aspect'), value: 'aspect', icon: 'Aa' },
     { label: 'Șterge', value: 'del', icon: '🗑', cls: 'danger' }
   ]);
   if (v === 'ren') {
@@ -253,8 +264,14 @@ async function openItemMenu(it) {
       input.split(',').map(s => s.trim()).filter(Boolean).forEach(t => addTag(it, t));
       toast('Etichete salvate');
     }
+  } else if (v === 'color') {
+    const c = await pickColor(it.color || '');
+    if (c != null) { await applyColorToItems([it], c); toast(t('savedOk')); }
+  } else if (v === 'aspect') {
+    const a = await openAspectSheet(it);
+    if (a) { await applyAspectToItem(it, a); toast(t('savedOk')); }
   } else if (v === 'del') {
-    if (await confirmDlg('Ștergi?')) await trash(it);
+    if (await confirmDlg('Ștergi?', { danger: true })) await trash(it);
   }
   app.render();
 }

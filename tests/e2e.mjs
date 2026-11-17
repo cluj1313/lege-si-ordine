@@ -145,6 +145,98 @@ async function run(vp, label, full) {
     }
   });
 
+  await step(`[${label}] [v1.2.0] Temporar, ceas, calendar, meniu, aspect, selecție, Setări lat`, async () => {
+    await goTab('Taskuri');
+    await p.waitForFunction(() => {
+      const el = document.querySelector('[data-test=temporary-zone]');
+      return el && el.getBoundingClientRect().width > 100;
+    }, { timeout: 8000 });
+    const tmpW = await p.locator('[data-test=temporary-zone]').evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return { w: r.width, left: r.left, right: r.right, vw: window.innerWidth };
+    });
+    assert(tmpW.left <= 2 && tmpW.right >= tmpW.vw - 2 && tmpW.w >= tmpW.vw * 0.98, 'Temporar nu e pe toată lățimea: ' + JSON.stringify(tmpW));
+    await p.locator('#urgent-clock').waitFor();
+    const openDesign = async () => {
+      await openSet();
+      await p.locator('[data-test=settings] details.set-sec[data-sec=design]').evaluate(el => { el.open = true; });
+    };
+    const closeSet = async () => { await tap('[data-test=settings] .m-back'); await gone('[data-test=settings]'); };
+
+    await openDesign();
+    await p.locator('.theme-opt.th-navy').tap();
+    const drawer = await p.locator('[data-test=settings]').evaluate(el => {
+      const box = el.classList.contains('m-drawer') ? el : el.closest('.m-drawer') || el;
+      const r = box.getBoundingClientRect();
+      return { w: r.width, vw: window.innerWidth, ratio: r.width / window.innerWidth };
+    });
+    assert(drawer.ratio >= 0.92 && drawer.ratio <= 0.98, 'Setări nu e aproape de toată lățimea: ' + JSON.stringify(drawer));
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v120-setari.png` });
+    await closeSet();
+
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v120-home.png` });
+
+    await tap('#hdr-calendar');
+    await p.locator('[data-test=calendar]').waitFor();
+    await tap('[data-test=cal-mode-year]');
+    await tap('[data-test=cal-mode-week]');
+    await tap('[data-test=cal-mode-day]');
+    await tap('[data-test=cal-mode-month]');
+    await p.locator('[data-test=cal-today-btn]').waitFor();
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v120-calendar-dark.png` });
+    await tap('[data-test=calendar-page] .m-back');
+    await gone('[data-test=calendar-page]');
+
+    await openDesign();
+    const clockCb = p.locator('[data-test=show-clock]');
+    await clockCb.waitFor();
+    if (await clockCb.isChecked()) await clockCb.uncheck();
+    await closeSet();
+    await p.waitForTimeout(200);
+    assert(await p.locator('#urgent-clock').count() === 0, 'ceasul trebuia oprit');
+    await openDesign();
+    await p.locator('[data-test=show-clock]').check();
+    await closeSet();
+    await p.locator('#urgent-clock').waitFor();
+
+    await openDesign();
+    await p.locator('.theme-opt.th-light').tap();
+    await closeSet();
+    await tap('#hdr-calendar');
+    await p.locator('[data-test=calendar]').waitFor();
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v120-calendar-light.png` });
+    await tap('[data-test=calendar-page] .m-back');
+    await gone('[data-test=calendar-page]');
+
+    await goTab('Taskuri');
+    const kebab = '#view .card button[aria-label="Meniu"]';
+    await p.locator(kebab).first().waitFor();
+    await tap(kebab);
+    await p.locator('.m-sheet .sheet-opt', { hasText: 'Etichete' }).waitFor();
+    const menuLabs = await p.locator('.m-sheet .sheet-opt').evaluateAll(els => els.map(e => (e.textContent || '').replace(/\s+/g, ' ').trim()));
+    assert(menuLabs.filter(x => /Etichete/.test(x)).length === 1, 'Etichete de 2 ori: ' + menuLabs.join('|'));
+    assert(menuLabs.some(x => /Culoare/.test(x)), 'lipsește Culoare: ' + menuLabs.join('|'));
+    assert(menuLabs.some(x => /Aspect/.test(x)), 'lipsește Aspect: ' + menuLabs.join('|'));
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v120-menu.png` });
+    await p.locator('.m-sheet .sheet-opt', { hasText: 'Aspect' }).tap();
+    await p.locator('[data-test=aspect-sheet]').waitFor();
+    await p.locator('[data-test=aspect-preview]').waitFor();
+    await p.locator('[data-test=aspect-size]').waitFor();
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v120-aspect.png` });
+    await p.locator('[data-test=aspect-sheet] .m-actions .btn.ghost').tap();
+    await gone('[data-test=aspect-sheet]');
+
+    await longPress('#view .card');
+    await p.locator('#selbar').waitFor();
+    assert(await p.locator('#selbar .btn', { hasText: 'Mută' }).count() === 1, 'lipsește Mută');
+    assert(await p.locator('#selbar .btn', { hasText: 'Culoare' }).count() === 1, 'lipsește Culoare pe bară');
+    assert(await p.locator('#selbar [data-test=sel-cancel], #selbar .btn', { hasText: 'Anulează' }).count() >= 1, 'lipsește Anulează');
+    assert(await p.locator('#selbar .btn', { hasText: 'Șterge' }).count() === 1, 'lipsește Șterge');
+    if (label === '360x780') await p.screenshot({ path: `${SHOTS}v120-multiselect.png` });
+    await p.locator('#selbar [data-test=sel-cancel]').tap();
+    await p.locator('#selbar').waitFor({ state: 'hidden' });
+  });
+
   await step(`[${label}] clienți: 2 rânduri, rândul 2 apare/dispare la atingere, deschide elementul`, async () => {
     await goTab('Clienți');
     const c = p.locator('#view .card').first();
@@ -317,6 +409,12 @@ async function run(vp, label, full) {
     await p.locator('[data-test=bk-auto]').waitFor();
     assert(await p.locator('[data-test=export]').count() === 1, 'salvează backup');
     assert(await p.locator('[data-test=weekly-backup]').count() === 1, 'copie săptămânală');
+    const setW = await p.locator('[data-test=settings]').evaluate(el => {
+      const box = el.classList.contains('m-drawer') ? el : (el.closest('.m-drawer') || el);
+      const r = box.getBoundingClientRect();
+      return { w: r.width, vw: window.innerWidth, ratio: r.width / window.innerWidth };
+    });
+    assert(setW.ratio >= 0.92 && setW.ratio <= 0.98, 'Setări îngust: ' + JSON.stringify(setW));
     if (label === '412x915') {
       await p.screenshot({ path: `${SHOTS}${label}-setari.png` });
       await p.locator('[data-test=settings] details.set-sec[data-sec=backup]').evaluate(el => el.scrollIntoView({ block: 'start' }));
@@ -365,6 +463,8 @@ async function run(vp, label, full) {
 
   await step(`[${label}] Ultimele noutăți: adăugare termen, ștergere Da/Nu, oră zilnică salvată`, async () => {
     await goTab('Ultimele noutăți');
+    await p.locator('.news-sec[data-group=w] .news-sec-header').tap();
+    await p.locator('.news-sec[data-group=w] .add-term input').waitFor({ state: 'visible' });
     await p.locator('.news-sec[data-group=w] .add-term input').fill('uzucapiune');
     await p.locator('.news-sec[data-group=w] .add-term .btn').tap();
     await p.locator('.news-row', { hasText: 'uzucapiune' }).waitFor();
@@ -854,7 +954,7 @@ async function run(vp, label, full) {
 
   await step(`[${label}] tema Navy Aur se aplică`, async () => {
     await openSet();
-    await p.locator('[data-test=settings] details[data-sec=design] summary').tap();
+    await p.locator('[data-test=settings] details[data-sec=design]').evaluate(el => { el.open = true; el.scrollIntoView({ block: 'start' }); });
     await p.locator('.theme-opt[data-theme=navy]').tap();
     await p.waitForTimeout(300);
     assert(await p.evaluate(() => document.documentElement.dataset.theme) === 'navy', 'tema');
@@ -878,7 +978,7 @@ async function run(vp, label, full) {
     await p.locator('[data-test=settings].m-drawer').waitFor();
     await p.waitForTimeout(350);
     const g = await p.locator('[data-test=settings]').evaluate(el => { const r = el.getBoundingClientRect(); const ov = el.closest('.m-overlay'); return { l: r.left, r: r.right, w: innerWidth, op: getComputedStyle(ov, '::before').opacity, bg: getComputedStyle(ov, '::before').backgroundColor, tr: getComputedStyle(el).transform }; });
-    assert(Math.abs(g.l) < 2 && g.r < g.w - 30, 'panoul nu e în stânga: ' + JSON.stringify(g));
+    assert(Math.abs(g.l) < 2 && g.r < g.w - 8 && g.r >= g.w * 0.92, 'panoul nu e în stânga: ' + JSON.stringify(g));
     assert(g.op === '1' && (g.tr === 'none' || /matrix\(1, 0, 0, 1, 0, 0\)/.test(g.tr)), 'tranziție blocată: ' + JSON.stringify(g));
     for (const sec of ['voice', 'tabs', 'design', 'alarms', 'trash', 'backup', 'about']) assert(await p.locator(`[data-test=settings] details[data-sec=${sec}]`).count() === 1, 'lipsește secțiunea ' + sec);
     await p.locator('[data-test=settings] details.set-sec').evaluateAll(ds => ds.forEach(d => { d.open = false; }));
@@ -1287,7 +1387,7 @@ async function run(vp, label, full) {
   await step(`[${label}] [v1.0.6] Contor anonim: ping o dată pe zi la serverul simulat (id anonim, versiune, sursă); bifă în Confidențialitate`, async () => {
     assert(mock.pings.length >= 1, 'niciun ping');
     const pg = mock.pings[0];
-    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.1.9' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
+    assert(/^[A-Za-z0-9_-]{16,64}$/.test(pg.id) && pg.v === '1.2.0' && pg.src === 'apk' && Object.keys(pg).length === 3, JSON.stringify(pg));
     assert((await ls('lso_ping_day')) === new Date().toISOString().slice(0, 10));
     await openSet();
     await tap('[data-sec=privacy] summary');

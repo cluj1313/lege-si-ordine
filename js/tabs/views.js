@@ -6,6 +6,7 @@ import { state, itemsOf, itemsInFolder, countInFolder, dataOf, canView, isOpen, 
   lockWithPin, unlockPermanent, trash, saveUI, saveMeta } from '../core/store.js';
 import { renderList, card, ui, sortByTab, sortModeOf } from '../ui/list.js';
 import { pinDlg, promptDlg, sheet, toast, confirmDlg } from '../ui/modal.js';
+import { pickColor, openAspectSheet, applyColorToItems, applyAspectToItem } from '../features/appearance.js';
 import { timeField } from '../ui/datetime.js';
 import { app } from '../ui/registry.js';
 import { waLink, mailLink } from '../features/share.js';
@@ -226,6 +227,8 @@ export async function folderMenu(tab, f) {
   const v = await sheet(folderName(f), [
     { label: t('rename'), value: 'ren', icon: '✎' },
     { label: 'Etichete 🏷️', value: 'tags', icon: '🏷️' },
+    { label: t('color'), value: 'color', icon: '🎨' },
+    { label: t('aspect'), value: 'aspect', icon: 'Aa' },
     f.lock ? { label: t('unlockPermanent'), value: 'unlock', icon: '🔓' } : { label: t('lockPin'), value: 'lock', icon: '🔒' },
     { label: t('delete'), value: 'del', icon: '🗑', cls: 'danger' },
   ]);
@@ -240,6 +243,12 @@ export async function folderMenu(tab, f) {
       toast('Etichete salvate');
       app.render();
     }
+  } else if (v === 'color') {
+    const c = await pickColor(f.color || '');
+    if (c != null) { await applyColorToItems([f], c); toast(t('savedOk')); app.render(); }
+  } else if (v === 'aspect') {
+    const a = await openAspectSheet(f);
+    if (a) { await applyAspectToItem(f, a); toast(t('savedOk')); app.render(); }
   }
   else if (v === 'lock') {
     // pentru a cripta conținutul, folderul trebuie să fie accesibil acum
@@ -256,6 +265,7 @@ export async function folderMenu(tab, f) {
 
 // ---- Ultimele noutăți ----
 const GROUPS = [['w', 'newsWords'], ['p', 'newsPhrases'], ['l', 'newsLaws']];
+const newsOpen = new Set();
 export async function newsResults() { return (await db.kvGet('news_results', [])) || []; }
 export function renderNews(view, tab, results = []) {
   view.append(h('div', { class: 'page-title' }, h('h1', {}, t('tkNews')), h('div', { class: 'r2-meta' }, t('newsSub'))));
@@ -276,7 +286,7 @@ export function renderNews(view, tab, results = []) {
       hasUpdates ? h('span', { style: { background: '#d4af37', color: '#0b1a33', borderRadius: '12px', padding: '2px 8px', fontSize: '0.8rem' } }, String(count)) : null
     );
 
-    const body = h('div', { class: 'news-sec-body', hidden: true, style: { marginBottom: '12px' } });
+    const body = h('div', { class: 'news-sec-body', hidden: !newsOpen.has(g), style: { marginBottom: '12px' } });
     if (!mine.length) body.append(h('div', { class: 'r2-meta pad' }, t('newsNoTerms')));
     mine.forEach(it => {
       const d = dataOf(it);
@@ -291,11 +301,11 @@ export function renderNews(view, tab, results = []) {
           h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': t('delete'), onclick: () => app.deleteItem(it) }, '×'))));
     });
     const inp = h('input', { class: 'inp', type: 'text', placeholder: t('newsAddPh'), enterkeyhint: 'done' });
-    const add = async () => { const v = inp.value.trim(); if (!v) return; await newItem(tab.id, 'term', { group: g, text: v }); toast(t('savedOk')); app.render(); };
+    const add = async () => { const v = inp.value.trim(); if (!v) return; newsOpen.add(g); await newItem(tab.id, 'term', { group: g, text: v }); toast(t('savedOk')); app.render(); };
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
     body.append(h('div', { class: 'row-inp add-term' }, inp, h('button', { class: 'btn sm', type: 'button', onclick: e => act(e.currentTarget, add) }, '+')));
 
-    header.addEventListener('click', () => { body.hidden = !body.hidden; });
-    view.append(header, body);
+    header.addEventListener('click', () => { if (newsOpen.has(g)) newsOpen.delete(g); else newsOpen.add(g); body.hidden = !newsOpen.has(g); });
+    view.append(h('div', { class: 'news-sec', 'data-group': g }, header, body));
   });
 }

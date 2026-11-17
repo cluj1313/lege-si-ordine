@@ -163,7 +163,17 @@ const ssTimeout = h("input", { class: "inp", type: "number", min: "0", max: "60"
     h('input', { type: 'checkbox', checked: s.ssTips !== false, onchange: async e => { s.ssTips = e.target.checked; await saveSettings(); } }),
     h('span', {}, 'Afișează sfaturi'));
 
+  const clockOn = s.showClock !== false && (typeof localStorage === 'undefined' || localStorage.getItem('lso_showClock') !== '0');
+  const clockRow = h('label', { class: 'fld-check' },
+    h('input', { type: 'checkbox', 'data-test': 'show-clock', checked: clockOn, onchange: async e => {
+      s.showClock = e.target.checked;
+      try { localStorage.setItem('lso_showClock', e.target.checked ? '1' : '0'); } catch {}
+      await saveSettings();
+      if (window.LSO && typeof window.LSO.render === 'function') window.LSO.render();
+    } }),
+    h('span', {}, t('showClock')));
   return h('div', {},
+    h('h3', { class: 'sub-h' }, t('showClock')), clockRow,
     h('h3', { class: 'sub-h' }, t('setThemes')), themeRow,
     h('h3', { class: 'sub-h' }, t('setTabStyle')), styleRow,
     h('h3', { class: 'sub-h' }, t('setFont')), fontRow,

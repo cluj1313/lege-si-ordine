@@ -4,8 +4,9 @@ const dicts = { ro };
 let lang = 'ro';
 export const setLang = l => { if (dicts[l]) lang = l; };
 export function t(key, vars) {
+  if (key == null || key === '') return '';
   let s = dicts[lang][key] ?? dicts.ro[key];
-  if (s == null) { console.warn('i18n lipsă:', key); s = key; }
+  if (s == null) { console.warn('i18n lipsă:', key); s = String(key); }
   if (vars) s = s.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
   return s;
 }

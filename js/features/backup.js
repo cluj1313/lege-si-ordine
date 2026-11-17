@@ -54,6 +54,12 @@ async function rawSnapshot() {
     kv: { news_results: await db.kvGet('news_results', []), seeded: await db.kvGet('seeded', false) },
     tabs: await db.all(S.tabs), items: await db.all(S.items), media: await db.all(S.media),
     tempNotes,
+    prefs: {
+      showClock: (typeof localStorage !== 'undefined' ? localStorage.getItem('lso_showClock') : null),
+      defaultColor: (typeof localStorage !== 'undefined' ? localStorage.getItem('lso_defaultColor') : null),
+      defaultAspect: (typeof localStorage !== 'undefined' ? localStorage.getItem('lso_defaultAspect') : null),
+      clockPos: (typeof localStorage !== 'undefined' ? localStorage.getItem('lso_clock_pos') : null),
+    },
   };
 }
 export const dataHash = snap => {
@@ -74,6 +80,15 @@ async function restoreRaw(snap) {
   if (snap.kv) { await db.kvSet('news_results', snap.kv.news_results || []); await db.kvSet('seeded', true); }
   if (snap.tempNotes && Array.isArray(snap.tempNotes)) {
     try { localStorage.setItem('lso_temp_notes', JSON.stringify(snap.tempNotes)); } catch {}
+  }
+  if (snap.prefs && typeof snap.prefs === 'object') {
+    try {
+      const p = snap.prefs;
+      if (p.showClock != null) localStorage.setItem('lso_showClock', p.showClock);
+      if (p.defaultColor != null) localStorage.setItem('lso_defaultColor', p.defaultColor);
+      if (p.defaultAspect != null) localStorage.setItem('lso_defaultAspect', p.defaultAspect);
+      if (p.clockPos != null) localStorage.setItem('lso_clock_pos', p.clockPos);
+    } catch {}
   }
 }
 

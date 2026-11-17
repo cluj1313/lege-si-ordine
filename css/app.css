@@ -21,7 +21,7 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { font-size: 16px; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Oswald LSO', 'Oswald', 'Roboto Condensed', 'Arial Narrow', system-ui, sans-serif;
-  font-weight: 300; letter-spacing: .015em; line-height: 1.35; min-height: 100vh; overflow-x: hidden; padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+  font-weight: 300; letter-spacing: .015em; line-height: 1.35; min-height: 100vh; overflow-x: hidden; padding-bottom: calc(220px + env(safe-area-inset-bottom)); }
 button, input, textarea, select { font: inherit; color: inherit; font-weight: 300; letter-spacing: inherit; }
 b, strong, h1, h2, h3, th { font-weight: 400; }
 em, i { font-style: normal; }
@@ -397,7 +397,7 @@ html[data-font=lg] { font-size: 18.5px; }
 /* panou lateral stânga (Setări) */
 .m-ov-drawer { padding: 0; justify-content: flex-start; align-items: stretch; }
 .m-ov-drawer::before { background: rgba(14,12,8,.78); }
-.m-drawer { width: min(88vw, 420px); max-width: min(88vw, 420px); height: 100%; max-height: none; border-radius: 0 18px 18px 0; background: var(--bg); box-shadow: 6px 0 28px rgba(0,0,0,.35); animation: lsoDrawerIn .2s ease-out both; will-change: transform; padding-left: env(safe-area-inset-left); }
+.m-drawer { width: 94vw; max-width: 94vw; height: 100%; max-height: none; border-radius: 0 18px 18px 0; background: var(--bg); box-shadow: 6px 0 28px rgba(0,0,0,.35); animation: lsoDrawerIn .2s ease-out both; will-change: transform; padding-left: env(safe-area-inset-left); }
 .m-ov-drawer.closing .m-drawer { animation: lsoDrawerOut .16s ease-in both; }
 .m-drawer .m-head { border-bottom: 1px solid var(--line); padding-bottom: 10px; }
 .m-drawer .m-body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
@@ -536,3 +536,51 @@ body.reading .w.past { color: var(--muted); }
   cursor: pointer;
 }
 .punct-btn:active { background: rgba(212,175,55,0.25); }
+
+/* ---------- v1.2.0: Setări lat, Temporar pe toată lățimea, calendar, aspect ---------- */
+.m-drawer { width: 94vw; max-width: 94vw; }
+#temporary-zone, .tmp-zone {
+  position: fixed; left: 0; right: 0; bottom: calc(132px + env(safe-area-inset-bottom, 0px));
+  z-index: 35; background: rgba(11,26,51,0.97); border: 1px solid var(--gold-line);
+  border-width: 1px 0 0; border-radius: 16px 16px 0 0; padding: 12px 16px 10px;
+  max-height: 48vh; overflow-y: auto; color: #f7efd4; box-shadow: 0 -4px 16px rgba(0,0,0,0.35);
+  font-size: 17px;
+}
+[data-theme=light] #temporary-zone, [data-theme=light] .tmp-zone { background: rgba(247,245,240,0.97); color: var(--text); }
+.tmp-head { display: flex; align-items: center; gap: 10px; }
+.tmp-title { font-size: 1.2rem; font-weight: 700; flex: 1; cursor: pointer; letter-spacing: .02em; }
+.tmp-btn { font-size: 1rem; font-weight: 600; padding: 8px 12px; border-radius: 10px;
+  border: 1px solid #d4af37; background: #d9b45f; color: #0b1a33; }
+.tmp-add { background: none; border: 1px solid #d4af37; color: #d4af37; border-radius: 50%;
+  width: 36px; height: 36px; font-size: 22px; line-height: 1; }
+.color-none { font-size: 18px; color: var(--muted); }
+.aspect-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 8px; }
+.aspect-preview { min-height: 64px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--card); }
+.aspect-range { display: flex; align-items: center; gap: 10px; }
+.aspect-range input[type=range] { flex: 1; accent-color: var(--gold); }
+
+.cal { display: flex; flex-direction: column; gap: 12px; padding-bottom: 8px; }
+.cal-modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.cal-mode { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 8px 4px; font-size: 14px; font-weight: 600; }
+.cal-mode.on { background: var(--gold); color: var(--on-gold); border-color: var(--gold-line); }
+.cal-nav { display: flex; align-items: center; gap: 8px; }
+.cal-title { flex: 1; text-align: center; font-size: 18px; font-weight: 700; color: var(--anthr); }
+[data-theme=navy] .cal-title { color: var(--gold2); }
+.cal-dow, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+.cal-dow { font-size: 12px; color: var(--muted); font-weight: 600; }
+.cal-cell { position: relative; aspect-ratio: 1; border: 0; background: none; border-radius: 50%; font-size: 15px; color: var(--text); display: grid; place-items: center; padding: 0; }
+.cal-cell.empty { visibility: hidden; }
+.cal-cell.today { background: var(--gold); color: var(--on-gold); font-weight: 700; }
+.cal-cell.sel { box-shadow: 0 0 0 2px var(--gold2); }
+.cal-cell.busy .cal-badge { position: absolute; bottom: 3px; width: 7px; height: 7px; border-radius: 50%; background: #c0392b; }
+[data-theme=light] .cal-cell.busy:not(.today) { background: #f3e6c8; }
+[data-theme=light] .cal-cell.busy .cal-badge { width: 8px; height: 8px; }
+[data-theme=navy] .cal-cell.busy .cal-badge { background: var(--gold2); }
+.cal-year { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cal-year-m { padding: 16px 6px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); color: var(--text); font-weight: 600; }
+.cal-year-m.busy { box-shadow: inset 0 -3px 0 var(--gold); }
+.cal-year-m.today { background: var(--gold); color: var(--on-gold); }
+.cal-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.cal-list-h { font-weight: 700; }
+.cal-item { text-align: left; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 12px; padding: 12px 14px; font-size: 16px; }
+#urgent-clock { font-family: Cinzel, serif; }

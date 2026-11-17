@@ -1,14 +1,14 @@
 // Controlerul aplicației: randare, navigare între taburi, poziție, selecție, FAB, ciclul de viață.
 import { h, $, debounce, onLongPress } from './core/util.js';
 import { t } from './core/i18n.js';
-import { state, tabById, visibleTabs, liveTabs, saveUI, onChange, isOpen, relock, relockAll, item as getItem, trash, isHiddenByTrash, canView, dataOf, itemsOf, trashedAll, saveMeta, relocate, unlockTemp } from './core/store.js';
+import { state, tabById, visibleTabs, liveTabs, saveUI, onChange, isOpen, relock, relockAll, item as getItem, trash, isHiddenByTrash, canView, dataOf, itemsOf, trashedAll, saveMeta, saveItem, relocate, unlockTemp } from './core/store.js';
 import { db, S } from './core/db.js';
 import { app } from './ui/registry.js';
 import { renderTabBar, tabDrag } from './ui/tabsbar.js';
 import { ui, ensureOpen, sortModeOf, SORT_MODES, saveManual } from './ui/list.js';
 import { pickFolder, folderNameOf } from './ui/folderpick.js';
 import { openEditor, openEditors, moveItem } from './ui/editor.js';
-import { confirmDlg, toast, sheet, closeAll, modalsOpen, dropMenu, pinDlg } from './ui/modal.js';
+import { confirmDlg, toast, sheet, closeAll, modalsOpen, dropMenu, pinDlg, promptDlg } from './ui/modal.js';
 import { renderGeneric, renderSaved, renderFolders, renderNews, renderLocked, currentFolder, newFolder, newsResults, renderMO, hasCats, savedSubs } from './tabs/views.js';
 import { curCat, getCats } from './tabs/cats.js';
 import { isoToday } from './core/util.js';
@@ -22,6 +22,9 @@ import { renderWidgets } from './features/widgets.js';
 import { listTemporary, createTemporary, deleteTemporary, updateTemporary } from './features/temporary.js';
 import { saveSettings } from './core/store.js';
 import { copyText, shareText } from './features/share.js';
+import { openCalendar } from './features/calendar.js';
+import { pickColor, applyColorToItems } from './features/appearance.js';
+import { persistLso } from './features/appearance.js';
 
 let newsCache = [];
 
@@ -182,19 +185,15 @@ function renderTemporaryZone(tab) {
   const old = document.getElementById('temporary-zone');
   if (old) old.remove();
   if (!tab) return;
+  if (ui.selecting) return;
   const items = listTemporary();
-  const box = h('div', { id: 'temporary-zone', style: {
-    position: 'fixed', bottom: '148px', left: '12px', right: '12px', zIndex: 35,
-    background: 'rgba(11,26,51,0.95)', border: '1px solid #d4af37', borderRadius: '12px',
-    padding: '8px 12px', maxHeight: '48vh', overflowY: 'auto', color: '#f7efd4',
-    boxShadow: '0 4px 16px rgba(0,0,0,0.4)'
-  } });
+  const box = h('div', { id: 'temporary-zone', class: 'tmp-zone', 'data-test': 'temporary-zone' });
 
   let expanded = false;
   const listEl = h('div', { style: { display: 'none', marginTop: '8px' } });
 
-  const header = h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
-  const title = h('strong', { style: { fontSize: '0.95rem', flex: 1, cursor: 'pointer' } }, 'Temporar');
+  const header = h('div', { class: 'tmp-head' });
+  const title = h('strong', { class: 'tmp-title' }, 'Temporar');
   title.onclick = (e) => {
     e.stopPropagation();
     expanded = !expanded;
@@ -204,10 +203,7 @@ function renderTemporaryZone(tab) {
 
   const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
   // Dictează: creează notiță în Temporar și pornește dictarea în ea
-  const dictBtn = h('button', { type: 'button', title: 'Dictează', style: {
-    fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
-    border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
-  }, onclick: async (e) => {
+  const dictBtn = h('button', { class: 'tmp-btn', type: 'button', title: 'Dictează', onclick: async (e) => {
     e.stopPropagation();
     const rec = createTemporary('', tab.id, ['dict']);
     if (!rec) return;
@@ -234,10 +230,7 @@ function renderTemporaryZone(tab) {
   header.append(dictBtn);
 
   // Înregistrează: pornește exact ca înregistrarea externă, rezultatul rămâne în Temporar
-  const recBtn = h('button', { type: 'button', title: 'Înregistrează', style: {
-    fontSize: '0.7rem', padding: '2px 6px', borderRadius: '8px',
-    border: '1px solid #d4af37', background: 'transparent', color: '#d4af37'
-  }, onclick: async (e) => {
+  const recBtn = h('button', { class: 'tmp-btn', type: 'button', title: 'Înregistrează', onclick: async (e) => {
     e.stopPropagation();
     const rec = createTemporary('🎙️ Înregistrare…', tab.id, ['rec']);
     if (!rec) return;
@@ -254,12 +247,9 @@ function renderTemporaryZone(tab) {
   } }, 'Înregistrează');
   header.append(recBtn);
 
-  const addBtn = h('button', { type: 'button', style: {
-    background: 'none', border: '1px solid #d4af37', color: '#d4af37',
-    borderRadius: '50%', width: '26px', height: '26px', fontSize: '16px', lineHeight: '1', marginLeft: '4px'
-  }, onclick: (e) => {
+  const addBtn = h('button', { class: 'tmp-add', type: 'button', onclick: async (e) => {
     e.stopPropagation();
-    const txt = prompt('Notiță rapidă');
+    const txt = await promptDlg('Notiță rapidă');
     if (txt && txt.trim()) {
       let t = txt.trim();
       if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
@@ -279,11 +269,11 @@ function renderTemporaryZone(tab) {
       const title = lines[0] || '(gol)';
       const rest = lines.slice(1).join('\n');
       const row = h('div', { style: {
-        padding: '8px 4px', borderBottom: '1px solid rgba(212,175,55,0.25)',
+        padding: '10px 4px', borderBottom: '1px solid rgba(212,175,55,0.25)',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer'
       } });
       const left = h('div', { style: { flex: 1, minWidth: 0 } });
-      const textSpan = h('div', { style: { fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 } }, title);
+      const textSpan = h('div', { style: { fontSize: '1.05rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 } }, title);
       left.append(textSpan);
       if (it.modes && it.modes.length) {
         const modeLabel = it.modes.map(m => labels[m] || m).join(' · ');
@@ -293,8 +283,9 @@ function renderTemporaryZone(tab) {
 
       const delBtn = h('button', { type: 'button', style: {
         background: 'none', border: 'none', color: '#d4af37', fontSize: '16px', padding: '0 6px'
-      }, onclick: (e) => {
+      }, onclick: async (e) => {
         e.stopPropagation();
+        if (!(await confirmDlg('Ștergi notița temporară?', { danger: true }))) return;
         deleteTemporary(it.id);
         render();
       } }, '✕');
@@ -366,7 +357,7 @@ function renderTemporaryZone(tab) {
         if (action === 'read') {
           if (it.text) await readScreenAloud(it.text);
         } else if (action === 'edit') {
-          const newText = prompt('Editează notița', it.text || '');
+          const newText = await promptDlg('Editează notița', { value: it.text || '' });
           if (newText != null) {
             let t = newText.trim();
             if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
@@ -378,6 +369,7 @@ function renderTemporaryZone(tab) {
         } else if (action === 'share') {
           await shareText('Notiță temporară', it.text || '');
         } else if (action === 'del') {
+          if (!(await confirmDlg('Ștergi notița temporară?', { danger: true }))) return;
           deleteTemporary(it.id);
           render();
         }
@@ -409,11 +401,24 @@ function renderTemporaryZone(tab) {
   }, { passive: true });
 }
 
+let clockTimer = 0;
+function isClockOn() {
+  if (state.settings && state.settings.showClock === false) return false;
+  try { if (localStorage.getItem('lso_showClock') === '0') return false; } catch {}
+  return true;
+}
+async function setClockOn(on) {
+  state.settings.showClock = !!on;
+  try { localStorage.setItem('lso_showClock', on ? '1' : '0'); } catch {}
+  await saveSettings();
+}
+
 function renderUrgentClock(tab) {
   const old = document.getElementById('urgent-clock');
   if (old) old.remove();
-  // Ceasul apare pe toate taburile
-  const pos = JSON.parse(localStorage.getItem('lso_clock_pos') || '{"top":"72","right":"12"}');
+  if (clockTimer) { clearTimeout(clockTimer); clockTimer = 0; }
+  if (!isClockOn()) return;
+  const pos = JSON.parse(localStorage.getItem('lso_clock_pos') || '{"top":"210","right":"12"}');
   const now = new Date();
   const timeStr = now.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
   // următoarea alarmă (simplu, din localStorage sau items)
@@ -424,10 +429,10 @@ function renderUrgentClock(tab) {
     if (future.length) nextAlarm = future[0].time;
   } catch {}
   const clk = h('div', { id: 'urgent-clock', style: {
-    position: 'fixed', top: (pos.top || 72) + 'px', right: (pos.right || 12) + 'px',
+    position: 'fixed', top: (pos.top || 210) + 'px', right: (pos.right || 12) + 'px',
     background: 'rgba(11,26,51,0.94)', color: '#d4af37', border: '1px solid #d4af37',
     borderRadius: '14px', padding: '6px 12px', fontFamily: 'Cinzel, serif',
-    zIndex: 50, touchAction: 'none', cursor: 'grab', textAlign: 'center', minWidth: '72px'
+    zIndex: 40, touchAction: 'none', cursor: 'grab', textAlign: 'center', minWidth: '72px'
   } });
   clk.append(h('div', { style: { fontSize: '1.15rem', fontWeight: 600, lineHeight: 1.1 } }, timeStr));
   if (nextAlarm) {
@@ -440,6 +445,7 @@ function renderUrgentClock(tab) {
   clk.addEventListener('pointermove', e => {
     if (!drag) return;
     const dy = e.clientY - drag.y, dx = drag.x - e.clientX;
+    if (Math.abs(dy) + Math.abs(dx) > 8) clearTimeout(pressT);
     clk.style.top = Math.max(48, drag.t + dy) + 'px';
     clk.style.right = Math.max(4, drag.r + dx) + 'px';
   });
@@ -448,9 +454,9 @@ function renderUrgentClock(tab) {
     localStorage.setItem('lso_clock_pos', JSON.stringify({ top: parseInt(clk.style.top), right: parseInt(clk.style.right) }));
     drag = null;
   });
-  clk.addEventListener('click', () => {
+  clk.addEventListener('click', async () => {
     if (drag) return;
-    const raw = prompt('Setează alarmă (ex: 9, 0900, 9.30, 14 15)', nextAlarm || '09:00');
+    const raw = await promptDlg('Setează alarmă (ex: 9, 0900, 9.30, 14 15)', { value: nextAlarm || '09:00' });
     if (!raw) return;
     const norm = normalizeAlarm(raw);
     if (!norm) { toast('Format invalid. Încearcă 0900 sau 9.30'); return; }
@@ -460,8 +466,14 @@ function renderUrgentClock(tab) {
     toast('Alarmă setată la ' + norm);
     renderUrgentClock(tab);
   });
+  let pressT = 0, long = false;
+  clk.addEventListener('pointerdown', () => { long = false; pressT = setTimeout(async () => { long = true; await setClockOn(false); toast(t('showClock') + ': Nu'); render(); }, 550); });
+  clk.addEventListener('pointerup', () => clearTimeout(pressT));
+  clk.addEventListener('pointercancel', () => clearTimeout(pressT));
+  const origClick = clk.onclick;
+  clk.addEventListener('click', e => { if (long) { e.stopPropagation(); e.preventDefault(); } }, true);
   document.body.append(clk);
-  setTimeout(() => renderUrgentClock(tab), 30000);
+  clockTimer = setTimeout(() => renderUrgentClock(tab), 30000);
 }
 
 function normalizeAlarm(raw) {
@@ -590,17 +602,38 @@ function renderSelBar() {
       h('button', { class: 'btn sm primary', type: 'button', 'data-test': 'drag-done', onclick: () => endDragMode() }, t('done')));
     return;
   }
+  const selectedItems = () => [...ui.selected].map(getItem).filter(Boolean);
   bar.append(
     h('span', { class: 'sel-count' }, t('nSelected', { n: ui.selected.size })),
+    h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-move', disabled: !ui.selected.size, onclick: async () => {
+      const ids = selectedItems(); if (!ids.length) return;
+      const dest = await pickFolder({ title: t('menuMove'), confirmLabel: t('move') });
+      if (!dest) return;
+      const folderId = dest.id || dest.folder || null;
+      const tabId = dest.tab || (dest.id && getItem(dest.id) && getItem(dest.id).tab) || currentTab()?.id;
+      for (const it of ids) await relocate(it, { tab: tabId || it.tab, folder: folderId });
+      ui.selected.clear(); ui.selecting = false; toast(t('movedN', { n: ids.length, d: folderNameOf(dest) || '' })); render();
+    } }, t('move')),
+    h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-pin', disabled: !ui.selected.size, onclick: async () => {
+      const ids = selectedItems(); if (!ids.length) return;
+      for (const it of ids) { const d = dataOf(it) || {}; await saveItem(it, { ...d, pinned: true }); }
+      toast(t('pinnedOn')); render();
+    } }, '📌'),
+    h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-color', disabled: !ui.selected.size, onclick: async () => {
+      const ids = selectedItems(); if (!ids.length) return;
+      const c = await pickColor(ids[0].color || '');
+      if (c == null) return;
+      await applyColorToItems(ids, c); toast(t('savedOk')); render();
+    } }, t('color')),
     h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { document.querySelectorAll('#view .card[data-id]').forEach(c => { const it = getItem(c.dataset.id); if (it && it.kind !== 'folder') ui.selected.add(c.dataset.id); }); render(); } }, t('selectAll')),
     h('button', { class: 'btn sm ghost', type: 'button', disabled: !ui.selected.size, onclick: async () => {
-      const ids = [...ui.selected].map(getItem).filter(Boolean);
+      const ids = selectedItems();
       if (!ids.length) return;
       if (!(await confirmDlg(t('confirmTrashN', { n: ids.length }), { danger: true }))) return;
       for (const it of ids) await trash(it);
       ui.selected.clear(); ui.selecting = false; toast(t('movedToTrash')); render();
     } }, t('delete')),
-    h('button', { class: 'btn sm primary', type: 'button', onclick: () => { ui.selecting = false; ui.selected.clear(); render(); } }, t('done')));
+    h('button', { class: 'btn sm primary', type: 'button', 'data-test': 'sel-cancel', onclick: () => { ui.selecting = false; ui.selected.clear(); render(); } }, t('anuleaza')));
 }
 
 function header() {
@@ -616,6 +649,8 @@ function header() {
     }
   };
   $('#hdr-select').onclick = () => { ui.selecting = !ui.selecting; ui.dragMode = false; ui.selected.clear(); render(); toast(ui.selecting ? t('selectOn') : t('selectOff')); };
+  const calBtn = $('#hdr-calendar');
+  if (calBtn) { calBtn.onclick = () => openCalendar(); calBtn.setAttribute('aria-label', t('calendar')); calBtn.title = t('calendar'); }
   // Setări: un singur loc – logo-ul sau textul LEGE ȘI ORDINE deschide panoul din stânga.
   $('#hdr-brand').onclick = () => { if (!modalsOpen()) openSettings(); };
   // Ultimul buton din dreapta sus: Coș de gunoi, Mutare și Sortare (ca în Notis).
