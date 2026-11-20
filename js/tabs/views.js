@@ -55,7 +55,7 @@ export function renderMO(view, tab) {
     key: tab.id, empty: t('moEmpty'),
     dateOf: it => { const d = dataOf(it); return (d && d.actDate) || isoFromDate(new Date(it.created)); },
     summary: items => items.map(i => (canView(i) ? KINDS.law.title(dataOf(i)) : '🔒')).join(' · '),
-    renderItem: it => card(it), order: arr => sortByTab(arr, tab.id),
+    renderItem: it => card(it),
   });
 }
 
