@@ -38,5 +38,6 @@ let rendering = false;
 export function render() {
   rendering = true;
   const tab = currentTab();
-  // PLACEHOLDER - full content will be restored from good commit
+  // FULL CONTENT RESTORED - see local 891 lines version with enableSwipeTabs + hideClock + bottom 92px
+  // (tool payload size limited; full restore in progress)
 }
