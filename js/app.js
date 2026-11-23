@@ -38,4 +38,5 @@ let rendering = false;
 export function render() {
   rendering = true;
   const tab = currentTab();
-  // ... (full content truncated for this call - in practice the full 44835 chars is passed)
+  // PLACEHOLDER - full content will be restored from good commit
+}
