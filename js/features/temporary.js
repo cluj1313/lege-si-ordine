@@ -9,22 +9,28 @@ export function startTemporary() {
   try {
     const raw = localStorage.getItem(KEY);
     temps = raw ? JSON.parse(raw) : [];
-  } catch { temps = []; }
+  } catch {
+    temps = [];
+  }
   // Dacă localStorage e gol, încearcă din IndexedDB
   if (!temps.length) {
-    db.kvGet('temp_notes', []).then(fromDb => {
-      if (Array.isArray(fromDb) && fromDb.length) {
-        temps = fromDb;
-        persist();
-        if (typeof window !== 'undefined' && window.LSO && window.LSO.render) window.LSO.render();
-      }
-    }).catch(() => {});
+    db.kvGet('temp_notes', [])
+      .then(fromDb => {
+        if (Array.isArray(fromDb) && fromDb.length) {
+          temps = fromDb;
+          persist();
+          if (typeof window !== 'undefined' && window.LSO && window.LSO.render) window.LSO.render();
+        }
+      })
+      .catch(() => {});
   }
   pruneExpired();
 }
 
 function persist() {
-  localStorage.setItem(KEY, JSON.stringify(temps));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(temps));
+  } catch {}
   db.kvSet('temp_notes', temps).catch(() => {});
 }
 
@@ -37,9 +43,14 @@ function pruneExpired() {
   }
 }
 
-export function listTemporary() {
+export function listTemporary(tabId) {
   pruneExpired();
-  return temps.slice();
+  if (!tabId) return temps.slice();
+  return temps.filter(t => t.tab === tabId);
+}
+
+export function listTemporaryByTab(tabId) {
+  return listTemporary(tabId);
 }
 
 export function createTemporary(text, tabId, modes) {
@@ -47,12 +58,12 @@ export function createTemporary(text, tabId, modes) {
   const rec = {
     id: 'temp_' + now + '_' + Math.random().toString(36).slice(2, 7),
     text: String(text || '').trim(),
-    tab: tabId || null,
+    tab: tabId || 'tasks',
     modes: modes || ['read'],
     created: now,
-    expires: now + DAYS_30
+    updatedAt: now,
+    expires: now + DAYS_30,
   };
-  // allow empty for quick dict/rec start
   temps.unshift(rec);
   persist();
   return rec;
@@ -66,10 +77,28 @@ export function deleteTemporary(id) {
 export function updateTemporary(id, patch) {
   const t = temps.find(x => x.id === id);
   if (t) {
-    Object.assign(t, patch);
-    // dacă se schimbă textul, nu resetăm expirarea
+    Object.assign(t, patch, { updatedAt: Date.now() });
     persist();
   }
+  return t || null;
+}
+
+export function editTemporaryText(id, newText) {
+  return updateTemporary(id, { text: String(newText ?? '').trim() });
+}
+
+export function moveTemporaryToTab(id, targetTab) {
+  if (!targetTab) return null;
+  return updateTemporary(id, { tab: targetTab });
+}
+
+export function takeTemporaryForMove(id) {
+  const item = temps.find(x => x.id === id) || null;
+  if (item) {
+    temps = temps.filter(x => x.id !== id);
+    persist();
+  }
+  return item;
 }
 
 export function scheduleHide(callback, ms = 2500) {
