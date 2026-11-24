@@ -9,7 +9,7 @@
   --gold: #b8913a; --gold2: #c9a24a; --gold-soft: #f7ebcd; --gold-line: #e6cf98; --anthr: #2f3136;
   --danger: #b3412e; --danger-soft: #fbe9e5; --ok: #3f7d5a; --shadow: 0 1px 2px rgba(40,35,20,.06), 0 4px 14px rgba(40,35,20,.06);
   --hdr-bg: rgba(247,245,240,.96); --pill-bg: #ffffff; --accent: var(--anthr);
-  --on-gold: #0b1a33; /* text închis pe auriu, contrast WCAG ≥ 4.5:1 față de --gold / --gold2 */
+  --on-gold: #0b1a33;
 }
 [data-theme=navy] {
   --bg: #0f1a2e; --bg2: #14223b; --card: #172741; --text: #eef0f5; --muted: #a8b0c2; --line: #263a5c;
@@ -53,7 +53,7 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .tp-lock { font-size: 12px; }
 
 /* ---------- Conținut ---------- */
-.view { padding: 12px 12px 20px; max-width: 760px; margin: 0 auto; }
+.view { padding: 12px 12px 20px; max-width: 760px; margin: 0 auto; touch-action: pan-y; }
 .list { display: flex; flex-direction: column; gap: 9px; }
 .empty { text-align: center; color: var(--muted); padding: 40px 16px; }
 .hint { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--gold2); border-radius: 12px; padding: 10px 12px; color: var(--muted); font-size: 14.5px; margin-bottom: 10px; }
@@ -62,7 +62,8 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .pad { padding: 8px 4px; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; position: relative; }
-.card::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--accent); opacity: .85; }
+.card::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--card-color, var(--accent)); opacity: .9; }
+.card[style*='--card-color'] { border-color: color-mix(in srgb, var(--card-color) 45%, var(--line)); }
 .card.flash { animation: flash 2.2s ease; }
 @keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px var(--gold2); background: var(--gold-soft); } 100% { box-shadow: var(--shadow); } }
 .r1 { display: flex; align-items: center; gap: 10px; padding: 13px 12px 13px 16px; min-height: 52px; cursor: pointer; user-select: none; -webkit-user-select: none; }
@@ -94,9 +95,12 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .card.done .r1t { text-decoration: line-through; opacity: .55; }
 .card.done, .card.past { opacity: .7; }
 .card.locked .r1t { color: var(--muted); }
-.card.selected { box-shadow: 0 0 0 2px var(--gold2); }
+.card.selected { box-shadow: 0 0 0 2px var(--gold2); background: color-mix(in srgb, var(--gold-soft) 45%, var(--card)); }
 .sel-box { width: 24px; height: 24px; border-radius: 6px; border: 1.5px solid var(--gold); display: grid; place-items: center; flex: none; font-size: 14px; }
 .sel-box.on { background: var(--gold); color: var(--on-gold); }
+.tag-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.tag-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--gold-soft); border: 1px solid var(--gold-line); color: var(--anthr); }
+[data-theme=navy] .tag-chip { color: var(--gold2); }
 
 .pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 11px; font-size: 13.5px; border: 1px solid var(--gold-line); background: var(--gold-soft); color: var(--anthr); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
 [data-theme=navy] .pill { color: var(--gold2); }
@@ -111,7 +115,7 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .pill.src { font-size: 13px; }
 .pill.trash-mark { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); margin-left: 6px; font-size: 12px; }
 
-/* Cercuri bifabile (Taskuri) – linia de legătură apare doar în golul dintre cercuri */
+/* Cercuri bifabile (Taskuri) */
 .circ { width: 26px; height: 26px; border-radius: 50%; border: 1.6px solid var(--gold); background: transparent; display: grid; place-items: center; flex: none; cursor: pointer; padding: 0; font-size: 14px; color: var(--on-gold); }
 .circ.on { background: var(--gold); }
 .circ.sm { width: 22px; height: 22px; font-size: 12px; }
@@ -122,8 +126,8 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .sub.done .sub-t { text-decoration: line-through; opacity: .55; }
 .sub-t { font-size: 15px; }
 
-/* ---------- FAB ---------- */
-.fabs { position: fixed; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; gap: 12px; align-items: center; z-index: 25; }
+/* ---------- FAB Overlay peste toate ecranele + Ceas aliniat jos ---------- */
+.fabs { position: fixed; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; gap: 12px; align-items: center; z-index: 65; pointer-events: auto; }
 .fab { width: 58px; height: 58px; border-radius: 50%; border: none; cursor: pointer; display: grid; place-items: center; font-size: 30px; box-shadow: 0 6px 18px rgba(120,90,20,.28); user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 .fab.add { background: var(--gold2); color: var(--on-gold); font-weight: 300; }
 .fab.voice { background: var(--anthr); color: #fff; font-size: 24px; }
@@ -132,7 +136,25 @@ mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding
 .fab.voice.rec { background: #c62828; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 9px rgba(201,162,74,.1); } }
 
-.selbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 26; background: var(--card); border-top: 1px solid var(--line); display: flex; gap: 6px; padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); align-items: center; flex-wrap: wrap; }
+#urgent-clock {
+  position: fixed !important;
+  left: 14px !important;
+  bottom: calc(16px + env(safe-area-inset-bottom)) !important;
+  top: auto !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  display: inline-flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  padding: 4px 14px !important;
+  margin: 0 !important;
+  border-radius: 16px !important;
+  z-index: 64 !important;
+  font-family: Cinzel, serif;
+  box-sizing: border-box !important;
+}
+
+.selbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; background: var(--card); border-top: 1px solid var(--line); display: flex; gap: 6px; padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); align-items: center; flex-wrap: wrap; box-shadow: 0 -4px 20px rgba(0,0,0,.22); }
 .sel-count { flex: 1 1 100%; color: var(--muted); font-size: 14px; }
 
 /* ---------- Butoane, câmpuri ---------- */
@@ -168,9 +190,7 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .file-open { flex: 1; display: flex; gap: 8px; align-items: center; background: none; border: none; text-align: left; padding: 6px 0; cursor: pointer; min-width: 0; }
 .f-name { overflow-wrap: anywhere; }
 
-/* ---------- Ferestre proprii ----------
-   Opacitatea NU se pune pe overlay-ul întreg (în WebView-ul Android animația rămâne pe drum
-   și ecranul de dedesubt se vede printre ferestre). Fundalul e un ::before; cutia e mereu opacă. */
+/* ---------- Ferestre proprii ---------- */
 .m-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); background: transparent; overflow: hidden; }
 .m-overlay::before { content: ''; position: absolute; inset: 0; background: rgba(20,18,12,.62); opacity: 0; transition: opacity .14s ease; pointer-events: none; }
 .m-overlay.open::before { opacity: 1; }
@@ -182,7 +202,7 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .m-ov-page { padding: 0; background: var(--bg); }
 .m-ov-page::before { display: none; }
 .m-page { width: 100%; max-width: none; max-height: none; height: 100%; border-radius: 0; box-shadow: none; }
-.m-page .m-body { max-width: 760px; width: 100%; margin: 0 auto; }
+.m-page .m-body { max-width: 760px; width: 100%; margin: 0 auto; padding-bottom: 96px; }
 .m-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; padding-top: calc(12px + env(safe-area-inset-top)); }
 .m-sheet .m-head, .m-dialog .m-head { padding-top: 14px; }
 .m-title { font-size: 19px; letter-spacing: .03em; flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -308,7 +328,6 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .drag { font-size: 24px; width: 38px; height: 38px; display: grid; place-items: center; cursor: grab; touch-action: none; color: var(--muted); user-select: none; -webkit-user-select: none; }
 .to-row input { width: 20px; height: 20px; accent-color: var(--gold2); }
 .to-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
-/* Numele tabului are prioritate și se rupe doar între cuvinte, cel mult 2 rânduri. */
 .to-name { flex: 1 1 8.5rem; min-width: 7.5rem; text-align: left; background: none; border: none; font-size: 16px; padding: 6px 2px; cursor: pointer; line-height: 1.25; overflow-wrap: normal; word-break: normal; hyphens: none; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .to-row .r2-meta { font-size: 12.5px; flex: 0 1 8.5rem; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.25; }
 .theme-pick { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -365,7 +384,7 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .fp-acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 4px; position: sticky; bottom: 0; background: var(--card); }
 .folder-pick-page .m-body { overflow: auto; }
 
-/* Selectoare interne (fără <select>/<datalist> native, care eșuează în WebView) */
+/* Selectoare interne */
 .pick-btn { text-align: left; cursor: pointer; background: var(--card); display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
 .pick-btn::after { content: '▾'; color: var(--muted); font-size: 12px; margin-left: 8px; }
 .pick-btn.placeholder { color: var(--muted); }
@@ -375,7 +394,7 @@ textarea.inp { resize: vertical; line-height: 1.4; min-height: 90px; }
 .picker-list .sheet-opt.on { box-shadow: 0 0 0 2px var(--gold-line); }
 .picker-acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0 4px; position: sticky; bottom: 0; background: var(--card); }
 
-/* Setări 1.0.4: stil taburi, font, contur, subsecțiuni backup, pastile RECORDINGS */
+/* Setări 1.0.4 */
 html[data-font=sm] { font-size: 15px; }
 html[data-font=lg] { font-size: 18.5px; }
 [data-tab-style=box] .tab-pill { border-radius: 10px; }
@@ -387,7 +406,7 @@ html[data-font=lg] { font-size: 18.5px; }
 .set-sub[open] summary::after { content: '▴'; }
 .rec-folder-search { padding: 0 0 8px; }
 
-/* ---------- v1.0.5: antet cu logo = Setări, panou lateral, meniu dreapta sus, pastile ---------- */
+/* ---------- Antet cu logo = Setări, panou lateral, meniu dreapta sus ---------- */
 .brand-btn { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; margin: 0; text-align: left; cursor: pointer; color: inherit; font: inherit; border-radius: 26px; -webkit-tap-highlight-color: transparent; }
 .brand-btn:active .emblem { box-shadow: 0 0 0 3px var(--gold-line); }
 .pill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
@@ -395,7 +414,6 @@ html[data-font=lg] { font-size: 18.5px; }
 .folder-row .r1 { gap: 8px; }
 .folder-row .r1t { font-size: 16.5px; }
 .folder-row .chev { font-size: 18px; }
-/* panou lateral stânga (Setări) */
 .m-ov-drawer { padding: 0; justify-content: flex-start; align-items: stretch; }
 .m-ov-drawer::before { background: rgba(14,12,8,.78); }
 .m-drawer { width: 94vw; max-width: 94vw; height: 100%; max-height: none; border-radius: 0 18px 18px 0; background: var(--bg); box-shadow: 6px 0 28px rgba(0,0,0,.35); animation: lsoDrawerIn .2s ease-out both; will-change: transform; padding-left: env(safe-area-inset-left); }
@@ -404,7 +422,6 @@ html[data-font=lg] { font-size: 18.5px; }
 .m-drawer .m-body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
 @keyframes lsoDrawerIn { from { transform: translateX(-100%); } to { transform: none; } }
 @keyframes lsoDrawerOut { from { transform: none; } to { transform: translateX(-100%); } }
-/* meniu derulant dreapta sus */
 .m-ov-menu { padding: 0; display: block; }
 .m-ov-menu::before { background: rgba(14,12,8,.18); }
 .m-menu { position: fixed; width: auto; min-width: 230px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 90px); border-radius: 14px; border: 1px solid var(--line); background: var(--card); box-shadow: 0 12px 34px rgba(0,0,0,.28); }
@@ -419,7 +436,6 @@ html[data-font=lg] { font-size: 18.5px; }
 .dm-check { flex: none; font-weight: 600; }
 .dm-head { font-size: 12.5px; letter-spacing: .12em; color: var(--muted); padding: 10px 16px 4px; border-top: 1px solid var(--line); margin-top: 4px; }
 .dm-sep { border-top: 1px solid var(--line); margin: 4px 0; }
-/* notificări */
 .notif-status { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
 .notif-status .pill { background: var(--card); border-color: var(--line); color: var(--text); }
 .notif-status .pill.ok { background: var(--gold-soft); border-color: var(--gold-line); }
@@ -427,7 +443,8 @@ html[data-font=lg] { font-size: 18.5px; }
 .notif-btns { display: flex; flex-wrap: wrap; gap: 8px; }
 .selbar .sel-hint { flex-basis: 100%; font-size: 14px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .m-drawer, .m-ov-drawer.closing .m-drawer { animation: none !important; } }
-/* drag and drop */
+
+/* Drag and drop */
 .dnd-armed { transform: scale(1.03); box-shadow: 0 0 0 2px var(--gold-line), 0 8px 22px rgba(0,0,0,.18); transition: transform .12s ease; }
 .dnd-src { opacity: .35; }
 .dnd-ghost { opacity: .95; transform: scale(1.04) rotate(.6deg); box-shadow: 0 14px 36px rgba(0,0,0,.32); border-radius: 14px; }
@@ -442,7 +459,7 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 @media (prefers-reduced-motion: reduce) { .tabbar.dnd-mode .tab-pill[data-id] { animation: none; } }
 .m-overlay.closing { pointer-events: none; }
 
-/* ===== v1.0.6: Zona secretă / Meniul creator (port fidel din Notis) — peste antet (20), sub dialoguri (50+) ===== */
+/* ===== Zona secretă / Meniul creator ===== */
 #crx{position:fixed;inset:0;z-index:45;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:14px}
 #crx .crc{background:#141416;border:1px solid rgba(255,255,255,.16);border-radius:16px;padding:14px;width:100%;max-width:400px;max-height:92vh;overflow:auto;color:#fff;display:flex;flex-direction:column;gap:9px}
 #crx h3{font-family:Oswald,sans-serif;margin:0 0 2px;font-size:20px;display:flex;justify-content:space-between;align-items:center}
@@ -476,7 +493,6 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 #crx .crb button:disabled{opacity:.5}
 #crx #adx .crc{max-height:calc(100dvh - 28px)}
 #crRing{will-change:background}
-/* Mesaj nou de la creator (card plutitor) */
 .news-card{position:fixed;left:12px;right:12px;bottom:calc(92px + env(safe-area-inset-bottom));z-index:85;background:var(--card);color:var(--text);border:1px solid var(--gold-line);border-radius:16px;padding:10px 12px;box-shadow:var(--shadow);max-width:520px;margin:0 auto;font-style:normal}
 .news-card .nc-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .news-card .nc-k{font-size:12.5px;color:var(--gold2);letter-spacing:.3px}
@@ -493,12 +509,12 @@ body.dnd-on, body.dnd-on * { user-select: none !important; -webkit-user-select: 
 .code-block .row-inp input{text-transform:uppercase}
 #crx .hint{background:none;border:0;border-radius:0;padding:0;margin:0;color:#fff;font-size:12px;opacity:.65}
 
-/* ===== v1.0.7: Citire cu bara sub cuvânt (karaoke, preluat din Notis p02; culori pe tema LSO) ===== */
+/* ===== Citire cu bara sub cuvânt ===== */
 .kw { scroll-margin: 90px 0 120px; }
 .w { transition: color .2s, background-color .2s; border-radius: 4px; }
 body.reading .w.cur { color: var(--text); background: var(--gold-soft); box-shadow: 0 0 0 2px var(--gold-soft); }
 body.reading .w.past { color: var(--muted); }
-.kbar { position: fixed; left: 0; top: 0; height: 3px; width: 0; border-radius: 3px; z-index: 45;
+.kbar { position: fixed; left: 0; top: 0; height: 3px; width: 0; border-radius: 3px; z-index: 75;
   background: var(--gold); box-shadow: 0 1px 6px rgba(184,145,58,.55);
   opacity: 0; pointer-events: none;
   transition: transform .16s cubic-bezier(.4,.1,.2,1), width .16s cubic-bezier(.4,.1,.2,1), opacity .25s;
@@ -508,19 +524,18 @@ body.reading .w.past { color: var(--muted); }
   background: var(--card); color: var(--text); white-space: pre; overflow: hidden; pointer-events: auto; }
 .rd-mirror.ta { white-space: pre-wrap; overflow-wrap: break-word; overflow-y: auto; }
 
-
-/* Bară compactă de dictare: indicator + punctuație (fără textul dictat — acela stă în câmp) */
+/* Bară compactă de dictare */
 .punct-pill {
   position: fixed;
   left: 8px; right: 8px;
-  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(86px + env(safe-area-inset-bottom, 0px));
   z-index: 95;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: nowrap;
   gap: 8px;
-  background: rgba(11,26,51,0.60);
+  background: rgba(11,26,51,0.85);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   border: 1px solid #d4af37;
@@ -531,7 +546,7 @@ body.reading .w.past { color: var(--muted); }
 .punct-pill .dict-dot { width: 10px; height: 10px; margin: 0 2px; }
 .punct-pill .dict-stop {
   flex: none; height: 36px; padding: 0 12px; font-size: 14px; font-weight: 600;
-  background: rgba(247,245,240,0.88); color: #0b1a33; border: 1.5px solid #d4af37; border-radius: 999px;
+  background: rgba(247,245,240,0.92); color: #0b1a33; border: 1.5px solid #d4af37; border-radius: 999px;
 }
 .punct-btn {
   background: transparent;
@@ -551,9 +566,9 @@ body.reading .w.past { color: var(--muted); }
   border-color: #d4af37;
 }
 body.dictating textarea.voice-target,
-body.dictating input.voice-target { scroll-margin-bottom: 96px; }
+body.dictating input.voice-target { scroll-margin-bottom: 140px; }
 
-/* ---------- v1.2.0: Setări lat, Temporar pe toată lățimea, calendar, aspect ---------- */
+/* ---------- Temporar pe toată lățimea, calendar, aspect ---------- */
 .m-drawer { width: 94vw; max-width: 94vw; }
 #temporary-zone, .tmp-zone {
   position: fixed; left: 0; right: 0; bottom: calc(86px + env(safe-area-inset-bottom, 0px));
@@ -603,7 +618,6 @@ body.dictating input.voice-target { scroll-margin-bottom: 96px; }
 .cal-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .cal-list-h { font-weight: 700; }
 .cal-item { text-align: left; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 12px; padding: 12px 14px; font-size: 16px; }
-#urgent-clock { font-family: Cinzel, serif; }
 
 .set-ver { margin: 28px 0 8px; text-align: center; font-size: 15px; font-weight: 600; color: var(--anthr); letter-spacing: .02em; }
 [data-theme=navy] .set-ver { color: var(--gold2); }
