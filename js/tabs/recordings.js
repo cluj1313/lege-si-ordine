@@ -196,7 +196,7 @@ async function openReviewRecordingModal({ savedItem, blob, mime, duration, initi
         type: 'button', class: 'btn sm danger-ghost',
         onclick: async () => {
           if (savedItem) {
-            await delItem(savedItem.id);
+            await trash(savedItem);
             toast('Înregistrare ștearsă');
             app.render();
           }
