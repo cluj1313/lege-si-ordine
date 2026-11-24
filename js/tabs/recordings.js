@@ -2,7 +2,7 @@
 // de revizuire la final (Salvare, Reascultare, Share, Ștergere). Primul rând = Titlu.
 import { h, act, fmtDur, fmtTs } from '../core/util.js';
 import { t } from '../core/i18n.js';
-import { getMedia, state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, saveUI, saveMeta, descendants, item as getItem, liveTabs, delItem } from '../core/store.js';
+import { getMedia, state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, saveUI, saveMeta, descendants, item as getItem, liveTabs, trash } from '../core/store.js';
 import { toast, promptDlg, openModal, confirmDlg } from '../ui/modal.js';
 import { card, sortByTab, extOf } from '../ui/list.js';
 import { renderDayGroups } from '../ui/daygroups.js';
