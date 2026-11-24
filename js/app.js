@@ -762,4 +762,297 @@ function renderUrgentClock(tab) {
   clk.append(h('div', { style: { fontSize: '0.72rem', opacity: 0.8, marginTop: '2px', color: '#e6decb' } }, nextLabel));
 
   let pressT = 0, long = false;
-  clk.add
+  clk.addEventListener('pointerdown', () => {
+    long = false;
+    pressT = setTimeout(async () => {
+      long = true;
+      await setClockOn(false);
+      toast(t('showClock') + ': Nu');
+      render();
+    }, 650);
+  });
+  clk.addEventListener('pointerup', () => clearTimeout(pressT));
+  clk.addEventListener('pointercancel', () => clearTimeout(pressT));
+  clk.addEventListener('click', e => {
+    if (long) { e.stopPropagation(); e.preventDefault(); return; }
+    openQuickAlarmDialog(tab);
+  });
+  document.body.append(clk);
+  clockTimer = setTimeout(() => renderUrgentClock(tab), 30000);
+}
+
+function normalizeAlarm(raw) {
+  const s = String(raw || '').trim().replace(/[.,\s]/g, '');
+  if (!s) return null;
+  let h, m;
+  if (/^\d{3,4}$/.test(s)) {
+    if (s.length === 3) { h = s.slice(0,1); m = s.slice(1); }
+    else { h = s.slice(0,2); m = s.slice(2); }
+  } else if (/^\d{1,2}:\d{2}$/.test(raw)) {
+    [h, m] = raw.split(':');
+  } else return null;
+  h = parseInt(h, 10); m = parseInt(m, 10);
+  if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
+// Checker de alarmă – rulează la fiecare 10s
+setInterval(() => {
+  try {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const cur = hh + ':' + mm;
+    const alarms = loadQuickAlarms();
+    let changed = false;
+    for (const a of alarms) {
+      if (a && a.time === cur && !a.fired) {
+        a.fired = true;
+        changed = true;
+        const details = [
+          '⏰ ' + a.time,
+          a.person || '',
+          a.room ? 'Sala ' + a.room : '',
+          a.note ? '— ' + a.note : ''
+        ].filter(Boolean).join(' · ');
+        toast(details, 10000);
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]); } catch {}
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const o = ctx.createOscillator(); const g = ctx.createGain();
+          o.connect(g); g.connect(ctx.destination);
+          o.frequency.value = 880; g.gain.value = 0.3;
+          o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 600);
+        } catch {}
+      }
+    }
+    if (changed) saveQuickAlarms(alarms);
+  } catch {}
+}, 10000);
+
+// ---- FAB-uri: „+” (adaugă) și butonul de voce jos-dreapta ----
+function renderFab(tab) {
+  const fabs = $('#fabs');
+  fabs.innerHTML = '';
+  if (ui.selecting || ui.dragMode) return;
+  // + doar când e permis
+  if (tab && !(tab.lock && !isOpen(tab)) && tab.kind !== 'news') {
+    fabs.append(h('button', { class: 'fab add', type: 'button', 'aria-label': t('add'), 'data-test': 'fab-add', onclick: () => fabAdd(tab) }, '+'));
+  }
+  // microfon pe absolut fiecare pagină
+  const vb = h('button', { class: 'fab voice' + (isDictating() ? ' live' : '') + (isRecording() ? ' rec' : ''), type: 'button', 'aria-label': t('voice'), 'data-test': 'fab-voice', onclick: () => voiceFab(tab) }, '🎙');
+  onLongPress(vb, () => voiceMenu());
+  fabs.append(vb);
+}
+
+async function fabAdd(tab) {
+  if (tab.kind === 'folders') {
+    const cur = currentFolder(tab);
+    const v = await sheet(t('add'), [
+      { label: t('newNote'), value: 'note', icon: '📝' },
+      { label: cur ? t('newSubfolder') : t('newFolder'), value: 'folder', icon: '+' },
+      { label: 'Separator', value: 'separator', icon: '—' }
+    ]);
+    if (v === 'note') openEditor(tab.id, null, { folder: cur ? cur.id : null, kind: 'note' });
+    if (v === 'folder') newFolder(tab, cur);
+    if (v === 'password') { const { openPasswordEditor } = await import('./features/passwords.js'); openPasswordEditor(); }
+    if (v === 'separator') await newItem(tab.id, 'separator', { text: 'Secțiune' }, { folder: cur ? cur.id : null });
+  } else if (tab.kind === 'saved') {
+    const sub = state.ui.sub[tab.id] || 'salvate';
+    openEditor(tab.id, null, { sub });
+  } else if (tab.kind === 'rec') {
+    isRecording() ? stopRecording() : startRecording(tab.id);
+  } else if (tab.kind === 'mo') openEditor(tab.id, null, { kind: 'law', preset: { actDate: isoToday(), source: 'Monitorul Oficial' } });
+  else if (hasCats(tab)) { const c = curCat(tab); openEditor(tab.id, null, { cat: c === 'all' ? null : c }); }
+  else openEditor(tab.id, null);
+}
+
+async function voiceFab(tab) {
+  if (isDictating()) { stopDictation(); render(); return; }
+  if (isSpeaking()) { stopSpeak(); return; }
+  const v = await sheet(t('voice'), [
+    { label: t('voiceRead'), value: 'read', icon: '🔊' },
+    { label: t('voiceDictation'), value: 'dict', icon: '🗣' },
+    { label: isRecording() ? t('recStop') : t('voiceRecord'), value: 'rec', icon: '🔴' },
+    { label: t('voiceSettings'), value: 'set', icon: '⚙' },
+  ]);
+  if (v === 'read') {
+    await readScreenAloud();
+  }
+  else if (v === 'dict') {
+    let target = getTarget();
+    if (!target && tab && !(tab.lock && !isOpen(tab)) && !['news', 'rec'].includes(tab.kind)) {
+      if (tab.kind === 'folders') await openEditor(tab.id, null, { folder: currentFolder(tab)?.id || null, kind: 'note' });
+      else await openEditor(tab.id, null, tab.kind === 'saved' ? { sub: state.ui.sub[tab.id] || 'salvate' } : {});
+      target = document.querySelector('.editor textarea.voice-target');
+      if (target) setTarget(target);
+    }
+    if (!target) { toast(t('dictNoTarget'), 3000); return; }
+    target.focus();
+    if (await startDictation(target)) render();
+  } else if (v === 'rec') {
+    const rt = liveTabs().find(x => x.kind === 'rec');
+    if (isRecording()) { stopRecording(); return; }
+    if (rt) { goTab(rt.id); startRecording(rt.id); } else toast(t('noRecTab'));
+  } else if (v === 'set') voiceMenu();
+}
+
+
+// ---- Selecție multiplă ----
+function renderSelBar() {
+  const bar = $('#selbar');
+  bar.innerHTML = '';
+  if (!ui.selecting && !ui.dragMode) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const tab = currentTab();
+  if (ui.dragMode) {
+    bar.append(
+      h('span', { class: 'sel-hint' }, t('dragModeHint')),
+      h('button', { class: 'btn sm primary', type: 'button', 'data-test': 'drag-done', onclick: () => endDragMode() }, t('done')));
+    return;
+  }
+  const selectedItems = () => [...ui.selected].map(getItem).filter(Boolean);
+  bar.append(
+    h('span', { class: 'sel-count' }, t('nSelected', { n: ui.selected.size })),
+    h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-move', disabled: !ui.selected.size, onclick: async () => {
+      const ids = selectedItems(); if (!ids.length) return;
+      const dest = await pickFolder({ title: t('menuMove'), confirmLabel: t('move') });
+      if (!dest) return;
+      const folderId = dest.id || dest.folder || null;
+      const tabId = dest.tab || (dest.id && getItem(dest.id) && getItem(dest.id).tab) || currentTab()?.id;
+      for (const it of ids) await relocate(it, { tab: tabId || it.tab, folder: folderId });
+      ui.selected.clear(); ui.selecting = false; toast(t('movedN', { n: ids.length, d: folderNameOf(dest) || '' })); render();
+    } }, t('move')),
+    h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-pin', disabled: !ui.selected.size, onclick: async () => {
+      const ids = selectedItems(); if (!ids.length) return;
+      for (const it of ids) { const d = dataOf(it) || {}; await saveItem(it, { ...d, pinned: true }); }
+      toast(t('pinnedOn')); render();
+    } }, '📌'),
+    h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-color', disabled: !ui.selected.size, onclick: async () => {
+      const ids = selectedItems(); if (!ids.length) return;
+      const c = await pickColor(ids[0].color || '');
+      if (c == null) return;
+      await applyColorToItems(ids, c); toast(t('savedOk')); render();
+    } }, t('color')),
+    h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { document.querySelectorAll('#view .card[data-id]').forEach(c => { const it = getItem(c.dataset.id); if (it && it.kind !== 'folder') ui.selected.add(c.dataset.id); }); render(); } }, t('selectAll')),
+    h('button', { class: 'btn sm ghost', type: 'button', disabled: !ui.selected.size, onclick: async () => {
+      const ids = selectedItems();
+      if (!ids.length) return;
+      if (!(await confirmDlg(t('confirmTrashN', { n: ids.length }), { danger: true }))) return;
+      for (const it of ids) await trash(it);
+      ui.selected.clear(); ui.selecting = false; toast(t('movedToTrash')); render();
+    } }, t('delete')),
+    h('button', { class: 'btn sm primary', type: 'button', 'data-test': 'sel-cancel', onclick: () => { ui.selecting = false; ui.selected.clear(); render(); } }, t('anuleaza')));
+}
+
+function header() {
+  for (const [id, k] of [['hdr-search', 'search'], ['hdr-folders', 'tkFolders'], ['hdr-select', 'selectOn'], ['hdr-settings', 'settings'], ['hdr-menu', 'menu']]) { const b = $('#' + id); if (!b) continue; b.setAttribute('aria-label', t(k)); b.title = t(k); }
+  $('#hdr-search').onclick = () => openSearch();
+  $('#hdr-folders').onclick = async () => {
+    const tab = currentTab();
+    if (tab && tab.kind === 'folders') {
+      await newFolder(tab, currentFolder(tab));
+    } else {
+      const f = liveTabs().find(x => x.kind === 'folders');
+      if (f) { if (f.visible === false) f.visible = true; goTab(f.id); }
+    }
+  };
+  $('#hdr-select').onclick = () => { ui.selecting = !ui.selecting; ui.dragMode = false; ui.selected.clear(); render(); toast(ui.selecting ? t('selectOn') : t('selectOff')); };
+  const calBtn = $('#hdr-calendar');
+  if (calBtn) { calBtn.onclick = () => openCalendar(); calBtn.setAttribute('aria-label', t('calendar')); calBtn.title = t('calendar'); }
+  // Setări: un singur loc – logo-ul sau textul LEGE ȘI ORDINE deschide panoul din stânga.
+  $('#hdr-brand').onclick = () => { if (!modalsOpen()) openSettings(); };
+  // Ultimul buton din dreapta sus: Coș de gunoi, Mutare și Sortare (ca în Notis).
+  $('#hdr-menu').onclick = async e => {
+    const tab = currentTab();
+    const mode = tab ? sortModeOf(tab.id) : 'manual';
+    const sortable = !!tab && !(tab.lock && !isOpen(tab)) && tab.kind !== 'news';
+    const v = await dropMenu(e.currentTarget, [
+      { label: t('menuTrash', { n: trashedAll().length }), value: 'trash', icon: '🗑️', test: 'menu-trash' },
+      { label: t('menuMove'), value: 'move', icon: '⇄', test: 'menu-move', disabled: !sortable },
+      { header: t('menuSort') },
+      ...SORT_MODES.map(m => ({ label: t({ alpha: 'sortAlpha', manual: 'sortManual', created: 'sortCreated', modified: 'sortModified' }[m]), value: 'sort:' + m, check: m === mode, test: 'sort-' + m, disabled: !sortable })),
+    ], { test: 'hdr-dropmenu' });
+    if (!v) return;
+    if (v === 'trash') openTrash();
+    else if (v === 'move') startDragMode();
+    else if (v.startsWith('sort:') && tab) {
+      state.ui.sort = { ...(state.ui.sort || {}), [tab.id]: v.slice(5) };
+      await saveUI(); render();
+    }
+  };
+}
+
+// ---- Mutare prin drag and drop ----
+function startDragMode() { ui.dragMode = true; ui.selecting = false; ui.selected.clear(); render(); toast(t('dragModeHint'), 3500); }
+export function endDragMode() { ui.dragMode = false; tabDrag.on = false; render(); }
+
+async function reorderItems(ids) {
+  const tab = currentTab(); if (!tab) return;
+  if (sortModeOf(tab.id) !== 'manual') { toast(t('reorderNeedsManual'), 3000); render(); return; }
+  saveManual(tab.id, ids);
+  await saveUI(); render();
+}
+
+const tabAccepts = (dest, it) => (TAB_KINDS[dest.kind] || {}).item === it.kind || (it.kind === 'note' && (dest.kind === 'folders' || dest.kind === 'saved'));
+function parseDrop(tg) {
+  const [type, id] = String(tg.dataset.drop || '').split(':');
+  const row = tg.closest('[data-test]');
+  return { type, id, row: row ? row.dataset.test : '' };
+}
+function canDropItem(it, tg) {
+  const { type, id, row } = parseDrop(tg);
+  if (type === 'tab') { const dest = tabById(id); return !!dest && dest.id !== it.tab && tabAccepts(dest, it); }
+  if (type === 'folder') return it.folder !== id && it.id !== id;
+  if (type === 'pill') {
+    if (row === 'cat-row') return (it.cat || 'all') !== id;
+    if (row === 'saved-row') return (it.sub || 'salvate') !== id;
+    if (row === 'folder-row') return it.folder !== id && it.id !== id;
+    if (row === 'rec-folder-row') return id === 'all' ? !!it.folder : it.folder !== id;
+  }
+  return false;
+}
+async function dropItem(it, tg) {
+  if (!canDropItem(it, tg)) { toast(t('dropNotAllowed')); render(); return; }
+  const { type, id, row } = parseDrop(tg);
+  const name = (tg.querySelector('.pill-name, .tp-name, .r1t') || tg).textContent.trim();
+  if (!(await confirmDlg(t('moveConfirm', { n: 1, d: name })))) { render(); return; }
+  const tab = currentTab();
+  const intoFolder = async fid => {
+    const f = getItem(fid);
+    if (f && f.lock && !isOpen(f)) { const ok = await pinDlg(t('unlockNamed', { n: folderNameOf(f) }), { verify: pin => unlockTemp(f, pin) }); if (!ok) return false; }
+    await relocate(it, { folder: fid }); return true;
+  };
+  let ok = true;
+  if (type === 'tab') {
+    const dest = tabById(id);
+    if (dest.lock && !isOpen(dest)) { ok = !!(await pinDlg(t('unlockNamed', { n: dest.name }), { verify: pin => unlockTemp(dest, pin) })); }
+    if (ok) await relocate(it, { tab: dest.id, folder: null, cat: null, sub: dest.kind === 'saved' ? 'salvate' : null });
+  } else if (type === 'folder' || row === 'folder-row') ok = await intoFolder(id);
+  else if (row === 'cat-row') { it.cat = id === 'all' ? null : id; await saveMeta(it); }
+  else if (row === 'saved-row') { it.sub = id; await saveMeta(it); }
+  else if (row === 'rec-folder-row') { if (id === 'all') await relocate(it, { folder: null }); else ok = await intoFolder(id); }
+  if (ok) toast(t('movedN', { n: 1, d: name }), 3000);
+  render();
+}
+
+// La trecerea în fundal: salvează poziția, salvează automat editoarele cu conținut blocat, reblochează tot.
+async function onHidden() {
+  const tb = currentTab(); if (tb) state.ui.scroll[tb.id] = Math.round(window.scrollY);
+  await saveUI();
+  if (!state.keys.size) return;
+  for (const e of [...openEditors]) if (e.isLocked()) { try { await e.autosave(); } catch (err) { console.warn(err); } }
+  relockAll();
+}
+
+export async function startApp() {
+  Object.assign(app, { reorderItems, dropItem, canDropItem, endDragMode, tabDragOn: () => tabDrag.on, render, goTab, reveal, deleteItem, openEditor, openTrash, openSettings, openSearch, currentTab, renameRec, archiveRec, recStatus, startRecording, stopRecording, isRecording, transcribeRec });
+  header();
+  newsCache = await newsResults();
+  onChange(() => { if (!rendering) render(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) onHidden(); });
+  window.addEventListener('pagehide', () => { onHidden(); });
+  render();
+  const tb = currentTab();
+  if (tb) requestAnimationFrame(() => window.scrollTo(0, state.ui.scroll[tb.id] || 0));
+}
