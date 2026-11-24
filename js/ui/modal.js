@@ -27,7 +27,10 @@ export function openModal({ title, body, actions = [], kind = 'dialog', onClose,
   const content = h('div', { class: 'm-body' }); if (body) content.append(body); box.append(content);
   m.body = content;
   if (actions.length) {
-    const bar = h('div', { class: 'm-actions' });
+    const bar = h('div', {
+      class: 'm-actions',
+      style: kind === 'page' ? { paddingBottom: '78px', justifyContent: 'center' } : {}
+    });
     for (const a of actions) {
       const b = h('button', { class: 'btn ' + (a.cls || ''), type: 'button' }, a.label);
       b.addEventListener('click', async () => {
@@ -168,16 +171,25 @@ export function promptDlg(title, { value = '', placeholder = '', label = '', mul
   });
 }
 
-// Meniu de opțiuni (foaie de jos).
+// Meniu de opțiuni (foaie de jos compactă, deasupra ceasului și a butoanelor + / Microfon).
 export function sheet(title, options) {
   return new Promise(res => {
     let done = false;
-    const list = h('div', { class: 'sheet-list' });
+    const list = h('div', { class: 'sheet-list', style: { paddingBottom: '78px' } });
     const m = openModal({ title, body: list, kind: 'sheet', onClose: () => { if (!done) res(null); } });
     m.el.dataset.test = 'sheet';
+    m.el.style.maxHeight = '86vh';
+    const head = m.el.querySelector('.m-head');
+    if (head) head.style.padding = '10px 14px 6px';
     for (const o of options) {
       if (!o) continue;
-      list.append(h('button', { class: 'sheet-opt ' + (o.cls || ''), type: 'button', 'data-v': o.value, onclick: () => { done = true; res(o.value); m.close(); } },
+      list.append(h('button', {
+        class: 'sheet-opt ' + (o.cls || ''),
+        type: 'button',
+        'data-v': o.value,
+        style: { padding: '8px 14px', minHeight: '36px', lineHeight: '1.15' },
+        onclick: () => { done = true; res(o.value); m.close(); }
+      },
         o.icon ? h('span', { class: 'so-ic' }, o.icon) : null, h('span', {}, o.label)));
     }
   });
