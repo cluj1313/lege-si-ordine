@@ -31,7 +31,8 @@ jobs:
           echo "LSO_KEYSTORE=$RUNNER_TEMP/lso.keystore" >> "$GITHUB_ENV"
       - name: Dependențe și sincronizare
         run: |
-          npm ci
+       npm ci
+          python3 -m pip install pillow
           python3 tools/sync-www.py
           python3 tools/make-android-icons.py
           npx cap sync android
