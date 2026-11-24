@@ -30,6 +30,13 @@ function saveTagColors(map) {
   try { localStorage.setItem('lso_tag_colors', JSON.stringify(map)); } catch {}
 }
 
+function formatRecDefaultTitle(ts) {
+  const d = new Date(ts || Date.now());
+  const dateStr = d.toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = d.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+  return `${dateStr} ${timeStr}`;
+}
+
 function allExistingTags() {
   const set = new Set();
   for (const it of state.items.values()) {
@@ -358,6 +365,16 @@ function renderTagsRow(d) {
   return row;
 }
 
+function displayCardTitle(it, d, K) {
+  if (!d) return t('lockedItem');
+  if (it.kind === 'rec') {
+    const nm = String(d.name || '').trim();
+    if (nm && nm !== 'Înregistrare') return nm;
+    return formatRecDefaultTitle(d.at || it.created);
+  }
+  return K.title(d);
+}
+
 export function card(it) {
   const K = KINDS[it.kind] || KINDS.note;
   const viewable = canView(it);
@@ -372,7 +389,7 @@ export function card(it) {
     const sel = ui.selected.has(it.id);
     el.classList.toggle('selected', sel);
     const titleCol = h('div', { style: { flex: '1 1 auto', minWidth: 0 } },
-      h('div', { class: 'r1t' }, d ? K.title(d) : t('lockedItem')),
+      h('div', { class: 'r1t' }, displayCardTitle(it, d, K)),
       renderTagsRow(d)
     );
     const gripSel = h('span', { class: 'dnd-handle', role: 'button', 'aria-label': t('dragToReorder') }, '≡');
@@ -409,7 +426,7 @@ export function card(it) {
   if (it.kind === 'rec') r1.append(h('span', { class: 'rec-dot' }, '●'));
 
   const titleWrap = h('div', { style: { flex: '1 1 auto', minWidth: 0 } },
-    h('div', { class: 'r1t' }, K.title(d)),
+    h('div', { class: 'r1t' }, displayCardTitle(it, d, K)),
     renderTagsRow(d)
   );
   r1.append(titleWrap);
@@ -448,7 +465,9 @@ export function card(it) {
   if (open) {
     const r2 = h('div', { class: 'r2', role: 'button', tabindex: 0, 'aria-label': t('openItem') });
     r2.append(row2(it, d, K));
-    r2.addEventListener('click', e => { if (e.target.closest('a,button,audio,input')) return; app.openEditor(it.tab, it); });
+    if (it.kind !== 'rec') {
+      r2.addEventListener('click', e => { if (e.target.closest('a,button,audio,input')) return; app.openEditor(it.tab, it); });
+    }
     el.append(r2);
   }
 
@@ -472,7 +491,7 @@ export function card(it) {
 async function openItemMenu(it) {
   const d = dataOf(it);
   const K = KINDS[it.kind] || KINDS.note;
-  const current = d ? (K.title ? K.title(d) : d.name || d.text || '') : '';
+  const current = displayCardTitle(it, d, K);
   const v = await sheet('Acțiuni', [
     { label: 'Redenumește', value: 'ren', icon: '✏️' },
     { label: d?.pinned ? 'Desfixează' : 'Fixează sus', value: 'pin', icon: '📌' },
@@ -485,6 +504,7 @@ async function openItemMenu(it) {
     { label: 'Șterge', value: 'del', icon: '🗑', cls: 'danger' }
   ]);
   if (v === 'ren') {
+    if (it.kind === 'rec') { await app.renameRec(it); return; }
     const n = await promptDlg('Redenumește', { value: current });
     if (n && n.trim()) {
       if (it.kind === 'folder') await saveItem(it, { ...d, name: n.trim() });
@@ -495,8 +515,10 @@ async function openItemMenu(it) {
     await saveItem(it, { ...d, pinned: !d?.pinned });
     toast(d?.pinned ? 'Desfixat' : 'Fixat sus');
   } else if (v === 'alarm') toast('Alarmă (în dezvoltare)');
-  else if (v === 'share') shareText(d?.title || d?.name || '', d?.text || '');
-  else if (v === 'lock') toast('Blocare (folosește meniul existent)');
+  else if (v === 'share') {
+    if (it.kind === 'rec') await shareRecording(it, d);
+    else shareText(d?.title || d?.name || '', d?.text || '');
+  } else if (v === 'lock') toast('Blocare (folosește meniul existent)');
   else if (v === 'tags') {
     await openTagsPicker([it]);
   } else if (v === 'color') {
@@ -589,14 +611,10 @@ function recRow2(it, d) {
   if (audio) getMedia(d.mid).then(m => { if (m) audio.src = URL.createObjectURL(m.blob); else audio.replaceWith(h('div', { class: 'r2-meta' }, t('mediaMissing'))); });
   return h('div', { class: 'r2-col' },
     h('div', { class: 'rec-r2-head' },
-      h('span', { class: 'rec-r2-case', 'data-test': 'rec-case' }, d.caseNumber || t('recNoCase')),
-      h('span', { class: 'rec-r2-len', 'data-test': 'rec-len' }, recLen(d.duration)),
-      h('span', { class: 'pill rec-st', 'data-test': 'rec-row-status' }, d.status || '—'),
-      h('button', { class: 'icon-btn sm trash', type: 'button', 'aria-label': t('delete'), 'data-test': 'rec-row-delete', onclick: () => app.deleteItem(it) }, '🗑️')),
-    h('div', { class: 'r2-meta' }, fmtTsDate(d.at || it.created)),
+      d.caseNumber ? h('span', { class: 'rec-r2-case', 'data-test': 'rec-case' }, d.caseNumber) : null,
+      h('span', { class: 'pill rec-st', 'data-test': 'rec-row-status' }, d.status || '—')),
     audio,
-    d.transcript ? h('div', { class: 'r2-text pre', 'data-test': 'rec-transcript' }, d.transcript) : h('div', { class: 'r2-meta' }, t('noTranscript')),
-    d.mid ? h('div', { class: 'rec-tr-row' }, h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-transcribe-file', onclick: e => act(e.currentTarget, () => app.transcribeRec(it)) }, '📝 ' + t('recTranscribeBtn'))) : null,
+    d.transcript ? h('div', { class: 'r2-text pre', 'data-test': 'rec-transcript' }, d.transcript) : null,
     h('div', { class: 'r2-actions rec-actions' },
       h('button', { class: 'btn sm ghost', type: 'button', onclick: () => app.renameRec(it) }, t('rename')),
       h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-archive', onclick: () => app.archiveRec(it) }, t('archive')),
