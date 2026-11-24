@@ -150,12 +150,11 @@ async function openReviewRecordingModal({ savedItem, blob, mime, duration, initi
     value: parsed.title
   });
   const bodyTa = h('textarea', {
-    class: 'inp', rows: 5,
+    class: 'inp', rows: 6,
     placeholder: 'Textul înregistrării (se poate dicta sau edita)...',
-    value: parsed.body || initialTranscript || ''
+    value: initialTranscript || ''
   });
 
-  // Sincronizează automat primul rând din text ca titlu dacă titlul e gol
   bodyTa.addEventListener('input', () => {
     if (!titleInp.dataset.manual) {
       const sp = splitFirstLineTitle(bodyTa.value, '');
@@ -166,10 +165,10 @@ async function openReviewRecordingModal({ savedItem, blob, mime, duration, initi
 
   let audioUrl = '';
   let audioEl = null;
-  if (blob) {
+  if (blob && blob.size > 0) {
     try {
       audioUrl = URL.createObjectURL(blob);
-      audioEl = h('audio', { controls: true, src: audioUrl, style: { width: '100%', height: '40px' } });
+      audioEl = h('audio', { controls: true, preload: 'metadata', src: audioUrl, style: { width: '100%', height: '42px' } });
     } catch {}
   }
 
@@ -185,7 +184,7 @@ async function openReviewRecordingModal({ savedItem, blob, mime, duration, initi
         type: 'button', class: 'btn sm ghost',
         onclick: async () => {
           const fullTxt = [titleInp.value.trim(), bodyTa.value.trim()].filter(Boolean).join('\n');
-          if (blob) {
+          if (blob && blob.size > 0) {
             await shareFile(blob, (titleInp.value.trim() || 'inregistrare') + extOf(mime || 'audio/webm'), fullTxt || 'Înregistrare');
           } else if (navigator.share) {
             await navigator.share({ title: titleInp.value.trim() || 'Înregistrare', text: fullTxt });
@@ -210,29 +209,35 @@ async function openReviewRecordingModal({ savedItem, blob, mime, duration, initi
   const m = openModal({
     title: 'Înregistrare finalizată',
     body,
-    dismissable: false,
+    dismissable: true,
     actions: [
       {
         label: '✓ Salvează',
         cls: 'primary',
         onClick: async mm => {
           const rawCombined = bodyTa.value.trim();
-          let finalTitle = titleInp.value.trim();
-          let finalBody = rawCombined;
-          if (!finalTitle && rawCombined) {
-            const sp = splitFirstLineTitle(rawCombined, '');
-            finalTitle = sp.title;
-            finalBody = sp.body;
-          } else if (finalTitle && rawCombined.startsWith(finalTitle)) {
-            finalBody = rawCombined.slice(finalTitle.length).trim();
-          }
+          const sp = splitFirstLineTitle(rawCombined, '');
+          const finalTitle = titleInp.value.trim() || sp.title || 'Înregistrare';
+          const finalBody = rawCombined;
           if (savedItem) {
             const cur = dataOf(savedItem) || {};
             await saveItem(savedItem, {
               ...cur,
               name: finalTitle,
-              transcript: finalBody || rawCombined
+              transcript: finalBody
             });
+          }
+          if (window._lsoTempRecId) {
+            try {
+              const { updateTemporary } = await import('../features/temporary.js');
+              updateTemporary(window._lsoTempRecId, {
+                text: finalBody || finalTitle,
+                title: finalTitle,
+                transcript: finalBody,
+                rec: true
+              });
+            } catch (e) { console.error(e); }
+            window._lsoTempRecId = null;
           }
           toast(t('savedOk'));
           cleanupUrl();
@@ -241,7 +246,10 @@ async function openReviewRecordingModal({ savedItem, blob, mime, duration, initi
         }
       }
     ],
-    onClose: cleanupUrl
+    onClose: () => {
+      window._lsoTempRecId = null;
+      cleanupUrl();
+    }
   });
 }
 
@@ -302,88 +310,97 @@ export async function stopRecording() {
   let mid = null, mime = '', pendingFile = '', mainBlob = null;
   const extra = [];
   const temp = { tab: R.tabId, kind: 'rec', folder: null };
-  if (R.mode === 'native') {
-    const r = await nativeStt.recStop();
-    addText(R.partial || r.last); R.partial = '';
-    if (r.seconds > 0) duration = r.seconds;
-    const files = Array.isArray(r.files) ? r.files : [];
-    for (const [i, f] of files.entries()) {
-      try {
-        const blob = await nativeStt.fileBlob(f.path, f.mime);
-        if (i === 0) mainBlob = blob;
-        const id = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }) + extOf(f.mime), f.mime, ownerOf(temp));
-        if (i === 0) { mid = id; mime = f.mime; } else extra.push({ mid: id, mime: f.mime, duration: f.duration });
-        await nativeStt.recDelete(f.path);
-      } catch (e) {
-        console.error(e);
-        if (i === 0) pendingFile = f.name;
+  try {
+    if (R.mode === 'native') {
+      const r = await nativeStt.recStop();
+      addText(R.partial || r?.last); R.partial = '';
+      if (r?.seconds > 0) duration = r.seconds;
+      const files = Array.isArray(r?.files) ? r.files : [];
+      for (const [i, f] of files.entries()) {
+        try {
+          const blob = await nativeStt.fileBlob(f.path, f.mime);
+          if (i === 0) mainBlob = blob;
+          const id = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }) + extOf(f.mime), f.mime, ownerOf(temp));
+          if (i === 0) { mid = id; mime = f.mime; } else extra.push({ mid: id, mime: f.mime, duration: f.duration });
+          await nativeStt.recDelete(f.path);
+        } catch (e) {
+          console.error(e);
+          if (i === 0) pendingFile = f.name;
+        }
       }
+    } else {
+      const mr = R.mr;
+      if (mr) {
+        const done = new Promise(res => { mr.onstop = res; });
+        try { mr.stop(); } catch {}
+        await stopDictation();
+        await done;
+      }
+      addText(R.partial); R.partial = '';
+      if (R.stream) {
+        try { R.stream.getTracks().forEach(tr => tr.stop()); } catch {}
+        R.stream = null;
+      }
+      const blob = new Blob(R.chunks, { type: mr?.mimeType || 'audio/webm' });
+      mainBlob = blob;
+      R.mr = null;
+      try {
+        mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }), blob.type, ownerOf(temp));
+        mime = blob.type;
+      } catch (e) { console.error(e); }
     }
-  } else {
-    const mr = R.mr;
-    const done = new Promise(res => { mr.onstop = res; });
-    mr.stop(); await stopDictation();
-    await done;
-    addText(R.partial); R.partial = '';
-    R.stream.getTracks().forEach(tr => tr.stop());
-    const blob = new Blob(R.chunks, { type: mr.mimeType || 'audio/webm' });
-    mainBlob = blob;
-    R.mr = null;
-    try {
-      mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }), blob.type, ownerOf(temp));
-      mime = blob.type;
-    } catch (e) { console.error(e); }
-  }
+  } catch (e) { console.error('stopRecording error', e); }
+
   R.on = false;
+  R.busy = false;
   let createdItem = null;
-  const fullTranscript = R.transcript.trim();
+  const fullTranscript = [R.transcript, R.partial].filter(Boolean).join(' ').trim();
+  R.partial = '';
   const parsed = splitFirstLineTitle(fullTranscript, '');
 
   try {
-    if (!mid && !pendingFile) throw new Error('media');
-    const folder = R.folder || null;
-    const status = folder ? recArchivedStatus() : (recStatuses()[0] || '');
-    const data = {
-      name: parsed.title,
-      duration,
-      mid,
-      mime,
-      transcript: parsed.body || fullTranscript,
-      at: R.start,
-      status
-    };
-    if (pendingFile) data.pendingFile = pendingFile;
+    if (mid || pendingFile) {
+      const folder = R.folder || null;
+      const status = folder ? recArchivedStatus() : (recStatuses()[0] || '');
+      const data = {
+        name: parsed.title || 'Înregistrare',
+        duration,
+        mid,
+        mime,
+        transcript: fullTranscript,
+        at: R.start,
+        status
+      };
+      if (pendingFile) data.pendingFile = pendingFile;
 
-    if (window._lsoTempRecId) {
-      try {
-        const { updateTemporary } = await import('../features/temporary.js');
-        updateTemporary(window._lsoTempRecId, {
-          text: parsed.title || 'Înregistrare',
-          body: parsed.body || fullTranscript,
-          duration: data.duration,
-          mid: data.mid,
-          mime: data.mime,
-          transcript: fullTranscript,
-          rec: true
-        });
-        window._lsoTempRecId = null;
-      } catch (e) { console.error(e); }
+      if (window._lsoTempRecId && fullTranscript) {
+        try {
+          const { updateTemporary } = await import('../features/temporary.js');
+          updateTemporary(window._lsoTempRecId, {
+            text: fullTranscript,
+            title: parsed.title || 'Înregistrare',
+            duration: data.duration,
+            mid: data.mid,
+            mime: data.mime,
+            transcript: fullTranscript,
+            rec: true
+          });
+        } catch (e) { console.error(e); }
+      }
+      createdItem = await newItem(R.tabId, 'rec', data, { folder });
+      for (const x of extra) await newItem(R.tabId, 'rec', { name: t('recPart2'), duration: x.duration || 0, mid: x.mid, mime: x.mime, transcript: '', at: R.start + 1, status }, { folder });
     }
-    createdItem = await newItem(R.tabId, 'rec', data, { folder });
-    for (const x of extra) await newItem(R.tabId, 'rec', { name: t('recPart2'), duration: x.duration || 0, mid: x.mid, mime: x.mime, transcript: '', at: R.start + 1, status }, { folder });
   } catch (e) { console.error(e); toast(t('recSaveFail'), 4000); }
-  R.busy = false;
+
   app.render();
 
-  if (createdItem || mainBlob) {
-    await openReviewRecordingModal({
-      savedItem: createdItem,
-      blob: mainBlob,
-      mime,
-      duration,
-      initialTranscript: fullTranscript
-    });
-  }
+  await openReviewRecordingModal({
+    savedItem: createdItem,
+    blob: mainBlob,
+    mime,
+    duration,
+    initialTranscript: fullTranscript
+  });
 }
 
 let orphansChecked = false;
