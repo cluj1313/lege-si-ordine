@@ -518,7 +518,7 @@ setInterval(() => {
 function renderFab(tab) {
   const fabs = $('#fabs');
   fabs.innerHTML = '';
-  if (ui.selecting || ui.dragMode) return;
+  if (ui.selecting || ui.dragMode || modalsOpen()) return;
   if (tab && !(tab.lock && !isOpen(tab)) && tab.kind !== 'news') {
     fabs.append(h('button', { class: 'fab add', type: 'button', 'aria-label': t('add'), 'data-test': 'fab-add', onclick: () => fabAdd(tab) }, '+'));
   }
