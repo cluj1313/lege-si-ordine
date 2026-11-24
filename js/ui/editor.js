@@ -26,22 +26,16 @@ function autoCapFirst(str) {
   return s.replace(/^(\s*)([a-zăîâșț])/, (_, sp, ch) => sp + ch.toUpperCase());
 }
 
-// Extrage automat primul rând (cât încape pe un rând pe ecranul telefonului) ca Titlu, iar restul ca corp
-function splitFirstLineTitle(rawText) {
+// Copiază primul rând (fără a tăia conținutul din corp) ca Titlu, păstrând corpul intact
+function copyFirstLineTitle(rawText) {
   const clean = String(rawText || '').trim();
-  if (!clean) return { title: '', body: '' };
-  const lines = clean.split(/\n+/);
-  let first = lines[0].trim();
-  let rest = lines.slice(1).join('\n').trim();
-  const MAX_LINE = 42;
-  if (first.length > MAX_LINE) {
-    let cut = first.lastIndexOf(' ', MAX_LINE);
-    if (cut < 18) cut = MAX_LINE;
-    const overflow = first.slice(cut).trim();
-    first = first.slice(0, cut).trim();
-    rest = [overflow, rest].filter(Boolean).join('\n');
-  }
-  return { title: first, body: rest };
+  if (!clean) return '';
+  const firstLine = clean.split(/\n+/)[0].trim();
+  const MAX_TITLE = 52;
+  if (firstLine.length <= MAX_TITLE) return firstLine;
+  let cut = firstLine.lastIndexOf(' ', MAX_TITLE);
+  if (cut < 18) cut = MAX_TITLE;
+  return firstLine.slice(0, cut).trim();
 }
 
 const NAME_KEYS = new Set(['client', 'name', 'person', 'parties', 'nume', 'prenume']);
@@ -63,7 +57,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
   const added = [], removed = [];
   let dirty = false, saved = false;
   const getters = [];
-  const form = h('div', { class: 'ed-form', style: { paddingBottom: '130px' } });
+  const form = h('div', { class: 'ed-form', style: { paddingBottom: '150px' } });
   form.addEventListener('input', () => { dirty = true; });
 
   const lists = {
@@ -214,7 +208,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
   });
   m.el.dataset.test = 'editor';
 
-  // Adaugă butoane vizibile Salvează și Renunță direct în antetul de sus al editorului (imposibil de acoperit de + / Microfon / Dictează)
+  // Butoane vizibile sus în antet pentru acces rapid
   const mHead = m.el.querySelector('.m-head');
   if (mHead) {
     const topBtns = h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' } },
@@ -230,22 +224,31 @@ export async function openEditor(tabId, it = null, opts = {}) {
     mHead.append(topBtns);
   }
 
-  // Ridică bara de jos a modalului deasupra ceasului și butoanelor + / Microfon
-  const mFoot = m.el.querySelector('.m-foot');
-  if (mFoot) {
-    mFoot.style.paddingBottom = '82px';
-    mFoot.style.justifyContent = 'center';
+  // Ridică bara reală de acțiuni (.m-actions) deasupra ceasului și butoanelor + / Microfon
+  const mAct = m.actions || m.el.querySelector('.m-actions');
+  if (mAct) {
+    mAct.style.position = 'fixed';
+    mAct.style.left = '12px';
+    mAct.style.right = '12px';
+    mAct.style.bottom = '96px';
+    mAct.style.zIndex = '85';
+    mAct.style.background = 'rgba(246, 243, 235, 0.97)';
+    mAct.style.border = '1px solid #d4c6a3';
+    mAct.style.borderRadius = '14px';
+    mAct.style.padding = '8px 12px';
+    mAct.style.justifyContent = 'space-between';
+    mAct.style.boxShadow = '0 6px 20px rgba(0,0,0,0.14)';
   }
 
-  const handle = { isLocked: () => !!ownerOf(it || temp), autosave: async () => { if (dirty && await collect()) await doSave(m); else m.close(); } };
+  const handle = { isLocked: () => !!ownerOf(it || temp), autosave: async () => { if (hasMeaningfulContent() && await collect()) await doSave(m); else m.close(); } };
   openEditors.add(handle);
   app.speakEditor = async () => { if (!(await collect())) return ''; return plainText(K, data); };
   const prevClose = m.close; m.close = (...a) => { if (app.speakEditor) delete app.speakEditor; openEditors.delete(handle); prevClose(...a); };
   const head = m.el.querySelector('.m-back');
 
-  // Apăsarea pe Back (buton sau gest Android) salvează automat modificările dacă există conținut
+  // Auto-save la Back (buton sau gest Android) sau la orice altă acțiune
   const tryClose = async () => {
-    if (dirty || added.length || removed.length) {
+    if ((dirty || added.length || removed.length || hasMeaningfulContent()) && await collect()) {
       await doSave(m);
       return;
     }
@@ -254,23 +257,21 @@ export async function openEditor(tabId, it = null, opts = {}) {
   m.onBack = tryClose;
   if (head) { const nb = head.cloneNode(true); head.replaceWith(nb); nb.addEventListener('click', tryClose); }
 
-  function normalizeTitleFromBody() {
+  function syncTitleFromBody() {
     const titleField = (K.fields || []).find(f => f.k === 'title' || f.k === 'name');
     const bodyField = (K.fields || []).find(f => f.type === 'textarea' || f.k === 'text' || f.k === 'body' || f.k === 'notes');
     if (titleField && bodyField) {
       const curTitle = String(data[titleField.k] || '').trim();
       const curBody = String(data[bodyField.k] || '').trim();
       if (!curTitle && curBody) {
-        const sp = splitFirstLineTitle(curBody);
-        data[titleField.k] = sp.title;
-        data[bodyField.k] = sp.body;
+        data[titleField.k] = copyFirstLineTitle(curBody);
       }
     }
   }
 
   async function collect() {
     for (const g of getters) if (!g()) return false;
-    normalizeTitleFromBody();
+    syncTitleFromBody();
     return true;
   }
 
@@ -306,6 +307,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
     } finally { saving = false; }
   }
   async function moreMenu() {
+    if (dirty && await collect()) { await doSave(m); return; }
     const own = it.lock;
     const v = await sheet(K.title(data), [
       { label: t('readAloud'), value: 'read', icon: '🔊' },
@@ -317,7 +319,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
     if (v === 'read') { await collect(); readScreenAloud(); }
     else if (v === 'share') { await collect(); shareText(K.title(data), plainText(K, data)); }
     else if (v === 'move') {
-      if (dirty) { toast(t('saveFirst')); return; }
+      if (dirty && await collect()) await doSave(m);
       m.close(); await moveItem(it);
     }
     else if (v === 'lock') {
