@@ -1,12 +1,9 @@
-// RECORDINGS 🔴: audio-ul se înregistrează MEREU. Bifa „Transcriere live în timpul înregistrării” (lso_rec_transcribe,
-// implicit pusă) adaugă textul live: pe telefon, înregistrarea nativă (LsoVoice.recStart → .aac) trimite aceleași
-// eșantioane la recunoaștere (Android 13+, EXTRA_AUDIO_SOURCE); altfel recunoașterea ascultă microfonul în paralel, iar
-// dacă ar afecta înregistrarea, doar transcrierea live se oprește. Pe web: MediaRecorder + Web Speech.
-// Fiecare înregistrare cu audio are butonul „Transcrie” (transcriere ulterioară a întregului fișier, local pe telefon).
+// RECORDINGS 🔴: audio-ul se înregistrează MEREU, cu casetă live vizibilă și fereastră
+// de revizuire la final (Salvare, Reascultare, Share, Ștergere). Primul rând = Titlu.
 import { h, act, fmtDur, fmtTs } from '../core/util.js';
 import { t } from '../core/i18n.js';
-import { getMedia, state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, canView, saveUI, saveMeta, descendants, item as getItem, liveTabs } from '../core/store.js';
-import { toast, promptDlg, openModal } from '../ui/modal.js';
+import { getMedia, state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, saveUI, saveMeta, descendants, item as getItem, liveTabs, delItem } from '../core/store.js';
+import { toast, promptDlg, openModal, confirmDlg } from '../ui/modal.js';
 import { card, sortByTab, extOf } from '../ui/list.js';
 import { renderDayGroups } from '../ui/daygroups.js';
 import { recName, recTitle, recStatuses, recArchivedStatus } from './kinds.js';
@@ -20,6 +17,7 @@ import { startDictation, stopDictation, isSpeaking, stopSpeak, isDictating, isNa
 import * as nativeStt from '../voice/native-stt.js';
 import { pickField } from '../ui/pickers.js';
 import { app } from '../ui/registry.js';
+import { shareFile } from '../features/share.js';
 
 const R = { on: false, mode: 'audio', live: '', liveOff: false, mr: null, chunks: [], start: 0, timer: null, transcript: '', partial: '', tabId: null, stream: null, busy: false, folder: null };
 export const isRecording = () => R.on;
@@ -30,12 +28,29 @@ const addText = txt => { txt = String(txt || '').trim(); if (txt) R.transcript +
 const liveText = () => [R.transcript, R.partial].filter(Boolean).join(' ');
 const liveBoxText = () => { const x = liveText(); return R.liveOff ? (x ? x + ' — ' : '') + t('recLiveOff') : (x || t('recListening')); };
 
+// Extrage automat primul rând (cât încape pe un rând pe ecranul telefonului) ca Titlu, iar restul ca corp
+export function splitFirstLineTitle(rawText, fallback = '') {
+  const clean = String(rawText || '').trim();
+  if (!clean) return { title: fallback, body: '' };
+  const lines = clean.split(/\n+/);
+  let first = lines[0].trim();
+  let rest = lines.slice(1).join('\n').trim();
+  const MAX_LINE = 42;
+  if (first.length > MAX_LINE) {
+    let cut = first.lastIndexOf(' ', MAX_LINE);
+    if (cut < 18) cut = MAX_LINE;
+    const overflow = first.slice(cut).trim();
+    first = first.slice(0, cut).trim();
+    rest = [overflow, rest].filter(Boolean).join('\n');
+  }
+  return { title: first || fallback, body: rest };
+}
+
 function pickMime() {
   if (!window.MediaRecorder) return '';
   for (const m of ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm']) if (MediaRecorder.isTypeSupported?.(m)) return m;
   return '';
 }
-
 
 function recFilter(tab) {
   const v = state.ui.sub[tab.id];
@@ -78,19 +93,166 @@ function recFolderRow(tab) {
 
 function beginCommon(tabId) {
   R.transcript = ''; R.partial = ''; R.start = Date.now(); R.tabId = tabId; R.on = true;
-  const recTab = liveTabs().find(x => x.id === tabId);
+  const recTab = liveTabs().find(x => x.id === tabId) || liveTabs().find(x => x.kind === 'rec');
   const pref = recTab ? recFilter(recTab) : 'all';
   R.folder = pref !== 'all' ? pref : null;
-  R.timer = setInterval(updateLive, 500);
+  R.timer = setInterval(updateLive, 400);
+  showFloatingRecBox();
+}
+
+// Casetă plutitoare vizibilă în timp real în timpul înregistrării, indiferent de tabul activ
+function hideFloatingRecBox() {
+  const el = document.getElementById('lso-rec-live-modal');
+  if (el) el.remove();
+}
+
+function showFloatingRecBox() {
+  hideFloatingRecBox();
+  const box = h('div', {
+    id: 'lso-rec-live-modal',
+    style: {
+      position: 'fixed', left: '12px', right: '12px', bottom: '86px', zIndex: '980',
+      background: 'var(--card, #fffdf9)', border: '2px solid #dc2626', borderRadius: '16px',
+      padding: '12px 14px', boxShadow: '0 10px 30px rgba(0,0,0,0.22)', display: 'flex',
+      flexDirection: 'column', gap: '8px'
+    }
+  },
+    h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' } },
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', color: '#dc2626' } },
+        h('span', { class: 'dict-dot', style: { background: '#dc2626' } }),
+        h('span', {}, 'Înregistrare în curs... '),
+        h('span', { class: 'rec-float-timer', style: { fontVariantNumeric: 'tabular-nums' } }, '0:00')
+      ),
+      h('button', {
+        type: 'button', class: 'btn sm primary',
+        style: { background: '#dc2626', borderColor: '#dc2626', color: '#fff' },
+        onclick: () => stopRecording()
+      }, '⏹ Oprește & Salvează')
+    ),
+    h('div', {
+      class: 'rec-float-text',
+      style: {
+        minHeight: '56px', maxHeight: '140px', overflowY: 'auto', padding: '8px 10px',
+        borderRadius: '10px', background: 'var(--bg, #f7f3eb)', fontSize: '14px',
+        lineHeight: '1.4', whiteSpace: 'pre-wrap'
+      }
+    }, liveBoxText())
+  );
+  document.body.append(box);
+}
+
+// Fereastră completă la oprirea înregistrării: Reascultă, Editează textul (primul rând = Titlu), Salvează, Share, Șterge
+async function openReviewRecordingModal({ savedItem, blob, mime, duration, initialTranscript }) {
+  const parsed = splitFirstLineTitle(initialTranscript, '');
+  const titleInp = h('input', {
+    class: 'inp', type: 'text',
+    placeholder: 'Titlu (primul rând pe ecran)',
+    value: parsed.title
+  });
+  const bodyTa = h('textarea', {
+    class: 'inp', rows: 5,
+    placeholder: 'Textul înregistrării (se poate dicta sau edita)...',
+    value: parsed.body || initialTranscript || ''
+  });
+
+  // Sincronizează automat primul rând din text ca titlu dacă titlul e gol
+  bodyTa.addEventListener('input', () => {
+    if (!titleInp.dataset.manual) {
+      const sp = splitFirstLineTitle(bodyTa.value, '');
+      titleInp.value = sp.title;
+    }
+  });
+  titleInp.addEventListener('input', () => { titleInp.dataset.manual = '1'; });
+
+  let audioUrl = '';
+  let audioEl = null;
+  if (blob) {
+    try {
+      audioUrl = URL.createObjectURL(blob);
+      audioEl = h('audio', { controls: true, src: audioUrl, style: { width: '100%', height: '40px' } });
+    } catch {}
+  }
+
+  const cleanupUrl = () => { if (audioUrl) { try { URL.revokeObjectURL(audioUrl); } catch {} audioUrl = ''; } };
+
+  const body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+    h('div', { class: 'r2-meta' }, `Durată: ${fmtDur(duration || 0)}`),
+    audioEl,
+    h('label', { class: 'fld' }, h('span', {}, 'Titlu (rândul 1)'), titleInp),
+    h('label', { class: 'fld' }, h('span', {}, 'Conținut / Transcriere'), bodyTa),
+    h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' } },
+      h('button', {
+        type: 'button', class: 'btn sm ghost',
+        onclick: async () => {
+          const fullTxt = [titleInp.value.trim(), bodyTa.value.trim()].filter(Boolean).join('\n');
+          if (blob) {
+            await shareFile(blob, (titleInp.value.trim() || 'inregistrare') + extOf(mime || 'audio/webm'), fullTxt || 'Înregistrare');
+          } else if (navigator.share) {
+            await navigator.share({ title: titleInp.value.trim() || 'Înregistrare', text: fullTxt });
+          }
+        }
+      }, '📤 Share'),
+      h('button', {
+        type: 'button', class: 'btn sm danger-ghost',
+        onclick: async () => {
+          if (savedItem) {
+            await delItem(savedItem.id);
+            toast('Înregistrare ștearsă');
+            app.render();
+          }
+          cleanupUrl();
+          m.close();
+        }
+      }, '🗑 Șterge')
+    )
+  );
+
+  const m = openModal({
+    title: 'Înregistrare finalizată',
+    body,
+    dismissable: false,
+    actions: [
+      {
+        label: '✓ Salvează',
+        cls: 'primary',
+        onClick: async mm => {
+          const rawCombined = bodyTa.value.trim();
+          let finalTitle = titleInp.value.trim();
+          let finalBody = rawCombined;
+          if (!finalTitle && rawCombined) {
+            const sp = splitFirstLineTitle(rawCombined, '');
+            finalTitle = sp.title;
+            finalBody = sp.body;
+          } else if (finalTitle && rawCombined.startsWith(finalTitle)) {
+            finalBody = rawCombined.slice(finalTitle.length).trim();
+          }
+          if (savedItem) {
+            const cur = dataOf(savedItem) || {};
+            await saveItem(savedItem, {
+              ...cur,
+              name: finalTitle,
+              transcript: finalBody || rawCombined
+            });
+          }
+          toast(t('savedOk'));
+          cleanupUrl();
+          mm.close();
+          app.render();
+        }
+      }
+    ],
+    onClose: cleanupUrl
+  });
 }
 
 export async function startRecording(tabId) {
   if (R.on || R.busy) return;
   if (isSpeaking()) await stopSpeak();
   if (isDictating()) await stopDictation();
+  const targetTab = tabId || liveTabs().find(x => x.kind === 'rec')?.id || liveTabs()[0]?.id;
   const wantText = transcribeOn();
   R.live = ''; R.liveOff = false;
-  // Telefon + bifă: înregistrare nativă (audio în fișier) + transcriere live din aceleași eșantioane.
+
   if (wantText && isNative() && nativeStt.hasNativeRec()) {
     R.busy = true;
     if (!(await nativeStt.ensurePermission())) { R.busy = false; toast(t('micDenied'), 4000); return; }
@@ -102,10 +264,9 @@ export async function startRecording(tabId) {
         onMode: m => { R.live = m; },
         onError: code => { R.liveOff = true; R.live = 'off'; updateLive(); if (!/^live-off/.test(code)) console.warn('live', code); },
       });
-      R.mode = 'native'; beginCommon(tabId);
+      R.mode = 'native'; beginCommon(targetTab);
       R.busy = false; app.render(); return;
     } catch (e) {
-      // nu a pornit înregistrarea nativă: continuăm cu înregistrarea din WebView (audio, fără live)
       R.busy = false; R.liveOff = true;
       console.warn('recStart', e && e.message);
     }
@@ -120,9 +281,8 @@ export async function startRecording(tabId) {
   R.chunks = []; R.mode = 'audio';
   R.mr.ondataavailable = e => { if (e.data && e.data.size) R.chunks.push(e.data); };
   R.mr.start(1000);
-  beginCommon(tabId);
+  beginCommon(targetTab);
   R.busy = false;
-  // Pe telefon microfonul e ocupat de înregistrare: textul se obține după, cu „Transcrie”.
   if (wantText && !isNative() && !R.liveOff) {
     const ok = await startDictation(null, { quiet: true, keepRecording: true,
       onInterim: txt => { R.partial = txt; updateLive(); },
@@ -137,7 +297,9 @@ export async function stopRecording() {
   R.busy = true;
   let duration = (Date.now() - R.start) / 1000;
   clearInterval(R.timer);
-  let mid = null, mime = '', pendingFile = '';
+  hideFloatingRecBox();
+
+  let mid = null, mime = '', pendingFile = '', mainBlob = null;
   const extra = [];
   const temp = { tab: R.tabId, kind: 'rec', folder: null };
   if (R.mode === 'native') {
@@ -148,16 +310,15 @@ export async function stopRecording() {
     for (const [i, f] of files.entries()) {
       try {
         const blob = await nativeStt.fileBlob(f.path, f.mime);
+        if (i === 0) mainBlob = blob;
         const id = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }) + extOf(f.mime), f.mime, ownerOf(temp));
         if (i === 0) { mid = id; mime = f.mime; } else extra.push({ mid: id, mime: f.mime, duration: f.duration });
         await nativeStt.recDelete(f.path);
       } catch (e) {
-        // fișierul rămâne pe telefon și se atașează automat la următoarea deschidere (nu se pierde)
         console.error(e);
         if (i === 0) pendingFile = f.name;
       }
     }
-    if (!files.length) console.warn('recStop: niciun fișier');
   } else {
     const mr = R.mr;
     const done = new Promise(res => { mr.onstop = res; });
@@ -166,6 +327,7 @@ export async function stopRecording() {
     addText(R.partial); R.partial = '';
     R.stream.getTracks().forEach(tr => tr.stop());
     const blob = new Blob(R.chunks, { type: mr.mimeType || 'audio/webm' });
+    mainBlob = blob;
     R.mr = null;
     try {
       mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(R.start) }), blob.type, ownerOf(temp));
@@ -173,37 +335,57 @@ export async function stopRecording() {
     } catch (e) { console.error(e); }
   }
   R.on = false;
+  let createdItem = null;
+  const fullTranscript = R.transcript.trim();
+  const parsed = splitFirstLineTitle(fullTranscript, '');
+
   try {
     if (!mid && !pendingFile) throw new Error('media');
     const folder = R.folder || null;
     const status = folder ? recArchivedStatus() : (recStatuses()[0] || '');
-    const data = { name: '', duration, mid, mime, transcript: R.transcript.trim(), at: R.start, status };
+    const data = {
+      name: parsed.title,
+      duration,
+      mid,
+      mime,
+      transcript: parsed.body || fullTranscript,
+      at: R.start,
+      status
+    };
     if (pendingFile) data.pendingFile = pendingFile;
-    // dacă vine din Temporar, atașează datele la notiță
+
     if (window._lsoTempRecId) {
       try {
         const { updateTemporary } = await import('../features/temporary.js');
         updateTemporary(window._lsoTempRecId, {
-          text: (data.transcript || 'Înregistrare').split('\n')[0] || 'Înregistrare',
+          text: parsed.title || 'Înregistrare',
+          body: parsed.body || fullTranscript,
           duration: data.duration,
           mid: data.mid,
           mime: data.mime,
-          transcript: data.transcript,
+          transcript: fullTranscript,
           rec: true
         });
         window._lsoTempRecId = null;
-        toast('Înregistrare salvată în Temporar');
       } catch (e) { console.error(e); }
     }
-    await newItem(R.tabId, 'rec', data, { folder });
+    createdItem = await newItem(R.tabId, 'rec', data, { folder });
     for (const x of extra) await newItem(R.tabId, 'rec', { name: t('recPart2'), duration: x.duration || 0, mid: x.mid, mime: x.mime, transcript: '', at: R.start + 1, status }, { folder });
-    if (!window._lsoTempRecId) toast(pendingFile ? t('recSavedPending') : t('recSaved'), pendingFile ? 4000 : 2400);
   } catch (e) { console.error(e); toast(t('recSaveFail'), 4000); }
   R.busy = false;
   app.render();
+
+  if (createdItem || mainBlob) {
+    await openReviewRecordingModal({
+      savedItem: createdItem,
+      blob: mainBlob,
+      mime,
+      duration,
+      initialTranscript: fullTranscript
+    });
+  }
 }
 
-// Fișiere audio rămase pe telefon (aplicația închisă în timpul înregistrării sau import eșuat): le atașăm / salvăm.
 let orphansChecked = false;
 export async function recoverOrphans(tab) {
   if (orphansChecked || R.on || !isNative() || !nativeStt.hasNativeRec()) return 0;
@@ -233,7 +415,6 @@ export async function recoverOrphans(tab) {
   return n;
 }
 
-// „Transcrie”: tot audio-ul din fișierul înregistrării → text (local, pe telefon), apoi corectezi și salvezi.
 export async function transcribeRec(it) {
   const d = dataOf(it); if (!d || !d.mid) return;
   if (R.on) { toast(t('recTrBusy'), 3000); return; }
@@ -261,7 +442,8 @@ export async function transcribeRec(it) {
       { label: t('recTrStop'), cls: 'ghost', onClick: async mm => { if (running) { await nativeStt.fileTranscribeStop(); return; } mm.close(); } },
       { label: t('save'), cls: 'primary', onClick: async mm => {
         const cur = dataOf(it) || d;
-        await saveItem(it, { ...cur, transcript: ta.value.trim() });
+        const sp = splitFirstLineTitle(ta.value.trim(), cur.name || '');
+        await saveItem(it, { ...cur, name: cur.name || sp.title, transcript: sp.body || ta.value.trim() });
         toast(t('savedOk')); mm.close(); app.render();
       } },
     ],
@@ -299,8 +481,12 @@ const trErr = code => {
 };
 
 function updateLive() {
-  const tm = document.querySelector('.rec-timer'); if (tm) tm.textContent = fmtDur((Date.now() - R.start) / 1000);
-  const tr = document.querySelector('.rec-live'); if (tr) tr.textContent = liveBoxText();
+  const dur = fmtDur((Date.now() - R.start) / 1000);
+  const txt = liveBoxText();
+  const tm = document.querySelector('.rec-timer'); if (tm) tm.textContent = dur;
+  const tr = document.querySelector('.rec-live'); if (tr) tr.textContent = txt;
+  const ftm = document.querySelector('.rec-float-timer'); if (ftm) ftm.textContent = dur;
+  const ftr = document.querySelector('.rec-float-text'); if (ftr) ftr.textContent = txt;
 }
 
 export function renderRecordings(view, tab) {
@@ -352,7 +538,6 @@ export function renderRecordings(view, tab) {
     q.addEventListener('input', apply);
     qWrap.append(q);
     view.insertBefore(qWrap, list);
-    // first draw happens below, then apply if query
     setTimeout(() => { if (q.value) apply(); }, 0);
   }
   renderDayGroups(list, items, {
