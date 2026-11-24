@@ -5,7 +5,7 @@ import { state, tabById, visibleTabs, liveTabs, saveUI, onChange, isOpen, relock
 import { db, S } from './core/db.js';
 import { app } from './ui/registry.js';
 import { renderTabBar, tabDrag } from './ui/tabsbar.js';
-import { ui, ensureOpen, sortModeOf, SORT_MODES, saveManual } from './ui/list.js';
+import { ui, ensureOpen, sortModeOf, SORT_MODES, saveManual, openTagsPicker } from './ui/list.js';
 import { pickFolder, folderNameOf } from './ui/folderpick.js';
 import { openEditor, openEditors, moveItem } from './ui/editor.js';
 import { confirmDlg, toast, sheet, closeAll, modalsOpen, dropMenu, pinDlg, promptDlg } from './ui/modal.js';
@@ -615,16 +615,8 @@ function renderSelBar() {
     } }, t('color')),
     h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-tags', disabled: !ui.selected.size, onclick: async () => {
       const ids = selectedItems(); if (!ids.length) return;
-      const firstData = dataOf(ids[0]) || {};
-      const existing = Array.isArray(firstData.tags) ? firstData.tags.join(', ') : '';
-      const raw = await promptDlg('Etichete (separate prin virgulă)', { value: existing });
-      if (raw == null) return;
-      const tags = raw.split(',').map(s => toTitleCaseRo(s.trim())).filter(Boolean);
-      for (const it of ids) {
-        const d = dataOf(it) || {};
-        await saveItem(it, { ...d, tags });
-      }
-      toast('Etichete actualizate'); render();
+      const ok = await openTagsPicker(ids);
+      if (ok) { ui.selected.clear(); ui.selecting = false; render(); }
     } }, 'Etichete'),
     h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-pin', disabled: !ui.selected.size, onclick: async () => {
       const ids = selectedItems(); if (!ids.length) return;
