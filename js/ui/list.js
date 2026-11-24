@@ -11,6 +11,212 @@ import { draggable } from './dnd.js';
 
 export const ui = { expanded: new Set(), selecting: false, dragMode: false, selected: new Set() };
 
+const TAG_PALETTE = [
+  { name: 'Galben pal', bg: '#fef3c7', fg: '#78350f', border: '#fde68a' },
+  { name: 'Verde pal', bg: '#dcfce7', fg: '#14532d', border: '#bbf7d0' },
+  { name: 'Albastru pal', bg: '#dbeafe', fg: '#1e3a8a', border: '#bfdbfe' },
+  { name: 'Roz pal', bg: '#fce7f3', fg: '#831843', border: '#fbcfe8' },
+  { name: 'Lavandă pal', bg: '#f3e8ff', fg: '#581c87', border: '#e9d5ff' },
+  { name: 'Piersică pal', bg: '#ffedd5', fg: '#7c2d12', border: '#fed7aa' },
+  { name: 'Mentă pal', bg: '#ccfbf1', fg: '#134e4a', border: '#99f6e4' },
+  { name: 'Gri pal', bg: '#f1f5f9', fg: '#334155', border: '#cbd5e1' }
+];
+
+function getSavedTagColors() {
+  try { return JSON.parse(localStorage.getItem('lso_tag_colors') || '{}'); } catch { return {}; }
+}
+
+function saveTagColors(map) {
+  try { localStorage.setItem('lso_tag_colors', JSON.stringify(map)); } catch {}
+}
+
+function allExistingTags() {
+  const set = new Set();
+  for (const it of state.items.values()) {
+    if (it.trashedAt || !canView(it)) continue;
+    const d = dataOf(it);
+    if (d && Array.isArray(d.tags)) {
+      for (const tg of d.tags) if (tg && String(tg).trim()) set.add(String(tg).trim());
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'ro', { sensitivity: 'base' }));
+}
+
+export async function openTagsPicker(items) {
+  const list = Array.isArray(items) ? items.filter(Boolean) : [items].filter(Boolean);
+  if (!list.length) return false;
+
+  const existingTags = allExistingTags();
+  const colorMap = getSavedTagColors();
+  const activeSet = new Set();
+
+  if (list.length === 1) {
+    const d = dataOf(list[0]);
+    if (d && Array.isArray(d.tags)) d.tags.forEach(tg => activeSet.add(String(tg).trim()));
+  } else {
+    const firstD = dataOf(list[0]);
+    const firstTags = new Set(Array.isArray(firstD?.tags) ? firstD.tags.map(x => String(x).trim()) : []);
+    for (const tg of firstTags) {
+      if (list.every(it => Array.isArray(dataOf(it)?.tags) && dataOf(it).tags.includes(tg))) activeSet.add(tg);
+    }
+  }
+
+  let selectedColorIdx = 0;
+
+  return new Promise(resolve => {
+    const old = document.getElementById('lso-tags-overlay');
+    if (old) old.remove();
+
+    const overlay = h('div', {
+      id: 'lso-tags-overlay',
+      style: {
+        position: 'fixed', inset: '0', zIndex: 150, background: 'rgba(23,21,18,0.52)',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '12px'
+      }
+    });
+
+    const box = h('div', {
+      style: {
+        width: '100%', maxWidth: '460px', maxHeight: '85vh', overflowY: 'auto',
+        background: '#f6f3eb', color: '#1f1b13', border: '1.5px solid #c9a243',
+        borderRadius: '18px', padding: '14px', boxShadow: '0 14px 36px rgba(0,0,0,0.32)',
+        display: 'grid', gap: '10px'
+      }
+    });
+
+    const head = h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+      h('strong', { style: { fontSize: '1.05rem', color: '#171512' } },
+        list.length > 1 ? `Etichete (${list.length} selectate)` : 'Etichete'),
+      h('button', {
+        type: 'button',
+        style: { width: '32px', height: '32px', borderRadius: '999px', border: '1px solid #d4c6a3', background: '#fff', fontSize: '18px', cursor: 'pointer' },
+        onclick: () => { overlay.remove(); resolve(false); }
+      }, '×')
+    );
+
+    const chipsWrap = h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '30px' } });
+    const knownSet = new Set([...existingTags, ...activeSet]);
+
+    function renderChips() {
+      chipsWrap.innerHTML = '';
+      if (!knownSet.size) {
+        chipsWrap.append(h('div', { style: { fontSize: '0.84rem', color: '#665d4c' } }, 'Nicio etichetă creată încă. Scrie mai jos una nouă.'));
+        return;
+      }
+      for (const tg of [...knownSet].sort((a, b) => a.localeCompare(b, 'ro', { sensitivity: 'base' }))) {
+        const isOn = activeSet.has(tg);
+        const pal = TAG_PALETTE[colorMap[tg] ?? 0] || TAG_PALETTE[0];
+        const chip = h('button', {
+          type: 'button',
+          style: {
+            display: 'inline-flex', alignItems: 'center', gap: '5px',
+            padding: '5px 10px', borderRadius: '999px', fontSize: '0.85rem', fontWeight: isOn ? '700' : '500',
+            background: isOn ? pal.bg : '#fff',
+            color: isOn ? pal.fg : '#4a4232',
+            border: isOn ? `1.5px solid ${pal.fg}` : '1px solid #d4c6a3',
+            cursor: 'pointer'
+          },
+          onclick: () => {
+            if (activeSet.has(tg)) activeSet.delete(tg);
+            else {
+              activeSet.add(tg);
+              if (colorMap[tg] == null) colorMap[tg] = selectedColorIdx;
+            }
+            renderChips();
+          }
+        }, (isOn ? '✓ ' : '+ ') + tg);
+        chipsWrap.append(chip);
+      }
+    }
+
+    const paletteRow = h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
+      h('span', { style: { fontSize: '0.8rem', color: '#5c5343', marginRight: '2px' } }, 'Culoare:')
+    );
+    const swatchBtns = [];
+    TAG_PALETTE.forEach((p, idx) => {
+      const sw = h('button', {
+        type: 'button', title: p.name,
+        style: {
+          width: '24px', height: '24px', borderRadius: '999px', background: p.bg,
+          border: idx === selectedColorIdx ? `2px solid ${p.fg}` : `1px solid ${p.border}`,
+          cursor: 'pointer'
+        },
+        onclick: () => {
+          selectedColorIdx = idx;
+          swatchBtns.forEach((b, j) => { b.style.border = j === idx ? `2px solid ${TAG_PALETTE[j].fg}` : `1px solid ${TAG_PALETTE[j].border}`; });
+        }
+      });
+      swatchBtns.push(sw);
+      paletteRow.append(sw);
+    });
+
+    const newInput = h('input', {
+      type: 'text', placeholder: 'Etichetă nouă...', autocomplete: 'off',
+      style: {
+        flex: 1, minWidth: 0, padding: '8px 10px', borderRadius: '10px',
+        border: '1.5px solid #d4c6a3', background: '#fff', color: '#1f1b13', fontSize: '0.92rem'
+      }
+    });
+
+    const addNewBtn = h('button', {
+      type: 'button',
+      style: {
+        padding: '8px 12px', borderRadius: '10px', border: '1px solid #c9a243',
+        background: '#fffdf7', color: '#171512', fontWeight: '600', cursor: 'pointer'
+      },
+      onclick: () => {
+        const parts = newInput.value.split(',').map(s => s.trim()).filter(Boolean);
+        if (!parts.length) return;
+        for (const p of parts) {
+          knownSet.add(p);
+          activeSet.add(p);
+          colorMap[p] = selectedColorIdx;
+        }
+        newInput.value = '';
+        renderChips();
+      }
+    }, 'Adaugă');
+
+    newInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); addNewBtn.click(); }
+    });
+
+    const addRow = h('div', { style: { display: 'flex', gap: '6px' } }, newInput, addNewBtn);
+
+    const saveBtn = h('button', {
+      type: 'button',
+      style: {
+        padding: '10px 14px', borderRadius: '12px', border: 'none', background: '#c9a243',
+        color: '#171512', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer'
+      },
+      onclick: async () => {
+        if (newInput.value.trim()) addNewBtn.click();
+        saveTagColors(colorMap);
+        const chosen = [...activeSet];
+        for (const it of list) {
+          const d = dataOf(it) || {};
+          if (list.length === 1) {
+            await saveItem(it, { ...d, tags: chosen });
+          } else {
+            const prev = Array.isArray(d.tags) ? d.tags : [];
+            const merged = [...new Set([...prev, ...chosen])];
+            await saveItem(it, { ...d, tags: merged });
+          }
+        }
+        toast('Etichete salvate');
+        overlay.remove();
+        resolve(true);
+      }
+    }, 'Salvează etichetele');
+
+    renderChips();
+    box.append(head, chipsWrap, paletteRow, addRow, saveBtn);
+    overlay.append(box);
+    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(false); } });
+    document.body.append(overlay);
+  });
+}
+
 export async function askUnlock(obj, title) {
   const ok = await pinDlg(title || t('unlock'), { verify: pin => unlockTemp(obj, pin) });
   return !!ok;
@@ -137,8 +343,18 @@ function separatorCard(it) {
 
 function renderTagsRow(d) {
   if (!d || !Array.isArray(d.tags) || !d.tags.length) return null;
-  const row = h('div', { class: 'tag-row' });
-  d.tags.forEach(tg => row.append(h('span', { class: 'tag-chip' }, '🏷️ ' + tg)));
+  const colorMap = getSavedTagColors();
+  const row = h('div', { class: 'tag-row', style: { display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '3px' } });
+  d.tags.forEach(tg => {
+    const pal = TAG_PALETTE[colorMap[tg] ?? 0] || TAG_PALETTE[0];
+    row.append(h('span', {
+      class: 'tag-chip',
+      style: {
+        background: pal.bg, color: pal.fg, border: `1px solid ${pal.border}`,
+        borderRadius: '999px', padding: '1px 7px', fontSize: '0.74rem', fontWeight: '600'
+      }
+    }, tg));
+  });
   return row;
 }
 
@@ -216,7 +432,7 @@ export function card(it) {
   r1.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
   el.append(r1);
 
-  // Drag and drop activ pe orice document, dosar sau folder
+  // Drag and drop activ pe orice document, dosar sau folder (direct de pe card)
   let grip = r1;
   if (ui.dragMode) { grip = h('span', { class: 'dnd-handle', role: 'button', 'aria-label': t('dragToReorder'), 'data-test': 'drag-handle' }, '≡'); r1.prepend(grip); }
   draggable(el, {
@@ -259,11 +475,11 @@ async function openItemMenu(it) {
   const current = d ? (K.title ? K.title(d) : d.name || d.text || '') : '';
   const v = await sheet('Acțiuni', [
     { label: 'Redenumește', value: 'ren', icon: '✏️' },
-    { label: d?.pinned ? 'Desfixează' : 'Fixează sus 📌', value: 'pin', icon: '📌' },
+    { label: d?.pinned ? 'Desfixează' : 'Fixează sus', value: 'pin', icon: '📌' },
     { label: 'Alarmă', value: 'alarm', icon: '⏰' },
-    { label: 'Trimite', value: 'share', icon: '↗' },
+    { label: 'Share', value: 'share', icon: shareIcon() },
     { label: it.lock ? 'Deblochează' : 'Blochează', value: 'lock', icon: '🔒' },
-    { label: 'Etichete 🏷️', value: 'tags', icon: '🏷️' },
+    { label: 'Etichete', value: 'tags', icon: '🏷️' },
     { label: t('color'), value: 'color', icon: '🎨' },
     { label: t('aspect'), value: 'aspect', icon: 'Aa' },
     { label: 'Șterge', value: 'del', icon: '🗑', cls: 'danger' }
@@ -282,13 +498,7 @@ async function openItemMenu(it) {
   else if (v === 'share') shareText(d?.title || d?.name || '', d?.text || '');
   else if (v === 'lock') toast('Blocare (folosește meniul existent)');
   else if (v === 'tags') {
-    const existing = Array.isArray(d?.tags) ? d.tags.join(', ') : '';
-    const input = await promptDlg('Etichete (separate prin virgulă)', { value: existing });
-    if (input != null) {
-      const tags = input.split(',').map(s => s.trim()).filter(Boolean);
-      await saveItem(it, { ...d, tags });
-      toast('Etichete salvate');
-    }
+    await openTagsPicker([it]);
   } else if (v === 'color') {
     const c = await pickColor(it.color || '');
     if (c != null) { await applyColorToItems([it], c); toast(t('savedOk')); }
@@ -353,6 +563,11 @@ export async function saveToSaved(it, d) {
 function shareIcon() {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
   svg.setAttribute('aria-hidden', 'true');
   const el = (name, attrs) => {
     const n = document.createElementNS('http://www.w3.org/2000/svg', name);
