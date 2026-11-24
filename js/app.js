@@ -32,6 +32,12 @@ function toTitleCaseRo(str) {
   return String(str || '').replace(/(^|[\s\-])([a-zăîâșț])/g, (_, sep, ch) => sep + ch.toUpperCase());
 }
 
+function autoCapFirst(str) {
+  const s = String(str || '');
+  if (!s) return s;
+  return s.replace(/^(\s*)([a-zăîâșț])/, (_, sp, ch) => sp + ch.toUpperCase());
+}
+
 export function currentTab() {
   let tab = tabById(state.ui.tab);
   if (!tab || tab.trashedAt || tab.visible === false) tab = visibleTabs()[0] || null;
@@ -169,7 +175,6 @@ function goTab(id, keepScroll) {
   if (!keepScroll) window.scrollTo(0, (next && state.ui.scroll[next.id]) || 0);
 }
 
-// Duce direct la element (din căutare sau alarmă), îl deschide și îl evidențiază.
 export async function reveal(id) {
   const it = getItem(id);
   if (!it) return;
@@ -216,7 +221,7 @@ function headerBottomY() {
   const hdr = document.querySelector('.top') || document.getElementById('hdr') || document.querySelector('header');
   const b1 = tab ? tab.getBoundingClientRect().bottom : 0;
   const b2 = hdr ? hdr.getBoundingClientRect().bottom : 0;
-  return Math.max(b1, b2, 72);
+  return Math.max(b1, b2, 92) + 10;
 }
 
 function defaultTmpBottom() {
@@ -247,7 +252,8 @@ function applyTmpPos(box) {
   const raw = savedTmpBottom();
   const bottom = clampTmpBottom(raw == null ? defaultTmpBottom() : raw, hgt);
   box.style.bottom = bottom + 'px';
-  const topLimit = headerBottomY() + 8;
+  box.style.zIndex = '60';
+  const topLimit = headerBottomY() + 6;
   const boxBottomY = window.innerHeight - bottom;
   box.style.maxHeight = Math.max(56, boxBottomY - topLimit) + 'px';
 }
@@ -290,7 +296,7 @@ function bindTmpDrag(box, title) {
     const dy = drag.y0 - e.clientY;
     drag.bottom = clampTmpBottom(drag.startBottom + dy, box.getBoundingClientRect().height);
     box.style.bottom = drag.bottom + 'px';
-    const topLimit = headerBottomY() + 8;
+    const topLimit = headerBottomY() + 6;
     const boxBottomY = window.innerHeight - drag.bottom;
     box.style.maxHeight = Math.max(56, boxBottomY - topLimit) + 'px';
   });
@@ -329,7 +335,7 @@ function renderTemporaryZone(tab) {
   };
   header.append(title);
 
-  // În Temporar rămâne DOAR semnul '+' pentru a deschide/crea rapid o notiță/fișier temporar
+  // DOAR semnul '+' pe bara Temporar pentru a crea și deschide direct o notiță/fișier nou
   const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
   const addBtn = h('button', { class: 'tmp-add', type: 'button', 'data-test': 'tmp-add', title: 'Notiță / fișier temporar nou', onclick: async (e) => {
     e.stopPropagation();
@@ -348,7 +354,7 @@ function renderTemporaryZone(tab) {
   box.append(header);
 
   if (!items.length) {
-    listEl.append(h('div', { style: { opacity: 0.6, fontSize: '0.88rem', padding: '6px 0' } }, 'Apasă + pentru o notiță temporară (în interior ai Citește, Dictează și Înregistrează).'));
+    listEl.append(h('div', { style: { opacity: 0.65, fontSize: '0.88rem', padding: '6px 0' } }, 'Apasă + pentru o notiță temporară (în interior ai Citește, Dictează și Înregistrează).'));
   } else {
     items.forEach(it => {
       const lines = (it.text || '').split('\n');
@@ -381,16 +387,15 @@ function renderTemporaryZone(tab) {
 
       let fullOpen = false;
       const noteView = h('div', { class: 'tmp-note-text', 'data-test': 'tmp-note-text', style: { display: 'none', fontSize: '0.95rem', marginTop: '6px', whiteSpace: 'pre-wrap', opacity: 0.95 } }, it.text || '');
-      const taNote = h('textarea', { class: 'tmp-note-ta', 'data-test': 'tmp-note-ta', 'data-tmp-id': it.id, placeholder: 'Scrie sau folosește microfonul activ din interior...', rows: 4 });
+      const taNote = h('textarea', { class: 'tmp-note-ta', 'data-test': 'tmp-note-ta', 'data-tmp-id': it.id, autocapitalize: 'sentences', placeholder: 'Scrie sau folosește butoanele de mai jos...', rows: 4 });
       taNote.value = it.text || '';
       taNote.style.display = 'none';
-      const growTa = () => { taNote.style.height = 'auto'; taNote.style.height = Math.min(Math.max(taNote.scrollHeight, 72), 220) + 'px'; };
+      const growTa = () => { taNote.style.height = 'auto'; taNote.style.height = Math.min(Math.max(taNote.scrollHeight, 72), 200) + 'px'; };
       taNote.addEventListener('input', () => {
-        let v = taNote.value;
-        if (v && /[a-zăîâșț]/.test(v[0])) {
+        const capped = autoCapFirst(taNote.value);
+        if (capped !== taNote.value) {
           const pos = taNote.selectionStart;
-          v = v[0].toUpperCase() + v.slice(1);
-          taNote.value = v;
+          taNote.value = capped;
           try { taNote.setSelectionRange(pos, pos); } catch {}
         }
         updateTemporary(it.id, { text: taNote.value });
@@ -417,7 +422,11 @@ function renderTemporaryZone(tab) {
           if (isDictating()) { await stopDictation(); return; }
           setTarget(taNote);
           try { taNote.focus({ preventScroll: true }); } catch { try { taNote.focus(); } catch {} }
-          const save = () => { try { updateTemporary(it.id, { text: taNote.value || '' }); } catch {} };
+          const save = () => {
+            const capped = autoCapFirst(taNote.value || '');
+            taNote.value = capped;
+            try { updateTemporary(it.id, { text: capped }); } catch {}
+          };
           await startDictation(taNote, { onEnd: save });
         } }, '🗣 Dictează'),
         h('button', { type: 'button', class: 'tmp-btn', onclick: async e => {
@@ -425,10 +434,7 @@ function renderTemporaryZone(tab) {
           window._lsoTempRecId = it.id;
           if (typeof startRecording === 'function') {
             await startRecording(tab.id);
-            toast('Înregistrare pornită. Oprește din microfon.');
           }
-          updateTemporary(it.id, { text: ((taNote.value || it.text || '') + '\n🎙️ Înregistrare în curs…').trim() });
-          render();
         } }, '🔴 Înregistrează')
       );
 
@@ -443,6 +449,7 @@ function renderTemporaryZone(tab) {
         applyTmpPos(box);
       };
       if (it.id === lastDictTempId || (!it.text && tmpExpanded)) {
+        lastDictTempId = null;
         setTimeout(() => openNote(), 0);
       }
       if (it.mid) {
@@ -502,9 +509,7 @@ function renderTemporaryZone(tab) {
         } else if (action === 'edit') {
           const newText = await promptDlg('Editează notița', { value: (taNote && taNote.value) || it.text || '', multiline: true });
           if (newText != null) {
-            let t = newText.trim();
-            if (t && /[a-zăîâșț]/.test(t[0])) t = t[0].toUpperCase() + t.slice(1);
-            updateTemporary(it.id, { text: t });
+            updateTemporary(it.id, { text: autoCapFirst(newText.trim()) });
             render();
           }
         } else if (action === 'move') {
@@ -600,6 +605,34 @@ function saveQuickAlarms(list) {
   try { localStorage.setItem('lso_alarms', JSON.stringify(list)); } catch {}
 }
 
+function showAlarmBanner(a) {
+  const old = document.getElementById('lso-alarm-ringing');
+  if (old) old.remove();
+  const banner = h('div', {
+    id: 'lso-alarm-ringing',
+    style: {
+      position: 'fixed', top: '14px', left: '12px', right: '12px', zIndex: '1200',
+      background: '#171512', color: '#fffdf9', border: '2px solid #f4b942',
+      borderRadius: '16px', padding: '14px 16px', boxShadow: '0 12px 32px rgba(0,0,0,0.45)',
+      display: 'flex', flexDirection: 'column', gap: '8px'
+    }
+  },
+    h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' } },
+      h('strong', { style: { fontSize: '1.1rem', color: '#f4b942' } }, `⏰ ALARMĂ · ${a.time}`),
+      h('button', {
+        type: 'button', class: 'btn sm primary',
+        style: { background: '#f4b942', color: '#171512', border: 'none', fontWeight: '700' },
+        onclick: () => banner.remove()
+      }, 'OK')
+    ),
+    h('div', { style: { fontSize: '1rem', fontWeight: '700' } },
+      [a.person || 'Alarmă', a.room ? `Sala ${a.room}` : ''].filter(Boolean).join(' · ')
+    ),
+    a.note ? h('div', { style: { fontSize: '0.92rem', opacity: '0.9', background: 'rgba(255,255,255,0.08)', padding: '8px 10px', borderRadius: '8px' } }, a.note) : null
+  );
+  document.body.append(banner);
+}
+
 function openQuickAlarmDialog(tab) {
   const existing = document.getElementById('lso-qa-overlay');
   if (existing) existing.remove();
@@ -628,7 +661,6 @@ function openQuickAlarmDialog(tab) {
     }, onclick: () => overlay.remove() }, '×')
   );
 
-  // Formular: Nume și prenume cu majuscule automate la fiecare cuvânt
   const iName = h('input', { type: 'text', autocapitalize: 'words', placeholder: 'Nume și prenume (atinge pentru notă)', autocomplete: 'off', style: {
     width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: '10px',
     border: '1.5px solid #d4c6a3', background: '#fff', color: '#1f1b13', fontSize: '0.95rem'
@@ -647,6 +679,14 @@ function openQuickAlarmDialog(tab) {
     width: '100%', boxSizing: 'border-box', padding: '8px 11px', borderRadius: '10px',
     border: '1.5px solid #c9a243', background: '#fffdf7', color: '#1f1b13', fontSize: '0.88rem'
   } });
+  iNote.addEventListener('input', () => {
+    const capped = autoCapFirst(iNote.value);
+    if (capped !== iNote.value) {
+      const pos = iNote.selectionStart;
+      iNote.value = capped;
+      try { iNote.setSelectionRange(pos, pos); } catch {}
+    }
+  });
   noteWrap.append(iNote);
   iName.addEventListener('click', () => { noteWrap.style.display = 'block'; });
   iName.addEventListener('focus', () => { noteWrap.style.display = 'block'; });
@@ -733,7 +773,7 @@ function openQuickAlarmDialog(tab) {
     const room = iRoom.value.trim();
     const rawTime = iTime.value.trim();
     const time = normalizeAlarm(rawTime) || rawTime;
-    const note = iNote.value.trim();
+    const note = autoCapFirst(iNote.value.trim());
     if (!time) { toast('Alege ora alarmei'); return; }
     const alarms = loadQuickAlarms();
     alarms.push({
@@ -771,7 +811,7 @@ function renderUrgentClock(tab) {
   const timeStr = now.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
   let nextLabel = 'fără alarmă';
   try {
-    const alarms = loadQuickAlarms().filter(a => a && a.time).sort((a, b) => a.time.localeCompare(b.time));
+    const alarms = loadQuickAlarms().filter(a => a && a.time && !a.fired).sort((a, b) => a.time.localeCompare(b.time));
     if (alarms.length) {
       const a = alarms[0];
       nextLabel = '⏰ ' + a.time + (a.room ? ' · S.' + a.room : '');
@@ -779,7 +819,7 @@ function renderUrgentClock(tab) {
   } catch {}
   const clk = h('div', { id: 'urgent-clock', style: {
     background: 'rgba(23,21,18,0.95)', color: '#d4af37', border: '1.5px solid #c9a243',
-    cursor: 'pointer', textAlign: 'left', minWidth: '94px',
+    cursor: 'pointer', textAlign: 'left', minWidth: '94px', zIndex: '65',
     boxShadow: '0 6px 18px rgba(0,0,0,0.22)'
   } });
   clk.append(h('div', { style: { fontSize: '1.15rem', fontWeight: 700, lineHeight: 1.05, color: '#f4b942' } }, timeStr));
@@ -802,7 +842,7 @@ function renderUrgentClock(tab) {
     openQuickAlarmDialog(tab);
   });
   document.body.append(clk);
-  clockTimer = setTimeout(() => renderUrgentClock(tab), 30000);
+  clockTimer = setTimeout(() => renderUrgentClock(tab), 15000);
 }
 
 function normalizeAlarm(raw) {
@@ -820,7 +860,7 @@ function normalizeAlarm(raw) {
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 
-// Checker de alarmă – rulează la fiecare 10s
+// Checker de alarmă – afișează notificare vizuală clară cu ora, numele, sala și nota + sunet și vibrație
 setInterval(() => {
   try {
     const now = new Date();
@@ -833,26 +873,24 @@ setInterval(() => {
       if (a && a.time === cur && !a.fired) {
         a.fired = true;
         changed = true;
-        const details = [
-          '⏰ ' + a.time,
-          a.person || '',
-          a.room ? 'Sala ' + a.room : '',
-          a.note ? '— ' + a.note : ''
-        ].filter(Boolean).join(' · ');
-        toast(details, 10000);
-        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]); } catch {}
+        showAlarmBanner(a);
+        try { if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 400]); } catch {}
         try {
           const ctx = new (window.AudioContext || window.webkitAudioContext)();
           const o = ctx.createOscillator(); const g = ctx.createGain();
           o.connect(g); g.connect(ctx.destination);
-          o.frequency.value = 880; g.gain.value = 0.3;
-          o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 600);
+          o.frequency.value = 880; g.gain.value = 0.35;
+          o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 750);
         } catch {}
       }
     }
-    if (changed) saveQuickAlarms(alarms);
+    if (changed) {
+      saveQuickAlarms(alarms);
+      const tb = currentTab();
+      if (tb) renderUrgentClock(tb);
+    }
   } catch {}
-}, 10000);
+}, 5000);
 
 // ---- FAB-uri Overlay: „+” și Microfonul peste toate paginile și dosarele ----
 function renderFab(tab) {
@@ -922,7 +960,6 @@ async function voiceFab(tab) {
     if (rt) { goTab(rt.id); startRecording(rt.id); } else toast(t('noRecTab'));
   } else if (v === 'set') voiceMenu();
 }
-
 
 // ---- Selecție multiplă (mutare, culoare, etichete, fixare, ștergere) ----
 function renderSelBar() {
