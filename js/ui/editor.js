@@ -14,8 +14,13 @@ import { pickField, choiceField } from './pickers.js';
 import { app } from './registry.js';
 import { extOf } from './list.js';
 
-// Editoare deschise: la trecerea în fundal, cele cu conținut blocat se salvează automat și se închid.
 export const openEditors = new Set();
+
+function toTitleCaseRo(str) {
+  return String(str || '').replace(/(^|[\s\-])([a-zăîâșț])/g, (_, sep, ch) => sep + ch.toUpperCase());
+}
+
+const NAME_KEYS = new Set(['client', 'name', 'person', 'parties', 'nume', 'prenume']);
 
 export function itemKindFor(tab, sub) {
   if (tab.kind === 'saved' && sub === 'descarcate') return 'document';
@@ -46,18 +51,58 @@ export async function openEditor(tabId, it = null, opts = {}) {
   let row = null;
   for (const f of K.fields || []) {
     const label = f.label();
+    const isNameField = NAME_KEYS.has(f.k) || f.list === 'clients' || /nume|client|părți/i.test(label);
     let el;
     if ((f.type === 'text' || f.type === 'pick') && f.list) {
       const pf = pickField({ value: data[f.k] || '', list: f.list, label, test: (f.list === 'clients' ? 'client-pick' : f.list === 'caseNumbers' ? 'case-number-pick' : 'case-pick') });
       el = pf.el;
-      getters.push(() => { data[f.k] = pf.get(); return true; });
+      const pfInp = el.querySelector('input');
+      if (pfInp && isNameField) {
+        pfInp.setAttribute('autocapitalize', 'words');
+        pfInp.addEventListener('input', () => {
+          const pos = pfInp.selectionStart;
+          const tc = toTitleCaseRo(pfInp.value);
+          if (tc !== pfInp.value) {
+            pfInp.value = tc;
+            try { pfInp.setSelectionRange(pos, pos); } catch {}
+          }
+        });
+      }
+      getters.push(() => {
+        const val = pf.get();
+        data[f.k] = isNameField ? toTitleCaseRo(val) : val;
+        return true;
+      });
     } else if (f.type === 'text' || f.type === 'url' || f.type === 'tel' || f.type === 'email') {
-      const inp = h('input', { class: 'inp' + (f.type === 'text' ? ' voice-target' : ''), type: f.type === 'text' ? 'text' : f.type, 'data-k': f.k, autocomplete: 'off', enterkeyhint: 'next', autocapitalize: 'sentences' });
+      const inp = h('input', {
+        class: 'inp' + (f.type === 'text' ? ' voice-target' : ''),
+        type: f.type === 'text' ? 'text' : f.type,
+        'data-k': f.k,
+        autocomplete: 'off',
+        enterkeyhint: 'next',
+        autocapitalize: isNameField ? 'words' : 'sentences'
+      });
       inp.value = data[f.k] || '';
+      if (f.type === 'text') {
+        inp.addEventListener('input', () => {
+          const pos = inp.selectionStart;
+          let v = inp.value;
+          if (isNameField) v = toTitleCaseRo(v);
+          else if (v && /[a-zăîâșț]/.test(v[0])) v = v[0].toUpperCase() + v.slice(1);
+          if (v !== inp.value) {
+            inp.value = v;
+            try { inp.setSelectionRange(pos, pos); } catch {}
+          }
+        });
+      }
       inp.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
       const extra = f.type === 'tel' && data[f.k] ? h('a', { class: 'icon-btn sm', href: 'tel:' + data[f.k] }, '📞') : f.type === 'email' && data[f.k] ? h('a', { class: 'icon-btn sm', href: 'mailto:' + data[f.k] }, '✉') : f.type === 'url' && /^https?:/.test(data[f.k] || '') ? h('a', { class: 'icon-btn sm', href: data[f.k], target: '_blank', rel: 'noopener noreferrer' }, '↗') : null;
       el = h('label', { class: 'fld' }, h('span', {}, label), extra ? h('div', { class: 'row-inp' }, inp, extra) : inp);
-      getters.push(() => { data[f.k] = inp.value.trim(); return true; });
+      getters.push(() => {
+        const raw = inp.value.trim();
+        data[f.k] = isNameField ? toTitleCaseRo(raw) : raw;
+        return true;
+      });
     } else if (f.type === 'textarea') {
       const ta = h('textarea', { class: 'inp voice-target', 'data-k': f.k, rows: f.rows || 8, placeholder: f.ph || '', autocapitalize: 'sentences', spellcheck: 'true' });
       ta.value = data[f.k] || '';
@@ -147,7 +192,6 @@ export async function openEditor(tabId, it = null, opts = {}) {
   openEditors.add(handle);
   app.speakEditor = async () => { if (!(await collect())) return ''; return plainText(K, data); };
   const prevClose = m.close; m.close = (...a) => { if (app.speakEditor) delete app.speakEditor; openEditors.delete(handle); prevClose(...a); };
-  // butonul Înapoi cere confirmare dacă există modificări
   const head = m.el.querySelector('.m-back');
   const tryClose = async () => { if (dirty && !(await confirmDlg(t('discardChanges')))) return; m.close(); };
   m.onBack = tryClose;
