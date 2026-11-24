@@ -5,7 +5,7 @@ import { state, tabById, visibleTabs, liveTabs, saveUI, onChange, isOpen, relock
 import { db, S } from './core/db.js';
 import { app } from './ui/registry.js';
 import { renderTabBar, tabDrag } from './ui/tabsbar.js';
-import { ui, ensureOpen, sortModeOf, SORT_MODES, saveManual, openTagsPicker } from './ui/list.js';
+import { ui, ensureOpen, sortModeOf, SORT_MODES, saveManual } from './ui/list.js';
 import { pickFolder, folderNameOf } from './ui/folderpick.js';
 import { openEditor, openEditors, moveItem } from './ui/editor.js';
 import { confirmDlg, toast, sheet, closeAll, modalsOpen, dropMenu, pinDlg, promptDlg } from './ui/modal.js';
@@ -615,8 +615,11 @@ function renderSelBar() {
     } }, t('color')),
     h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-tags', disabled: !ui.selected.size, onclick: async () => {
       const ids = selectedItems(); if (!ids.length) return;
-      const ok = await openTagsPicker(ids);
-      if (ok) { ui.selected.clear(); ui.selecting = false; render(); }
+      const mod = await import('./ui/list.js');
+      if (typeof mod.openTagsPicker === 'function') {
+        const ok = await mod.openTagsPicker(ids);
+        if (ok) { ui.selected.clear(); ui.selecting = false; render(); }
+      }
     } }, 'Etichete'),
     h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'sel-pin', disabled: !ui.selected.size, onclick: async () => {
       const ids = selectedItems(); if (!ids.length) return;
