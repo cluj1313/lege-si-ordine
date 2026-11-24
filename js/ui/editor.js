@@ -63,7 +63,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
   const added = [], removed = [];
   let dirty = false, saved = false;
   const getters = [];
-  const form = h('div', { class: 'ed-form' });
+  const form = h('div', { class: 'ed-form', style: { paddingBottom: '130px' } });
   form.addEventListener('input', () => { dirty = true; });
 
   const lists = {
@@ -213,6 +213,30 @@ export async function openEditor(tabId, it = null, opts = {}) {
     ].filter(Boolean),
   });
   m.el.dataset.test = 'editor';
+
+  // Adaugă butoane vizibile Salvează și Renunță direct în antetul de sus al editorului (imposibil de acoperit de + / Microfon / Dictează)
+  const mHead = m.el.querySelector('.m-head');
+  if (mHead) {
+    const topBtns = h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' } },
+      h('button', {
+        type: 'button', class: 'btn sm ghost',
+        onclick: async () => { if (dirty && !(await confirmDlg(t('discardChanges')))) return; m.close(); }
+      }, t('cancel')),
+      h('button', {
+        type: 'button', class: 'btn sm primary',
+        onclick: () => doSave(m)
+      }, t('save'))
+    );
+    mHead.append(topBtns);
+  }
+
+  // Ridică bara de jos a modalului deasupra ceasului și butoanelor + / Microfon
+  const mFoot = m.el.querySelector('.m-foot');
+  if (mFoot) {
+    mFoot.style.paddingBottom = '82px';
+    mFoot.style.justifyContent = 'center';
+  }
+
   const handle = { isLocked: () => !!ownerOf(it || temp), autosave: async () => { if (dirty && await collect()) await doSave(m); else m.close(); } };
   openEditors.add(handle);
   app.speakEditor = async () => { if (!(await collect())) return ''; return plainText(K, data); };
