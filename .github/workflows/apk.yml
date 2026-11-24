@@ -5,7 +5,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      EXPECTED_CERT_SHA256: 2df9ee0657a37d319c83fbd52465ed44b9beee082f1af7562b4cc3c220db3
+      EXPECTED_CERT_SHA256: 2df9ee0657a37d319c83fbd52465ed44b49b9ceee082f1af7562b4cc3c220db3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,10 +45,35 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
       - name: Verifică semnătura și alinierea
         run: |
-          APK="android/app/build/outputs/apk/release/app-release.apk"
-          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -v 4 "$APK"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | grep -F "$EXPECTED_CERT_SHA256"
+          set -euo pipefail
+          SRC=android/app/build/outputs/apk/release/app-release.apk
+          test -f "$SRC"
+          BT="$ANDROID_SDK_ROOT/build-tools/36.0.0"
+          if [ ! -x "$BT/apksigner" ]; then
+            BT=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -n1)
+          fi
+          mkdir -p dist
+          cp "$SRC" dist/LSO.apk
+          cp "$SRC" dist/LEGE-SI-ORDINE.apk
+          # Numele cu versiune: ia versionName din fișier, ca workflow-ul să rămână bun și după 1.1.9
+          VER=$("$BT/aapt" dump badging dist/LSO.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          if [ -n "$VER" ]; then
+            cp "$SRC" "dist/LEGE-SI-ORDINE-v${VER}.apk"
+          fi
+          "$BT/zipalign" -c -v 4 dist/LSO.apk
+          "$BT/apksigner" verify --print-certs -v dist/LSO.apk
+          CERT=$("$BT/apksigner" verify --print-certs dist/LSO.apk | awk '/SHA-256 digest:/{print tolower($NF); exit}')
+          if [ "$CERT" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "Certificat greșit: $CERT (așteptat $EXPECTED_CERT_SHA256). Nu încarc APK-ul." >&2
+            exit 1
+          fi
+          ls -lh dist/*.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: lege-si-ordine-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: LEGE-SI-ORDINE-apk
+          path: |
+            dist/LSO.apk
+            dist/LEGE-SI-ORDINE.apk
+            dist/LEGE-SI-ORDINE-v*.apk
+          if-no-files-found: error
+          overwrite: true
