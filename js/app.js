@@ -19,7 +19,6 @@ import { openSettings, applyTheme } from './features/settings.js';
 import { readScreenAloud, stopSpeak, isSpeaking, startDictation, stopDictation, isDictating, getTarget, setTarget, voiceMenu } from './features/voice.js';
 import { KINDS, TAB_KINDS } from './tabs/kinds.js';
 import { renderWidgets } from './features/widgets.js';
-import { listTemporary, createTemporary, deleteTemporary, updateTemporary } from './features/temporary.js';
 import { saveSettings } from './core/store.js';
 import { copyText, shareText } from './features/share.js';
 import { openCalendar } from './features/calendar.js';
@@ -69,7 +68,8 @@ export function render() {
   else renderGeneric(view, tab);
   renderFab(tab);
   renderSelBar();
-  renderTemporaryZone(tab);
+  const oldTmp = document.getElementById('temporary-zone');
+  if (oldTmp) oldTmp.remove();
   renderUrgentClock(tab);
   renderWidgets();
   enableSwipeTabs();
@@ -136,7 +136,7 @@ function enableSwipeTabs() {
     if (modalsOpen() || isSpeaking() || ui.selecting || ui.dragMode) return;
     const t0 = e.touches[0];
     if (t0.clientY < 110 || t0.clientY > window.innerHeight - 95) return;
-    if (e.target && e.target.closest && e.target.closest('input, textarea, select, button, .tabbar, .pill-row, .subtabs, .tmp-zone, #urgent-clock, .fabs')) return;
+    if (e.target && e.target.closest && e.target.closest('input, textarea, select, button, .tabbar, .pill-row, .subtabs, #urgent-clock, .fabs')) return;
     startX = t0.clientX;
     startY = t0.clientY;
     tracking = true;
@@ -201,384 +201,6 @@ export async function deleteItem(it) {
   toast(t('movedToTrash'));
   return true;
 }
-
-let tmpExpanded = false;
-let lastDictTempId = null;
-const TMP_POS_KEY = 'lso_tmp_pos';
-const TMP_GAP = 10;
-
-function fabTopY() {
-  const f = document.getElementById('fabs') || document.querySelector('.fabs');
-  if (f) {
-    const r = f.getBoundingClientRect();
-    if (r.height) return r.top;
-  }
-  return window.innerHeight - 74;
-}
-
-function headerBottomY() {
-  const tab = document.getElementById('tabbar');
-  const hdr = document.querySelector('.top') || document.getElementById('hdr') || document.querySelector('header');
-  const b1 = tab ? tab.getBoundingClientRect().bottom : 0;
-  const b2 = hdr ? hdr.getBoundingClientRect().bottom : 0;
-  return Math.max(b1, b2, 92) + 10;
-}
-
-function defaultTmpBottom() {
-  return Math.max(0, window.innerHeight - fabTopY() + TMP_GAP);
-}
-
-function clampTmpBottom(bottom, boxH) {
-  const minB = defaultTmpBottom();
-  const maxB = window.innerHeight - headerBottomY() - Math.max(48, boxH || 56) - 8;
-  return Math.max(minB, Math.min(Number(bottom) || minB, Math.max(minB, maxB)));
-}
-
-function savedTmpBottom() {
-  try {
-    const j = JSON.parse(localStorage.getItem(TMP_POS_KEY) || 'null');
-    if (j && typeof j.bottom === 'number' && Number.isFinite(j.bottom)) return j.bottom;
-  } catch {}
-  return null;
-}
-
-function saveTmpBottom(bottom) {
-  try { localStorage.setItem(TMP_POS_KEY, JSON.stringify({ bottom: Math.round(bottom) })); } catch {}
-}
-
-function applyTmpPos(box) {
-  if (!box) return;
-  const hgt = box.getBoundingClientRect().height || box.offsetHeight || 56;
-  const raw = savedTmpBottom();
-  const bottom = clampTmpBottom(raw == null ? defaultTmpBottom() : raw, hgt);
-  box.style.bottom = bottom + 'px';
-  box.style.zIndex = '60';
-  const topLimit = headerBottomY() + 6;
-  const boxBottomY = window.innerHeight - bottom;
-  box.style.maxHeight = Math.max(56, boxBottomY - topLimit) + 'px';
-}
-
-function bindTmpDrag(box, title) {
-  let pressTimer = 0;
-  let drag = null;
-  let origin = null;
-  let skipClick = false;
-  const clearPress = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = 0; } };
-  const endDrag = () => {
-    if (!drag) return;
-    const bottom = clampTmpBottom(drag.bottom, box.getBoundingClientRect().height);
-    saveTmpBottom(bottom);
-    box.style.bottom = bottom + 'px';
-    box.classList.remove('tmp-dragging');
-    applyTmpPos(box);
-    skipClick = true;
-    drag = null;
-  };
-  title.addEventListener('pointerdown', e => {
-    if (e.button && e.button !== 0) return;
-    origin = { x: e.clientX, y: e.clientY };
-    const y0 = e.clientY;
-    const id = e.pointerId;
-    const startBottom = parseFloat(box.style.bottom) || defaultTmpBottom();
-    clearPress();
-    pressTimer = setTimeout(() => {
-      pressTimer = 0;
-      drag = { y0, startBottom, bottom: startBottom };
-      box.classList.add('tmp-dragging');
-      try { title.setPointerCapture(id); } catch {}
-      try { if (navigator.vibrate) navigator.vibrate(12); } catch {}
-    }, 550);
-  });
-  title.addEventListener('pointermove', e => {
-    if (pressTimer && origin && Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > 10) clearPress();
-    if (!drag) return;
-    e.preventDefault();
-    const dy = drag.y0 - e.clientY;
-    drag.bottom = clampTmpBottom(drag.startBottom + dy, box.getBoundingClientRect().height);
-    box.style.bottom = drag.bottom + 'px';
-    const topLimit = headerBottomY() + 6;
-    const boxBottomY = window.innerHeight - drag.bottom;
-    box.style.maxHeight = Math.max(56, boxBottomY - topLimit) + 'px';
-  });
-  const stop = () => { clearPress(); if (drag) endDrag(); };
-  title.addEventListener('pointerup', stop);
-  title.addEventListener('pointercancel', stop);
-  title.addEventListener('click', e => {
-    if (skipClick) { e.preventDefault(); e.stopPropagation(); skipClick = false; }
-  }, true);
-  if (!window.__lsoTmpResize) {
-    window.__lsoTmpResize = () => {
-      const el = document.getElementById('temporary-zone');
-      if (el) applyTmpPos(el);
-    };
-    window.addEventListener('resize', window.__lsoTmpResize);
-  }
-}
-
-function renderTemporaryZone(tab) {
-  const old = document.getElementById('temporary-zone');
-  if (old) old.remove();
-  if (!tab) return;
-  if (ui.selecting) return;
-  const items = listTemporary(tab.id);
-  const box = h('div', { id: 'temporary-zone', class: 'tmp-zone', 'data-test': 'temporary-zone' });
-
-  const listEl = h('div', { class: 'tmp-list', style: { display: tmpExpanded ? 'block' : 'none', marginTop: '8px' } });
-
-  const header = h('div', { class: 'tmp-head' });
-  const title = h('strong', { class: 'tmp-title', 'data-test': 'tmp-title' }, 'Temporar' + (items.length ? ` (${items.length})` : ''));
-  title.onclick = (e) => {
-    e.stopPropagation();
-    tmpExpanded = !tmpExpanded;
-    listEl.style.display = tmpExpanded ? 'block' : 'none';
-    applyTmpPos(box);
-  };
-  header.append(title);
-
-  // DOAR semnul '+' pe bara Temporar pentru a crea și deschide direct o notiță/fișier nou
-  const labels = { read: 'Citește', dict: 'Dictează', rec: 'Înregistrează' };
-  const addBtn = h('button', { class: 'tmp-add', type: 'button', 'data-test': 'tmp-add', title: 'Notiță / fișier temporar nou', onclick: async (e) => {
-    e.stopPropagation();
-    const rec = createTemporary('', tab.id, ['read']);
-    lastDictTempId = rec.id;
-    tmpExpanded = true;
-    render();
-    await new Promise(r => setTimeout(r, 60));
-    const ta = document.querySelector('[data-tmp-id="' + rec.id + '"] textarea') || document.querySelector('[data-test=tmp-note-ta]');
-    if (ta) {
-      setTarget(ta);
-      try { ta.focus({ preventScroll: true }); } catch { try { ta.focus(); } catch {} }
-    }
-  } }, '+');
-  header.append(addBtn);
-  box.append(header);
-
-  if (!items.length) {
-    listEl.append(h('div', { style: { opacity: 0.65, fontSize: '0.88rem', padding: '6px 0' } }, 'Apasă + pentru o notiță temporară (în interior ai Citește, Dictează și Înregistrează).'));
-  } else {
-    items.forEach(it => {
-      const lines = (it.text || '').split('\n');
-      const rowTitle = lines[0] || '(notiță nouă)';
-      const row = h('div', { class: 'tmp-item', style: {
-        padding: '10px 4px', borderBottom: '1px solid rgba(212,175,55,0.25)',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer'
-      } });
-      const left = h('div', { style: { flex: 1, minWidth: 0 } });
-      const textSpan = h('div', { class: 'tmp-item-title', style: { fontSize: '1.05rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 } }, rowTitle);
-      left.append(textSpan);
-      if (it.modes && it.modes.length) {
-        const modeLabel = it.modes.map(m => labels[m] || m).join(' · ');
-        left.append(h('div', { style: { fontSize: '0.7rem', opacity: 0.7, marginTop: '2px' } }, modeLabel));
-      }
-      row.append(left);
-
-      const delBtn = h('button', { type: 'button', style: {
-        background: 'none', border: 'none', color: '#d4af37', fontSize: '16px', padding: '0 6px'
-      }, onclick: async (e) => {
-        e.stopPropagation();
-        if (!(await confirmDlg('Ștergi notița temporară?', { danger: true }))) return;
-        deleteTemporary(it.id);
-        render();
-      } }, '✕');
-      const menuBtn = h('button', { type: 'button', class: 'tmp-item-menu', 'data-test': 'tmp-item-menu', 'aria-label': 'Acțiuni', title: 'Acțiuni' }, '⋯');
-      const acts = h('div', { style: { display: 'flex', alignItems: 'flex-start', flexShrink: 0 } });
-      acts.append(menuBtn, delBtn);
-      row.append(acts);
-
-      let fullOpen = false;
-      const noteView = h('div', { class: 'tmp-note-text', 'data-test': 'tmp-note-text', style: { display: 'none', fontSize: '0.95rem', marginTop: '6px', whiteSpace: 'pre-wrap', opacity: 0.95 } }, it.text || '');
-      const taNote = h('textarea', { class: 'tmp-note-ta', 'data-test': 'tmp-note-ta', 'data-tmp-id': it.id, autocapitalize: 'sentences', placeholder: 'Scrie sau folosește butoanele de mai jos...', rows: 4 });
-      taNote.value = it.text || '';
-      taNote.style.display = 'none';
-      const growTa = () => { taNote.style.height = 'auto'; taNote.style.height = Math.min(Math.max(taNote.scrollHeight, 72), 200) + 'px'; };
-      taNote.addEventListener('input', () => {
-        const capped = autoCapFirst(taNote.value);
-        if (capped !== taNote.value) {
-          const pos = taNote.selectionStart;
-          taNote.value = capped;
-          try { taNote.setSelectionRange(pos, pos); } catch {}
-        }
-        updateTemporary(it.id, { text: taNote.value });
-        growTa();
-      });
-      taNote.addEventListener('focus', () => setTarget(taNote));
-      taNote.addEventListener('click', e => { e.stopPropagation(); setTarget(taNote); });
-
-      // Bară internă activă cu Citire / Dictare / Înregistrare vocală direct în interiorul notiței
-      const innerVoiceBar = h('div', { style: { display: 'none', gap: '6px', flexWrap: 'wrap', marginTop: '8px' } },
-        h('button', { type: 'button', class: 'tmp-btn', onclick: async e => {
-          e.stopPropagation();
-          const txt = (taNote && taNote.value) || it.text || '';
-          if (!txt) { toast('Nu există text de citit.'); return; }
-          noteView.textContent = txt;
-          noteView.style.display = 'block';
-          taNote.style.display = 'none';
-          applyTmpPos(box);
-          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-          await readScreenAloud({ root: noteView });
-        } }, '🔊 Citește'),
-        h('button', { type: 'button', class: 'tmp-btn', onclick: async e => {
-          e.stopPropagation();
-          if (isDictating()) { await stopDictation(); return; }
-          setTarget(taNote);
-          try { taNote.focus({ preventScroll: true }); } catch { try { taNote.focus(); } catch {} }
-          const save = () => {
-            const capped = autoCapFirst(taNote.value || '');
-            taNote.value = capped;
-            try { updateTemporary(it.id, { text: capped }); } catch {}
-          };
-          await startDictation(taNote, { onEnd: save });
-        } }, '🗣 Dictează'),
-        h('button', { type: 'button', class: 'tmp-btn', onclick: async e => {
-          e.stopPropagation();
-          window._lsoTempRecId = it.id;
-          if (typeof startRecording === 'function') {
-            await startRecording(tab.id);
-          }
-        } }, '🔴 Înregistrează')
-      );
-
-      left.append(noteView, taNote, innerVoiceBar);
-      const openNote = () => {
-        fullOpen = true;
-        noteView.style.display = 'none';
-        taNote.style.display = 'block';
-        innerVoiceBar.style.display = 'flex';
-        setTarget(taNote);
-        growTa();
-        applyTmpPos(box);
-      };
-      if (it.id === lastDictTempId || (!it.text && tmpExpanded)) {
-        lastDictTempId = null;
-        setTimeout(() => openNote(), 0);
-      }
-      if (it.mid) {
-        const playerWrap = h('div', { style: { display: 'none', marginTop: '6px' } });
-        const audio = h('audio', { controls: true, style: { width: '100%', height: '32px' }, preload: 'none' });
-        audio.src = '';
-        const loadAudio = async () => {
-          if (audio.src) return;
-          try {
-            const { getMedia } = await import('./core/store.js');
-            const m = await getMedia(it.mid);
-            if (m && m.blob) audio.src = URL.createObjectURL(m.blob);
-          } catch {}
-        };
-        const dur = it.duration ? Math.round(it.duration) + 's' : '';
-        const info = h('div', { style: { fontSize: '0.75rem', opacity: 0.8, marginTop: '2px' } }, '🎙️ ' + dur + (it.transcript ? ' · ' + it.transcript.slice(0, 60) + (it.transcript.length > 60 ? '…' : '') : ''));
-        const shareBtn = h('button', { type: 'button', style: {
-          fontSize: '0.7rem', padding: '2px 8px', borderRadius: '8px',
-          border: '1px solid #d4af37', background: 'transparent', color: '#d4af37', marginTop: '4px'
-        }, onclick: async (e) => {
-          e.stopPropagation();
-          try {
-            const { getMedia } = await import('./core/store.js');
-            const m = await getMedia(it.mid);
-            if (m && m.blob && navigator.share) {
-              const file = new File([m.blob], 'inregistrare.m4a', { type: m.mime || 'audio/mp4' });
-              await navigator.share({ files: [file], title: it.text || 'Înregistrare' });
-            } else toast('Share nu este disponibil');
-          } catch {}
-        } }, 'Share');
-        playerWrap.append(audio, info, shareBtn);
-        left.append(playerWrap);
-        row._tmpOpenRec = () => { playerWrap.style.display = 'block'; loadAudio(); };
-      }
-      const openActions = async () => {
-        const cur = (taNote && taNote.value) || it.text || '';
-        const action = await sheet(cur.slice(0, 40) || 'Notiță', [
-          { label: 'Citește', value: 'read', icon: '🔊', test: 'tmp-read' },
-          { label: 'Editează', value: 'edit', icon: '✏️' },
-          { label: 'Mută în alt tab', value: 'move', icon: '↔' },
-          { label: 'Copiază', value: 'copy', icon: '📋' },
-          { label: 'Share', value: 'share', icon: '📤' },
-          { label: 'Șterge', value: 'del', icon: '🗑️', cls: 'danger' }
-        ]);
-        if (!action) return;
-        if (action === 'read') {
-          const txt = (taNote && taNote.value) || it.text || '';
-          if (!txt) return;
-          tmpExpanded = true;
-          listEl.style.display = 'block';
-          noteView.textContent = txt;
-          noteView.style.display = 'block';
-          if (taNote) taNote.style.display = 'none';
-          applyTmpPos(box);
-          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-          await readScreenAloud({ root: noteView });
-        } else if (action === 'edit') {
-          const newText = await promptDlg('Editează notița', { value: (taNote && taNote.value) || it.text || '', multiline: true });
-          if (newText != null) {
-            updateTemporary(it.id, { text: autoCapFirst(newText.trim()) });
-            render();
-          }
-        } else if (action === 'move') {
-          const otherTabs = visibleTabs().filter(x => x.id !== tab.id);
-          if (!otherTabs.length) { toast('Nu există alt tab.'); return; }
-          const destId = await sheet('Mută în', otherTabs.map(x => ({ label: x.name, value: x.id })));
-          if (destId) {
-            updateTemporary(it.id, { tab: destId });
-            const destTab = tabById(destId);
-            toast('Mutat în ' + (destTab ? destTab.name : 'tab'));
-            render();
-          }
-        } else if (action === 'copy') {
-          await copyText(cur);
-        } else if (action === 'share') {
-          await shareText('Notiță temporară', cur);
-        } else if (action === 'del') {
-          if (!(await confirmDlg('Ștergi notița temporară?', { danger: true }))) return;
-          deleteTemporary(it.id);
-          render();
-        }
-      };
-      menuBtn.addEventListener('click', ev => { ev.stopPropagation(); openActions(); });
-      row.addEventListener('click', ev => {
-        if (ev.target === delBtn || ev.target === menuBtn || ev.target === taNote) return;
-        if (!fullOpen) {
-          openNote();
-          if (row._tmpOpenRec) row._tmpOpenRec();
-          return;
-        }
-        openActions();
-      });
-      listEl.append(row);
-    });
-  }
-  box.append(listEl);
-  document.body.append(box);
-  applyTmpPos(box);
-  bindTmpDrag(box, title);
-
-  if (window.__lsoTmpUi) {
-    document.removeEventListener('pointerdown', window.__lsoTmpUi.onOutside, true);
-    document.removeEventListener('touchstart', window.__lsoTmpUi.ts, { passive: true });
-    document.removeEventListener('touchend', window.__lsoTmpUi.te, { passive: true });
-  }
-  const onOutside = (e) => {
-    if (!box.contains(e.target) && !e.target.closest('.fabs, .m-overlay, .punct-pill') && tmpExpanded) {
-      tmpExpanded = false;
-      listEl.style.display = 'none';
-      applyTmpPos(box);
-    }
-  };
-  let startY = 0;
-  const ts = e => { startY = e.touches[0].clientY; };
-  const te = e => {
-    if (box.classList.contains('tmp-dragging')) return;
-    const dy = Math.abs(e.changedTouches[0].clientY - startY);
-    if (dy > 50 && !tmpExpanded) {
-      tmpExpanded = true;
-      listEl.style.display = 'block';
-      applyTmpPos(box);
-    }
-  };
-  window.__lsoTmpUi = { onOutside, ts, te };
-  setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 50);
-  document.addEventListener('touchstart', ts, { passive: true });
-  document.addEventListener('touchend', te, { passive: true });
-}
-
 
 let clockTimer = 0;
 function isClockOn() {
@@ -942,7 +564,7 @@ async function voiceFab(tab) {
   else if (v === 'dict') {
     let target = getTarget();
     if (!target || !document.body.contains(target)) {
-      const openTa = document.querySelector('.m-overlay:not(.buried) textarea, .m-overlay:not(.buried) input[type="text"], .tmp-note-ta[style*="block"]');
+      const openTa = document.querySelector('.m-overlay:not(.buried) textarea, .m-overlay:not(.buried) input[type="text"]');
       if (openTa) { target = openTa; setTarget(target); }
     }
     if (!target && tab && !(tab.lock && !isOpen(tab)) && !['news', 'rec'].includes(tab.kind)) {
@@ -1140,6 +762,13 @@ export async function startApp() {
   onChange(() => { if (!rendering) render(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) onHidden(); });
   window.addEventListener('pagehide', () => { onHidden(); });
+
+  try { history.pushState({ lsoTrap: 1 }, ''); } catch {}
+  window.addEventListener('popstate', () => {
+    try { history.pushState({ lsoTrap: 1 }, ''); } catch {}
+    if (modalsOpen()) { closeAll(); render(); }
+  });
+
   render();
   const tb = currentTab();
   if (tb) requestAnimationFrame(() => window.scrollTo(0, state.ui.scroll[tb.id] || 0));
