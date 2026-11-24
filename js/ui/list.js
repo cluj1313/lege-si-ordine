@@ -15,7 +15,7 @@ export async function askUnlock(obj, title) {
   const ok = await pinDlg(title || t('unlock'), { verify: pin => unlockTemp(obj, pin) });
   return !!ok;
 }
-// Deblochează pe rând toate lacătele care acoperă elementul.
+
 export async function ensureOpen(it) {
   for (const l of locksChain(it).reverse()) {
     if (isOpen(l)) continue;
@@ -24,7 +24,6 @@ export async function ensureOpen(it) {
   return canView(it);
 }
 
-// Sortarea aleasă din meniul din dreapta sus, salvată pe tab (lso_kv › ui.sort).
 export const SORT_MODES = ['alpha', 'manual', 'created', 'modified', 'processDate', 'clientName'];
 export const sortModeOf = tabId => { const m = (state.ui.sort || {})[tabId]; return SORT_MODES.includes(m) ? m : 'manual'; };
 const titleOf = it => { const d = dataOf(it); return d ? String((KINDS[it.kind] || KINDS.note).title(d) || '') : ''; };
@@ -44,7 +43,7 @@ export function byMode(mode) {
   };
   return null;
 }
-// Ordonează o listă simplă (ex. elementele unei zile) după modul tabului; „Manual” păstrează ordinea dată.
+
 export function sortByTab(items, tabId) {
   const mode = sortModeOf(tabId);
   const cmp = byMode(mode);
@@ -53,7 +52,6 @@ export function sortByTab(items, tabId) {
   return man ? items.slice().sort((a, b) => (man.get(a.id) ?? -1) - (man.get(b.id) ?? -1)) : items;
 }
 
-// Ordinea manuală (drag and drop), salvată pe tab în lso_kv › ui.manual.
 export const manualOf = tabId => { const arr = (state.ui.manual || {})[tabId]; return arr && arr.length ? new Map(arr.map((id, i) => [id, i])) : null; };
 export function saveManual(tabId, ids) {
   let base = ((state.ui.manual || {})[tabId] || []).filter(id => state.items.has(id));
@@ -71,17 +69,14 @@ function sortItems(items, kindName, mode = 'manual', tabId = null) {
   const manual = mode === 'manual' && tabId ? manualOf(tabId) : null;
   vis.sort((a, b) => {
     const da = dataOf(a), db = dataOf(b);
-    // Pinned first
     if (!!da?.pinned !== !!db?.pinned) return da?.pinned ? -1 : 1;
     if (manual) {
       if (kindName === 'task' && !!da.done !== !!db.done) return da.done ? 1 : -1;
       if (K.past) { const pa = !!K.past(da), pb = !!K.past(db); if (pa !== pb) return pa ? 1 : -1; }
       const ia = manual.get(a.id) ?? -1, ib = manual.get(b.id) ?? -1;
       if (ia !== ib) return ia - ib;
-      // elementele noi (fără loc salvat) rămân sus, în ordinea implicită
     }
     if (cmp) {
-      // sarcinile bifate și termenele trecute rămân la final, apoi ordinea aleasă
       if (kindName === 'task' && !!da.done !== !!db.done) return da.done ? 1 : -1;
       if (K.past) { const pa = !!K.past(da), pb = !!K.past(db); if (pa !== pb) return pa ? 1 : -1; }
       return cmp(a, b) || 0;
@@ -140,6 +135,13 @@ function separatorCard(it) {
   return el;
 }
 
+function renderTagsRow(d) {
+  if (!d || !Array.isArray(d.tags) || !d.tags.length) return null;
+  const row = h('div', { class: 'tag-row' });
+  d.tags.forEach(tg => row.append(h('span', { class: 'tag-chip' }, '🏷️ ' + tg)));
+  return row;
+}
+
 export function card(it) {
   const K = KINDS[it.kind] || KINDS.note;
   const viewable = canView(it);
@@ -153,8 +155,25 @@ export function card(it) {
   if (ui.selecting) {
     const sel = ui.selected.has(it.id);
     el.classList.toggle('selected', sel);
-    el.append(h('div', { class: 'r1', onclick: () => { sel ? ui.selected.delete(it.id) : ui.selected.add(it.id); app.render(); } },
-      h('span', { class: 'sel-box' + (sel ? ' on' : '') }, sel ? '✓' : ''), h('span', { class: 'r1t' }, d ? K.title(d) : t('lockedItem'))));
+    const titleCol = h('div', { style: { flex: '1 1 auto', minWidth: 0 } },
+      h('div', { class: 'r1t' }, d ? K.title(d) : t('lockedItem')),
+      renderTagsRow(d)
+    );
+    const gripSel = h('span', { class: 'dnd-handle', role: 'button', 'aria-label': t('dragToReorder') }, '≡');
+    const r1Sel = h('div', { class: 'r1', onclick: () => { sel ? ui.selected.delete(it.id) : ui.selected.add(it.id); app.render(); } },
+      gripSel,
+      h('span', { class: 'sel-box' + (sel ? ' on' : '') }, sel ? '✓' : ''),
+      titleCol
+    );
+    el.append(r1Sel);
+    draggable(el, {
+      handle: gripSel, axis: 'y', container: () => el.parentNode, selector: ':scope > .card[data-id]',
+      immediate: () => true,
+      onReorder: ids => app.reorderItems(ids),
+      onDrop: tg => app.dropItem(it, tg),
+      canDrop: tg => app.canDropItem(it, tg),
+      onCancel: () => app.render(),
+    });
     return el;
   }
 
@@ -172,17 +191,23 @@ export function card(it) {
   }
   if (K.lead) r1.append(K.lead(d));
   if (it.kind === 'rec') r1.append(h('span', { class: 'rec-dot' }, '●'));
-  r1.append(h('span', { class: 'r1t' }, K.title(d)));
+
+  const titleWrap = h('div', { style: { flex: '1 1 auto', minWidth: 0 } },
+    h('div', { class: 'r1t' }, K.title(d)),
+    renderTagsRow(d)
+  );
+  r1.append(titleWrap);
+
   const meta = h('span', { class: 'r1-meta' });
   if (it.lock) meta.append('🔓');
   if (it.alarmAt && it.alarmAt > Date.now()) meta.append('⏰');
-  if (it.kind === 'rec') { /* durata, starea și ștergerea apar pe rândul 2 */ }
   if (it.kind === 'task' && d.date) meta.append(h('span', { class: 'r1-small' }, fmtDate(d.date).slice(0, 5) + (d.time ? ' ' + d.time : '')));
   if (meta.childNodes.length) r1.append(meta);
-  // 3 puncte → meniu
+
   const dots = h('button', { class: 'icon-btn sm', type: 'button', style: { marginLeft: 'auto' }, 'aria-label': 'Meniu' }, '⋮');
   dots.addEventListener('click', e => { e.stopPropagation(); openItemMenu(it); });
   r1.append(dots);
+
   const toggle = () => {
     if (ui.expanded.has(it.id)) { ui.expanded.delete(it.id); if (it.lock) relock(it); } else ui.expanded.add(it.id);
     app.render();
@@ -190,11 +215,12 @@ export function card(it) {
   r1.addEventListener('click', toggle);
   r1.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
   el.append(r1);
-  // drag and drop: apăsare lungă pe rândul 1 (sau mânerul ≡ în modul Mutare) – reordonare sau mutare pe o pastilă/folder/tab
+
+  // Drag and drop activ pe orice document, dosar sau folder
   let grip = r1;
   if (ui.dragMode) { grip = h('span', { class: 'dnd-handle', role: 'button', 'aria-label': t('dragToReorder'), 'data-test': 'drag-handle' }, '≡'); r1.prepend(grip); }
   draggable(el, {
-    handle: grip, axis: 'y', container: () => el.parentNode, selector: ':scope > .card[data-id]:not(.folder-row)',
+    handle: grip, axis: 'y', container: () => el.parentNode, selector: ':scope > .card[data-id]',
     immediate: () => !!ui.dragMode,
     onReorder: ids => app.reorderItems(ids),
     onDrop: tg => app.dropItem(it, tg),
@@ -210,18 +236,18 @@ export function card(it) {
     el.append(r2);
   }
 
-  // Pin
   if (d && d.pinned) {
     r1.prepend(h('span', { style: { marginRight: '6px', color: '#d4af37' } }, '📌'));
   }
 
-  // Apăsare lungă: intră în selecție multiplă (drag-and-drop rămâne în modul Mutare).
+  // Apăsare lungă: bifează elementul și activează selecția multiplă (mutare, culoare, etichete)
   if (!ui.dragMode) {
     onLongPress(el, () => {
       ui.selecting = true;
       ui.selected.add(it.id);
+      try { if (navigator.vibrate) navigator.vibrate(15); } catch {}
       app.render();
-    }, 500);
+    }, 450);
   }
 
   return el;
@@ -256,12 +282,11 @@ async function openItemMenu(it) {
   else if (v === 'share') shareText(d?.title || d?.name || '', d?.text || '');
   else if (v === 'lock') toast('Blocare (folosește meniul existent)');
   else if (v === 'tags') {
-    const { addTag, removeTag, getTags } = await import('../features/tags.js');
-    const current = getTags(it).join(', ');
-    const input = await promptDlg('Etichete', { value: current });
+    const existing = Array.isArray(d?.tags) ? d.tags.join(', ') : '';
+    const input = await promptDlg('Etichete (separate prin virgulă)', { value: existing });
     if (input != null) {
-      getTags(it).forEach(t => removeTag(it, t));
-      input.split(',').map(s => s.trim()).filter(Boolean).forEach(t => addTag(it, t));
+      const tags = input.split(',').map(s => s.trim()).filter(Boolean);
+      await saveItem(it, { ...d, tags });
       toast('Etichete salvate');
     }
   } else if (v === 'color') {
@@ -275,6 +300,7 @@ async function openItemMenu(it) {
   }
   app.render();
 }
+
 function row2(it, d, K) {
   if (it.kind === 'task') return taskRow2(it, d);
   if (it.kind === 'law') return lawRow2(it, d);
@@ -324,8 +350,6 @@ export async function saveToSaved(it, d) {
   toast(t('savedOk'));
 }
 
-// Icoană Share Android/Material (trei puncte legate), desenată ca SVG cu același stil de linioară ca butoanele din antet.
-// Nu am găsit o descriere sau o captură exactă a icoanei din Notis în referința comportamentală sau în atașamente.
 function shareIcon() {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
@@ -346,7 +370,6 @@ function shareIcon() {
 }
 
 function recRow2(it, d) {
-  // Înregistrările vechi (v1.0.6, doar text) nu au fișier audio; din v1.0.7 audio-ul se păstrează mereu.
   const audio = d.mid ? h('audio', { controls: true, preload: 'none', class: 'rec-audio' }) : (d.pendingFile ? h('div', { class: 'r2-meta' }, t('recPendingFile')) : null);
   if (audio) getMedia(d.mid).then(m => { if (m) audio.src = URL.createObjectURL(m.blob); else audio.replaceWith(h('div', { class: 'r2-meta' }, t('mediaMissing'))); });
   return h('div', { class: 'r2-col' },
@@ -358,7 +381,6 @@ function recRow2(it, d) {
     h('div', { class: 'r2-meta' }, fmtTsDate(d.at || it.created)),
     audio,
     d.transcript ? h('div', { class: 'r2-text pre', 'data-test': 'rec-transcript' }, d.transcript) : h('div', { class: 'r2-meta' }, t('noTranscript')),
-    // „Transcrie”: tot audio-ul din fișier → text (ulterior), pe un rând separat ca acțiunile să rămână pe o linie
     d.mid ? h('div', { class: 'rec-tr-row' }, h('button', { class: 'btn sm ghost', type: 'button', 'data-test': 'rec-transcribe-file', onclick: e => act(e.currentTarget, () => app.transcribeRec(it)) }, '📝 ' + t('recTranscribeBtn'))) : null,
     h('div', { class: 'r2-actions rec-actions' },
       h('button', { class: 'btn sm ghost', type: 'button', onclick: () => app.renameRec(it) }, t('rename')),
