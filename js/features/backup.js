@@ -38,10 +38,6 @@ function decodeFsData(data) {
   try { return new TextDecoder().decode(b64ToBytes(trimmed)); } catch { return trimmed; }
 }
 
-
-// Notă: backup-ul cuprinde doar IndexedDB (setări, ui, taburi, elemente, media). Cheile Zonei secrete și ale
-// serverului (lso_crsec, lso_crtok, lso_adpw, lso_adtok, lso_iid, lso_newsBox etc.) stau în localStorage/sessionStorage
-// și NU intră niciodată în backup.
 async function rawSnapshot() {
   let tempNotes = [];
   try {
@@ -133,7 +129,7 @@ async function pruneBackups() {
   for (const old of man.slice(KEEP_MANUAL)) await db.del(S.backups, old.id);
 }
 
-// ---- Backup intern automat (silențios) ----
+// ---- Backup intern automat (silențios, păstrează ultimele 5) ----
 async function writePrivateAuto(packed, name) {
   const FS = fsPlugin();
   if (!FS) return null;
@@ -205,10 +201,10 @@ export async function autoBackup(reason = 'auto', force = false) {
     return true;
   } catch (e) { console.warn('autoBackup'); return false; }
 }
+
 export async function maybeDailyBackup() {
   const versionChanged = state.settings.version !== APP_VERSION;
   if (versionChanged) {
-    // Înainte de a marca versiunea nouă, restaurăm Temporar din ultimul backup dacă lipsește
     try {
       const raw = localStorage.getItem('lso_temp_notes');
       const current = raw ? JSON.parse(raw) : [];
@@ -225,10 +221,9 @@ export async function maybeDailyBackup() {
     await saveSettings();
     return;
   }
-  if (Date.now() - (state.settings.lastAutoBackup || 0) > 20 * 3600000) await autoBackup('auto');
+  if (Date.now() - (state.settings.lastAutoBackup || 0) > 12 * 3600000) await autoBackup('auto');
 }
 
-// Backup rapid când aplicația trece în background (aproape de update / închidere)
 export function startBackgroundBackup() {
   const doBackup = () => { autoBackup('background', false).catch(() => {}); };
   document.addEventListener('visibilitychange', () => { if (document.hidden) doBackup(); });
@@ -378,7 +373,6 @@ async function deleteManual(b, redraw) {
   if (redraw) redraw();
 }
 
-// ---- Copie săptămânală silențioasă (doar Android nativ) ----
 export async function maybeWeeklyBackup() {
   if (!isNative()) return false;
   if (state.settings.weeklyBackup === false) return false;
@@ -475,7 +469,6 @@ export async function offerRestoreIfEmpty() {
 }
 
 export function backupSection() {
-
   const manualList = h('div', { class: 'bk-list', 'data-test': 'bk-manual-list' });
   const autoList = h('div', { class: 'bk-list', 'data-test': 'bk-auto-list' });
   const drawManual = async () => {
@@ -525,16 +518,24 @@ export function backupSection() {
   };
 
   return h('div', {},
+    // Buton mare și vizibil de Save Manual chiar deasupra secțiunii Auto-Save / Backup
+    h('div', { style: { marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+      h('button', {
+        class: 'btn primary',
+        type: 'button',
+        style: { flex: '1 1 100%', fontWeight: '600', padding: '12px' },
+        onclick: e => act(e.currentTarget, async () => { await exportJSON(); drawManual(); })
+      }, '💾 Salvare Manuală (Backup acum)')),
+    sub('auto', t('backupAuto') + ' (ultimele 5)',
+      h('p', { class: 'r2-meta' }, 'Aplicația salvează automat ultimele 5 copii de siguranță înainte de orice actualizare sau modificare majoră.'),
+      h('button', { class: 'btn ghost', type: 'button', 'data-test': 'bk-auto-now', onclick: e => act(e.currentTarget, async () => { await autoBackup('manual-auto', true); toast(t('backupAutoDone')); drawAuto(); }) }, t('backupAutoNow')),
+      autoList,
+      h('h3', { class: 'sub-h' }, t('backupWeeklyTitle')),
+      weeklyRow, weeklyHint, weeklyList),
     sub('manual', t('backupManual'),
       h('p', { class: 'r2-meta' }, t('backupManualHint')),
       h('div', { class: 'row-btns' },
         h('button', { class: 'btn', type: 'button', 'data-test': 'export', onclick: e => act(e.currentTarget, async () => { await exportJSON(); drawManual(); }) }, t('backupExport')),
         h('button', { class: 'btn ghost', type: 'button', 'data-test': 'import', onclick: e => act(e.currentTarget, () => importJSON()) }, t('backupImport'))),
-      manualList),
-    sub('auto', t('backupAuto'),
-      h('p', { class: 'r2-meta' }, t('backupAutoHint')),
-      h('button', { class: 'btn ghost', type: 'button', 'data-test': 'bk-auto-now', onclick: e => act(e.currentTarget, async () => { await autoBackup('manual-auto', true); toast(t('backupAutoDone')); drawAuto(); }) }, t('backupAutoNow')),
-      autoList,
-      h('h3', { class: 'sub-h' }, t('backupWeeklyTitle')),
-      weeklyRow, weeklyHint, weeklyList));
+      manualList));
 }
