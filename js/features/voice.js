@@ -117,7 +117,6 @@ async function speakNative(text, lang, rate, voiceName) {
   if (langInfo.supported === null) langOk = true;
   if (!hasEngine) { await showTtsHelp({ noEngine: true }); return false; }
   if (!langOk) {
-    // mai verificăm vocile: unele motoare raportează altfel BCP-47
     const vv = await nativeVoices();
     const pre = lang.slice(0, 2);
     langOk = vv.some(x => (x.lang || '').slice(0, 2) === pre);
@@ -170,8 +169,6 @@ export async function speak(text) {
   return ok;
 }
 
-// Citire 📖 din meniul Voce: tot ce se vede pe ecran, cu bara sub cuvântul citit (reader.js, preluat din Notis).
-// Al doilea tap pe Citire / pe butonul de voce oprește.
 export async function readScreenAloud(arg) {
   if (isReading() || speakSt.playing) { await stopSpeak(); return false; }
   await yieldMic();
@@ -212,7 +209,7 @@ export async function resumeSpeak() {
   setPauseLabel();
   if (speakSt.engine === 'native') await playNativeFrom(speakSt.index);
   else if ('speechSynthesis' in window) {
-    try { speechSynthesis.resume(); } catch { /* re-speak remaining not practical */ }
+    try { speechSynthesis.resume(); } catch {}
   }
 }
 
@@ -230,6 +227,8 @@ export const isDictating = () => !!rec;
 
 let _dictIdleObs = null;
 let _suppressIdle = false;
+let capitalizeNext = false;
+let pauseTimer = null;
 
 function hideDictUi() {
   if (_dictIdleObs) { try { _dictIdleObs.disconnect(); } catch {} _dictIdleObs = null; }
@@ -294,7 +293,7 @@ function showDictBubble() {
 }
 
 function removePunctPill() { hideDictUi(); }
-function setDictTxt() { /* textul dictat stă doar în câmp, nu într-un panou deasupra */ }
+function setDictTxt() {}
 
 let activePunctBtn = null;
 function clearActivePunct() {
@@ -364,7 +363,7 @@ function caretClientRect(el) {
   div.style.width = s.width;
   div.textContent = (el.value || '').slice(0, pos);
   const marker = document.createElement('span');
-  marker.textContent = '​';
+  marker.textContent = '\u200b';
   div.append(marker);
   document.body.append(div);
   const er = el.getBoundingClientRect(), dr = div.getBoundingClientRect(), mr = marker.getBoundingClientRect();
@@ -389,8 +388,6 @@ function revealDictCaret(el) {
   if (sc && r2 && r2.bottom > limit) sc.scrollTop += r2.bottom - limit;
 }
 
-
-// Punctuație rostită (dacă motorul o transcrie ca text). Nu atingem cuvintele din interiorul altora.
 const SPOKEN_PUNCT = [
   [/semnul\s+întreb[aă]rii/gi, '?'],
   [/semnul\s+intrebarii/gi, '?'],
@@ -443,13 +440,6 @@ function leftoverTranscript(base, incoming) {
   return out.join('').trim();
 }
 
-function isGrowingChunk(prev, next) {
-  if (!prev) return true;
-  const a = foldWords(prev).join(' '), b = foldWords(next).join(' ');
-  if (!b) return true;
-  return !a || b.startsWith(a) || a.startsWith(b);
-}
-
 function isCumulativeOf(base, incoming) {
   const bw = foldWords(base), iw = foldWords(incoming);
   if (!iw.length) return false;
@@ -463,9 +453,6 @@ function isPrefixPhrase(base, incoming) {
   return !!i && (b === i || b.startsWith(i + ' '));
 }
 
-// Baza de inserție = valoarea curentă a câmpului + cursor. Orice editare manuală (punctuație, tastatură)
-// reia baza, ca un rezultat nou să nu șteargă ce s-a scris între timp.
-// Textul provizoriu înlocuiește doar textul provizoriu anterior (nu se adaugă peste el).
 function bindDictationField(el) {
   const st = { el, start: 0, after: '', applying: false, lastChunk: '' };
   const snap = () => {
@@ -483,9 +470,7 @@ function bindDictationField(el) {
     if (!el) return;
     const incoming = applySpokenPunct(chunk);
     if (!incoming) return;
-    // Provizoriul se înlocuiește la aceeași bază; nu mutăm cursorul pe un interimar revizuit.
     const before = el.value.slice(0, st.start);
-    // Replay Android: fraza deja aflată la începutul câmpului nu se mai inserează (păstrăm punctuația).
     if (commit && incoming && isPrefixPhrase(before, incoming) && !(opts.newResult && foldWords(incoming).length === 1)) return;
     let use = leftoverTranscript(before, incoming);
     if (commit && !use && incoming) {
@@ -497,6 +482,11 @@ function bindDictationField(el) {
       try { el.setSelectionRange(before.length, before.length); } catch {}
       st.lastChunk = '';
       return;
+    }
+    // Aplică majusculă după punct, rând nou sau la început de propoziție
+    if (use && (capitalizeNext || !before.trim() || /[.!?\n]\s*$/.test(before))) {
+      use = use.charAt(0).toUpperCase() + use.slice(1);
+      if (commit) capitalizeNext = false;
     }
     const sep = use && before && !/\s$/.test(before) && !/^[\s.,;:!?]/.test(use) ? ' ' : '';
     st.applying = true;
@@ -517,6 +507,13 @@ function bindDictationField(el) {
   function afterSafe() { return st.after; }
   return {
     snap,
+    flushInterim: () => {
+      if (!el) return;
+      const pos = el.selectionStart ?? el.value.length;
+      st.start = pos;
+      st.after = el.value.slice(pos);
+      st.lastChunk = '';
+    },
     paint: chunk => write(chunk, false),
     commit: (chunk, opts) => write(chunk, true, opts || {}),
     detach,
@@ -524,7 +521,6 @@ function bindDictationField(el) {
 }
 
 export async function startDictation(target, { lang, onFinal, onEnd, onInterim, quiet = false, keepRecording = false } = {}) {
-  // Transcrierea live din timpul înregistrării folosește același microfon; nu o oprim.
   if (!keepRecording) await yieldMic();
   if (!keepRecording && isSpeaking()) await stopSpeak();
   _suppressIdle = true;
@@ -548,17 +544,19 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
 
   if (!quiet) showDictBubble();
   const field = bindDictationField(target);
-  rec = { kind: 'native', _keep: true, _field: field };
+  const stateObj = { kind: 'native', _keep: true, _field: field, _onFinal: onFinal, _onEnd: onEnd, _last: () => last };
+  rec = stateObj;
   let last = '';
   let lastFinal = '';
   let finalized = false;
+
   const applyPartial = (txt, ev) => {
     if (!txt) return;
     last = txt;
     const isFinal = !!(ev && (ev.kind === 'final' || ev.isFinal));
     if (!target) return;
     if (!isFinal) {
-      field.paint(txt); // rezultatele parțiale native sunt cumulative: înlocuim, nu adăugăm
+      field.paint(txt);
       finalized = false;
       return;
     }
@@ -569,31 +567,52 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
     lastFinal = piece ? (lastFinal ? lastFinal + ' ' + piece : piece) : txt;
     finalized = true;
   };
-  try {
+
+  const runSession = async () => {
+    last = '';
+    lastFinal = '';
+    finalized = false;
     nativeHandles = await nativeStt.start({
       language: lang || state.settings.voiceLang || 'ro-RO',
       maxResults: 1, partialResults: true, popup: false,
       onPartial: applyPartial,
-      onState: (status, ev) => {
+      onState: status => {
         if (status !== 'stopped') return;
-        // listeningState/stopped poate relua ultimul parțial: îl consolidăm o singură dată, nu îl mai scriem.
         if (target && last && !finalized) {
           field.commit(last);
           lastFinal = last;
           finalized = true;
         }
-        if (rec && rec.kind === 'native' && rec._keep) rec._keep = false;
+        // Dacă utilizatorul nu a apăsat „Oprește”, reluăm automat ascultarea (ex. după inserarea punctuației)
+        if (rec === stateObj && stateObj._keep) {
+          setTimeout(() => {
+            if (rec === stateObj && stateObj._keep) {
+              runSession().catch(() => {});
+            }
+          }, 140);
+        }
       },
-      onError: code => { if (!quiet) toast(sttErrMsg(code), 4000); },
+      onError: code => {
+        const c = String(code || '').toLowerCase();
+        if (rec === stateObj && stateObj._keep && (c.includes('nomatch') || c.includes('no-speech'))) {
+          setTimeout(() => {
+            if (rec === stateObj && stateObj._keep) runSession().catch(() => {});
+          }, 160);
+          return;
+        }
+        if (!quiet) toast(sttErrMsg(code), 4000);
+      },
     });
+  };
+
+  try {
+    await runSession();
   } catch (e) {
     rec = null; field.detach(); if (bubble) { bubble.remove(); bubble = null; }
     removePunctPill();
     if (!quiet) toast(sttErrMsg((e && e.message) || 'noservice'), 4000);
     return false;
   }
-  rec._onFinal = onFinal; rec._onEnd = onEnd; rec._last = () => last;
-  rec._field = field;
   return true;
 }
 
@@ -614,7 +633,6 @@ function startWebDictation(target, { lang, onFinal, onEnd, onInterim, quiet }) {
     const results = e.results;
     const len = results.length;
     const from = Math.max(0, e.resultIndex | 0);
-    // Android / WebView: resultIndex rămâne 0 și retrimite finalele; dacă lista se resetează, o luăm de la capăt.
     if (len < nextIndex) nextIndex = from;
     if (len < seen.length) seen.length = len;
     for (let i = from; i < len; i++) {
@@ -690,14 +708,10 @@ export async function stopDictation() {
   }
 }
 
-let capitalizeNext = false;
-let pauseTimer = null;
-
 export function insertAtCursor(el, txt, { forceCapital = false } = {}) {
   if (!txt) return;
   const start = el.selectionStart ?? el.value.length, end = el.selectionEnd ?? el.value.length;
   let before = el.value.slice(0, start);
-  // Capitalize if requested or if after sentence end
   if (forceCapital || capitalizeNext || /[.!?]\s*$/.test(before) || !before.trim()) {
     txt = txt.charAt(0).toUpperCase() + txt.slice(1);
     capitalizeNext = false;
@@ -706,13 +720,11 @@ export function insertAtCursor(el, txt, { forceCapital = false } = {}) {
   const ins = sep + txt;
   el.setRangeText(ins, start, end, 'end');
   el.dispatchEvent(new Event('input', { bubbles: true }));
-  // Reset pause timer
   clearTimeout(pauseTimer);
   pauseTimer = setTimeout(() => {
     if (el && document.activeElement === el) {
       const v = el.value;
       if (v && !/[.!?\n]\s*$/.test(v)) {
-        // Auto period on longer pause
         const pos = el.selectionStart ?? v.length;
         el.setRangeText('. ', pos, pos, 'end');
         el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -724,7 +736,17 @@ export function insertAtCursor(el, txt, { forceCapital = false } = {}) {
 
 export function insertPunctuation(el, punct, btn) {
   if (!el) return;
-  const start = el.selectionStart ?? el.value.length;
+  // Consolidăm eventualul text provizoriu rostit până în acest moment ca să nu fie suprascris
+  if (rec && rec._field && typeof rec._field.flushInterim === 'function') {
+    rec._field.flushInterim();
+  }
+  let start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? start;
+  // Eliminăm eventualul spațiu dinaintea virgulei sau punctului
+  if ((punct === ',' || punct === '.') && start > 0 && el.value[start - 1] === ' ') {
+    el.setRangeText('', start - 1, start, 'end');
+    start -= 1;
+  }
   let ins = punct;
   const isEnter = punct === 'Enter';
   if (isEnter) {
@@ -738,15 +760,13 @@ export function insertPunctuation(el, punct, btn) {
   } else if (punct === '-' || punct === '+') {
     ins = ' ' + punct + ' ';
   }
-  el.setRangeText(ins, start, start, 'end');
+  el.setRangeText(ins, start, Math.max(start, end), 'end');
   el.dispatchEvent(new Event('input', { bubbles: true }));
   markPunctActive(btn || document.querySelector('.punct-btn[data-punct="' + punct + '"]'));
   try { el.focus({ preventScroll: true }); } catch { try { el.focus(); } catch {} }
   revealDictCaret(el);
 }
 
-// Transcrierea în timpul înregistrării: pe Android prin transcriere nativă continuă (LsoVoice),
-// pe web (Chrome) Web Speech în paralel cu MediaRecorder.
 export function canLiveTranscribe() {
   if (isNative()) return nativeStt.hasNativeTranscribe();
   return !!speechRecCtor();
