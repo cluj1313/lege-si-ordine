@@ -639,4 +639,13 @@ body.dictating input.voice-target { scroll-margin-bottom: 140px; }
 .tmp-item-menu {
   background: none; border: none; color: #d4af37; font-size: 18px;
   padding: 0 4px 0 2px; line-height: 1; cursor: pointer;
+  /* Meniu Acțiuni compact pentru a păstra Șterge vizibil deasupra ceasului */
+.m-sheet .m-opt,
+.m-sheet .sheet-opt,
+.sheet-list button,
+.m-sheet button {
+  padding-top: 7px !important;
+  padding-bottom: 7px !important;
+  min-height: 36px !important;
+  line-height: 1.2 !important;
 }
