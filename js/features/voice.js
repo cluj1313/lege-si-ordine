@@ -28,13 +28,12 @@ export function sttErrMsg(code) {
   return key ? t('sttErr_' + key) : t('dictationError', { e: code || 'err' });
 }
 
-
 function speechRecCtor() {
   return (typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)) || null;
 }
 
 export const canDictate = () => !!(nativeStt.hasNativeStt() || speechRecCtor());
-export const canSpeak = () => !!(nativeTts.hasNativeTts() || (typeof window !== 'undefined' && 'speechSynthesis' in window));
+export const canSpeak = () => !!(nativeTts.hasNativeStt ? nativeTts.hasNativeTts() : (nativeTts.hasNativeTts() || (typeof window !== 'undefined' && 'speechSynthesis' in window)));
 
 // ---- câmpul țintă pentru dictare (ultimul câmp de text atins) ----
 let lastTarget = null;
@@ -84,6 +83,23 @@ export function isSpeaking() {
   return false;
 }
 
+// Alege automat cea mai bună voce românească disponibilă dacă utilizatorul nu a ales una explicită
+function pickBestVoice(list, lang, preferredName) {
+  if (!Array.isArray(list) || !list.length) return null;
+  if (preferredName) {
+    const exact = list.find(v => v.name === preferredName);
+    if (exact) return exact;
+  }
+  const pre = String(lang || 'ro-RO').slice(0, 2).toLowerCase();
+  const matching = list.filter(v => String(v.lang || '').toLowerCase().startsWith(pre));
+  if (!matching.length) return null;
+  return (
+    matching.find(v => /mihai|ioana|ro-ro-x|google|natural|neural|online/i.test(v.name || '')) ||
+    matching.find(v => !/network/i.test(v.name || '')) ||
+    matching[0]
+  );
+}
+
 async function showTtsHelp({ noEngine = false, noLang = false } = {}) {
   const msg = noEngine ? t('ttsNeedEngine') : t('ttsNeedRo');
   const actions = [
@@ -96,14 +112,16 @@ async function showTtsHelp({ noEngine = false, noLang = false } = {}) {
 async function speakWeb(text, lang, rate, voiceName) {
   if (!('speechSynthesis' in window)) { await showTtsHelp({ noEngine: true }); return false; }
   speechSynthesis.cancel();
-  const v = webVoices().find(x => x.name === voiceName);
+  const v = pickBestVoice(webVoices(), lang, voiceName);
   const chunks = chunksOf(text);
   speakSt.playing = true; speakSt.paused = false; speakSt.chunks = chunks; speakSt.index = 0; speakSt.engine = 'web';
   showSpeakBubble();
   chunks.forEach((c, i) => {
     const u = new SpeechSynthesisUtterance(c);
-    u.lang = v ? v.lang : lang; if (v) u.voice = v;
+    u.lang = v ? v.lang : lang;
+    if (v) u.voice = v;
     u.rate = rate;
+    u.pitch = 1;
     u.onend = () => { if (i === chunks.length - 1 && speakSt.engine === 'web') { speakSt.playing = false; hideSpeakBubble(); } };
     u.onerror = () => { speakSt.playing = false; hideSpeakBubble(); };
     speechSynthesis.speak(u);
@@ -116,15 +134,19 @@ async function speakNative(text, lang, rate, voiceName) {
   let langOk = langInfo.supported !== false, hasEngine = langInfo.hasEngine;
   if (langInfo.supported === null) langOk = true;
   if (!hasEngine) { await showTtsHelp({ noEngine: true }); return false; }
+  const vv = await nativeVoices();
   if (!langOk) {
-    const vv = await nativeVoices();
     const pre = lang.slice(0, 2);
     langOk = vv.some(x => (x.lang || '').slice(0, 2) === pre);
   }
   if (!langOk) { await showTtsHelp({ noLang: true }); return false; }
+  const chosen = pickBestVoice(vv, lang, voiceName);
   const chunks = chunksOf(text);
   speakSt.playing = true; speakSt.paused = false; speakSt.chunks = chunks; speakSt.index = 0;
-  speakSt.lang = lang; speakSt.rate = rate; speakSt.voiceName = voiceName; speakSt.engine = 'native';
+  speakSt.lang = chosen?.lang || lang;
+  speakSt.rate = rate;
+  speakSt.voiceName = chosen?.name || voiceName || '';
+  speakSt.engine = 'native';
   showSpeakBubble();
   await playNativeFrom(0);
   return true;
@@ -135,16 +157,17 @@ async function playNativeFrom(i) {
     if (!speakSt.playing || speakSt.paused || speakSt.engine !== 'native') return;
     speakSt.index = k;
     try {
-      await nativeTts.speak({
+      const payload = {
         text: speakSt.chunks[k],
         lang: speakSt.lang,
         rate: speakSt.rate,
         pitch: 1,
         volume: 1,
-        voiceName: speakSt.voiceName,
         category: 'ambient',
         queueStrategy: 1,
-      });
+      };
+      if (speakSt.voiceName) payload.voiceName = speakSt.voiceName;
+      await nativeTts.speak(payload);
     } catch (e) {
       speakSt.playing = false; hideSpeakBubble();
       await showTtsHelp({ noEngine: true });
@@ -163,7 +186,7 @@ export async function speak(text) {
   emitSpeak(text);
   const s = state.settings;
   const lang = s.voiceLang || 'ro-RO';
-  const rate = s.voiceRate == null ? 1.25 : s.voiceRate;
+  const rate = s.voiceRate == null ? 1.0 : s.voiceRate;
   const voiceName = s.voiceName || '';
   const ok = nativeTts.hasNativeTts() ? await speakNative(text, lang, rate, voiceName) : await speakWeb(text, lang, rate, voiceName);
   return ok;
@@ -187,7 +210,7 @@ export async function readScreenAloud(arg) {
         return { native: true };
       }
       if (!('speechSynthesis' in window)) { await showTtsHelp({ noEngine: true }); return null; }
-      return { native: false, voice: webVoices().find(x => x.name === opts.voiceName) || null };
+      return { native: false, voice: pickBestVoice(webVoices(), opts.lang, opts.voiceName) || null };
     },
   });
 }
@@ -228,9 +251,11 @@ export const isDictating = () => !!rec;
 let _dictIdleObs = null;
 let _suppressIdle = false;
 let capitalizeNext = false;
+let lowercaseNext = false;
 let pauseTimer = null;
 
 function hideDictUi() {
+  clearTimeout(pauseTimer);
   if (_dictIdleObs) { try { _dictIdleObs.disconnect(); } catch {} _dictIdleObs = null; }
   const p = document.getElementById('punct-pill');
   if (p) p.remove();
@@ -248,12 +273,27 @@ function showDictIdleBar(target) {
   if (!el || !el.isConnected) return;
   hideDictUi();
   const bar = h('div', { class: 'punct-pill dict-idle', id: 'punct-pill', 'data-test': 'dict-bar' });
-  const go = h('button', { type: 'button', class: 'dict-start', 'data-test': 'dict-start' }, 'Dictează');
+  const go = h('button', { type: 'button', class: 'dict-start', 'data-test': 'dict-start' }, '🎙 Dictează');
   go.addEventListener('click', ev => {
     ev.preventDefault(); ev.stopPropagation();
     startDictation(el);
   });
   bar.append(go);
+
+  // Dacă suntem într-un editor sau în Temporar, oferim și buton direct de Salvare lângă Dictează
+  const modalSave = el.closest('.modal')?.querySelector('.m-actions .btn.primary');
+  const tempSave = el.closest('.quick-bar')?.querySelector('[data-action="save-temp"]');
+  const saveTarget = modalSave || tempSave;
+  if (saveTarget) {
+    const saveBtn = h('button', { type: 'button', class: 'dict-save-btn', 'data-test': 'dict-save' }, '✓ Salvează');
+    saveBtn.addEventListener('click', ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      hideDictUi();
+      saveTarget.click();
+    });
+    bar.append(saveBtn);
+  }
+
   document.body.append(bar);
   if (typeof placeDictBar === 'function') placeDictBar();
   const idleCheck = () => {
@@ -396,6 +436,7 @@ const SPOKEN_PUNCT = [
   [/dou[aă]\s+puncte/gi, ':'],
   [/linie\s+nou[aă]/gi, '\n'],
   [/r[aâ]nd\s+nou/gi, '\n'],
+  [/alineat\s+nou/gi, '\n'],
   [/\bquestion\s+mark\b/gi, '?'],
   [/\bexclamation\s+mark\b/gi, '!'],
   [/\bfull\s+stop\b/gi, '.'],
@@ -408,10 +449,17 @@ const SPOKEN_PUNCT = [
   [/\bcolon\b/gi, ':'],
   [/\bsemicolon\b/gi, ';'],
 ];
+
 export function applySpokenPunct(txt) {
   let s = String(txt || '');
   for (const [re, ch] of SPOKEN_PUNCT) s = s.replace(re, ch);
-  s = s.replace(/\s+([.,;:!?])/g, '$1').replace(/([.,;:!?])(?!\s|$|\n)/g, '$1 ');
+  // Curăță spațiile înaintea semnelor de punctuație
+  s = s.replace(/\s+([.,;:!?])/g, '$1');
+  // După virgulă în interiorul textului, următorul cuvânt rămâne cu literă mică
+  s = s.replace(/,\s+([A-ZĂÎÂȘȚ])(?=[a-zăîâșț])/g, (_, ch) => ', ' + ch.toLowerCase());
+  // După punct (.), semn de întrebare (?) sau exclamare (!), trecem pe alineat nou
+  s = s.replace(/([.!?])\s+(?=[^\s\n])/g, '$1\n');
+  s = s.replace(/([,;:])(?!\s|$|\n)/g, '$1 ');
   return s.replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n');
 }
 
@@ -453,6 +501,33 @@ function isPrefixPhrase(base, incoming) {
   return !!i && (b === i || b.startsWith(i + ' '));
 }
 
+function schedulePauseNewline(el, st) {
+  clearTimeout(pauseTimer);
+  if (!el || el.nodeName !== 'TEXTAREA') return;
+  pauseTimer = setTimeout(() => {
+    if (!rec || !el || !el.isConnected) return;
+    const pos = el.selectionStart ?? el.value.length;
+    const before = el.value.slice(0, pos);
+    if (!before.trim() || /\n\s*$/.test(before)) return;
+    const after = el.value.slice(pos);
+    let prefix = before.replace(/[ \t]+$/, '');
+    if (!/[.!?]$/.test(prefix)) prefix += '.';
+    prefix += '\n';
+    st.applying = true;
+    el.value = prefix + after;
+    const newPos = prefix.length;
+    try { el.setSelectionRange(newPos, newPos); } catch {}
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    st.applying = false;
+    st.start = newPos;
+    st.after = after;
+    st.lastChunk = '';
+    capitalizeNext = true;
+    lowercaseNext = false;
+    revealDictCaret(el);
+  }, 1900);
+}
+
 function bindDictationField(el) {
   const st = { el, start: 0, after: '', applying: false, lastChunk: '' };
   const snap = () => {
@@ -465,9 +540,10 @@ function bindDictationField(el) {
   };
   const onInput = () => { if (!st.applying) snap(); };
   if (el) { snap(); el.addEventListener('input', onInput); }
-  const detach = () => { if (el) el.removeEventListener('input', onInput); };
+  const detach = () => { clearTimeout(pauseTimer); if (el) el.removeEventListener('input', onInput); };
   const write = (chunk, commit, opts = {}) => {
     if (!el) return;
+    clearTimeout(pauseTimer);
     const incoming = applySpokenPunct(chunk);
     if (!incoming) return;
     const before = el.value.slice(0, st.start);
@@ -483,12 +559,21 @@ function bindDictationField(el) {
       st.lastChunk = '';
       return;
     }
-    // Aplică majusculă după punct, rând nou sau la început de propoziție
-    if (use && (capitalizeNext || !before.trim() || /[.!?\n]\s*$/.test(before))) {
+    // După virgulă (,), următorul cuvânt pornește cu literă mică
+    if (use && (lowercaseNext || /,\s*$/.test(before))) {
+      use = use.charAt(0).toLowerCase() + use.slice(1);
+      if (commit) lowercaseNext = false;
+    } else if (use && (capitalizeNext || !before.trim() || /[.!?\n]\s*$/.test(before))) {
+      // După punct (.), alineat nou sau la început, pornește cu literă mare
       use = use.charAt(0).toUpperCase() + use.slice(1);
       if (commit) capitalizeNext = false;
     }
-    const sep = use && before && !/\s$/.test(before) && !/^[\s.,;:!?]/.test(use) ? ' ' : '';
+    // Dacă bucata dictată se termină cu punct, trecem automat pe alineat nou
+    if (commit && /[.!?]$/.test(use) && el.nodeName === 'TEXTAREA') {
+      use = use + '\n';
+      capitalizeNext = true;
+    }
+    const sep = use && before && !/[\s\n]$/.test(before) && !/^[\s.,;:!?\n]/.test(use) ? ' ' : '';
     st.applying = true;
     el.value = before + sep + use + afterSafe();
     const pos = (before + sep + use).length;
@@ -500,6 +585,7 @@ function bindDictationField(el) {
       st.start = pos;
       st.after = el.value.slice(pos);
       st.lastChunk = '';
+      schedulePauseNewline(el, st);
     }
     clearActivePunct();
     revealDictCaret(el);
@@ -583,7 +669,6 @@ async function startNativeDictation(target, { lang, onFinal, onEnd, quiet }) {
           lastFinal = last;
           finalized = true;
         }
-        // Dacă utilizatorul nu a apăsat „Oprește”, reluăm automat ascultarea (ex. după inserarea punctuației)
         if (rec === stateObj && stateObj._keep) {
           setTimeout(() => {
             if (rec === stateObj && stateObj._keep) {
@@ -712,37 +797,26 @@ export function insertAtCursor(el, txt, { forceCapital = false } = {}) {
   if (!txt) return;
   const start = el.selectionStart ?? el.value.length, end = el.selectionEnd ?? el.value.length;
   let before = el.value.slice(0, start);
-  if (forceCapital || capitalizeNext || /[.!?]\s*$/.test(before) || !before.trim()) {
+  if (lowercaseNext || /,\s*$/.test(before)) {
+    txt = txt.charAt(0).toLowerCase() + txt.slice(1);
+    lowercaseNext = false;
+  } else if (forceCapital || capitalizeNext || /[.!?\n]\s*$/.test(before) || !before.trim()) {
     txt = txt.charAt(0).toUpperCase() + txt.slice(1);
     capitalizeNext = false;
   }
-  const sep = before && !/\s$/.test(before) ? ' ' : '';
+  const sep = before && !/[\s\n]$/.test(before) ? ' ' : '';
   const ins = sep + txt;
   el.setRangeText(ins, start, end, 'end');
   el.dispatchEvent(new Event('input', { bubbles: true }));
-  clearTimeout(pauseTimer);
-  pauseTimer = setTimeout(() => {
-    if (el && document.activeElement === el) {
-      const v = el.value;
-      if (v && !/[.!?\n]\s*$/.test(v)) {
-        const pos = el.selectionStart ?? v.length;
-        el.setRangeText('. ', pos, pos, 'end');
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        capitalizeNext = true;
-      }
-    }
-  }, 1800);
 }
 
 export function insertPunctuation(el, punct, btn) {
   if (!el) return;
-  // Consolidăm eventualul text provizoriu rostit până în acest moment ca să nu fie suprascris
   if (rec && rec._field && typeof rec._field.flushInterim === 'function') {
     rec._field.flushInterim();
   }
   let start = el.selectionStart ?? el.value.length;
   const end = el.selectionEnd ?? start;
-  // Eliminăm eventualul spațiu dinaintea virgulei sau punctului
   if ((punct === ',' || punct === '.') && start > 0 && el.value[start - 1] === ' ') {
     el.setRangeText('', start - 1, start, 'end');
     start -= 1;
@@ -752,11 +826,15 @@ export function insertPunctuation(el, punct, btn) {
   if (isEnter) {
     ins = '\n';
     capitalizeNext = true;
+    lowercaseNext = false;
   } else if (punct === '.') {
-    ins = '. ';
+    ins = el.nodeName === 'TEXTAREA' ? '.\n' : '. ';
     capitalizeNext = true;
+    lowercaseNext = false;
   } else if (punct === ',') {
     ins = ', ';
+    lowercaseNext = true;
+    capitalizeNext = false;
   } else if (punct === '-' || punct === '+') {
     ins = ' ' + punct + ' ';
   }
@@ -803,7 +881,7 @@ export async function voiceMenu() {
     if (v == null) return;
     voiceName = v; drawVoice();
   });
-  const rate = h('input', { type: 'range', min: '0.6', max: '1.6', step: '0.1', value: String(s.voiceRate == null ? 1.25 : s.voiceRate) });
+  const rate = h('input', { type: 'range', min: '0.6', max: '1.6', step: '0.1', value: String(s.voiceRate == null ? 1.0 : s.voiceRate) });
   const body = h('div', {},
     h('label', { class: 'fld' }, h('span', {}, t('voiceLang')), langBtn),
     h('label', { class: 'fld' }, h('span', {}, t('voiceVoice')), voiceBtn),
