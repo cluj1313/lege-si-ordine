@@ -20,6 +20,30 @@ function toTitleCaseRo(str) {
   return String(str || '').replace(/(^|[\s\-])([a-zăîâșț])/g, (_, sep, ch) => sep + ch.toUpperCase());
 }
 
+function autoCapFirst(str) {
+  const s = String(str || '');
+  if (!s) return s;
+  return s.replace(/^(\s*)([a-zăîâșț])/, (_, sp, ch) => sp + ch.toUpperCase());
+}
+
+// Extrage automat primul rând (cât încape pe un rând pe ecranul telefonului) ca Titlu, iar restul ca corp
+function splitFirstLineTitle(rawText) {
+  const clean = String(rawText || '').trim();
+  if (!clean) return { title: '', body: '' };
+  const lines = clean.split(/\n+/);
+  let first = lines[0].trim();
+  let rest = lines.slice(1).join('\n').trim();
+  const MAX_LINE = 42;
+  if (first.length > MAX_LINE) {
+    let cut = first.lastIndexOf(' ', MAX_LINE);
+    if (cut < 18) cut = MAX_LINE;
+    const overflow = first.slice(cut).trim();
+    first = first.slice(0, cut).trim();
+    rest = [overflow, rest].filter(Boolean).join('\n');
+  }
+  return { title: first, body: rest };
+}
+
 const NAME_KEYS = new Set(['client', 'name', 'person', 'parties', 'nume', 'prenume']);
 
 export function itemKindFor(tab, sub) {
@@ -70,7 +94,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
       }
       getters.push(() => {
         const val = pf.get();
-        data[f.k] = isNameField ? toTitleCaseRo(val) : val;
+        data[f.k] = isNameField ? toTitleCaseRo(val) : autoCapFirst(val);
         return true;
       });
     } else if (f.type === 'text' || f.type === 'url' || f.type === 'tel' || f.type === 'email') {
@@ -88,7 +112,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
           const pos = inp.selectionStart;
           let v = inp.value;
           if (isNameField) v = toTitleCaseRo(v);
-          else if (v && /[a-zăîâșț]/.test(v[0])) v = v[0].toUpperCase() + v.slice(1);
+          else v = autoCapFirst(v);
           if (v !== inp.value) {
             inp.value = v;
             try { inp.setSelectionRange(pos, pos); } catch {}
@@ -100,17 +124,18 @@ export async function openEditor(tabId, it = null, opts = {}) {
       el = h('label', { class: 'fld' }, h('span', {}, label), extra ? h('div', { class: 'row-inp' }, inp, extra) : inp);
       getters.push(() => {
         const raw = inp.value.trim();
-        data[f.k] = isNameField ? toTitleCaseRo(raw) : raw;
+        data[f.k] = isNameField ? toTitleCaseRo(raw) : autoCapFirst(raw);
         return true;
       });
     } else if (f.type === 'textarea') {
       const ta = h('textarea', { class: 'inp voice-target', 'data-k': f.k, rows: f.rows || 8, placeholder: f.ph || '', autocapitalize: 'sentences', spellcheck: 'true' });
       ta.value = data[f.k] || '';
       const capFirst = () => {
-        if (ta.value && /[a-zăîâșț]/.test(ta.value[0]) && ta.value[0] === ta.value[0].toLowerCase()) {
+        const capped = autoCapFirst(ta.value);
+        if (capped !== ta.value) {
           const pos = ta.selectionStart;
-          ta.value = ta.value[0].toUpperCase() + ta.value.slice(1);
-          if (pos != null) ta.setSelectionRange(pos, pos);
+          ta.value = capped;
+          if (pos != null) try { ta.setSelectionRange(pos, pos); } catch {}
         }
       };
       ta.addEventListener('focus', capFirst);
@@ -127,7 +152,7 @@ export async function openEditor(tabId, it = null, opts = {}) {
         inp.click();
       });
       el = h('label', { class: 'fld' }, h('span', {}, label), ta, ocrBtn);
-      getters.push(() => { data[f.k] = ta.value.replace(/\s+$/, ''); return true; });
+      getters.push(() => { data[f.k] = autoCapFirst(ta.value.replace(/\s+$/, '')); return true; });
       if (f.main) setTimeout(() => { if (!it) ta.focus(); }, 120);
     } else if (f.type === 'date') {
       const df = dateField(data[f.k] || '', { label }); el = df.el;
@@ -193,18 +218,55 @@ export async function openEditor(tabId, it = null, opts = {}) {
   app.speakEditor = async () => { if (!(await collect())) return ''; return plainText(K, data); };
   const prevClose = m.close; m.close = (...a) => { if (app.speakEditor) delete app.speakEditor; openEditors.delete(handle); prevClose(...a); };
   const head = m.el.querySelector('.m-back');
-  const tryClose = async () => { if (dirty && !(await confirmDlg(t('discardChanges')))) return; m.close(); };
+
+  // Apăsarea pe Back (buton sau gest Android) salvează automat modificările dacă există conținut
+  const tryClose = async () => {
+    if (dirty || added.length || removed.length) {
+      await doSave(m);
+      return;
+    }
+    m.close();
+  };
   m.onBack = tryClose;
   if (head) { const nb = head.cloneNode(true); head.replaceWith(nb); nb.addEventListener('click', tryClose); }
 
+  function normalizeTitleFromBody() {
+    const titleField = (K.fields || []).find(f => f.k === 'title' || f.k === 'name');
+    const bodyField = (K.fields || []).find(f => f.type === 'textarea' || f.k === 'text' || f.k === 'body' || f.k === 'notes');
+    if (titleField && bodyField) {
+      const curTitle = String(data[titleField.k] || '').trim();
+      const curBody = String(data[bodyField.k] || '').trim();
+      if (!curTitle && curBody) {
+        const sp = splitFirstLineTitle(curBody);
+        data[titleField.k] = sp.title;
+        data[bodyField.k] = sp.body;
+      }
+    }
+  }
+
   async function collect() {
     for (const g of getters) if (!g()) return false;
+    normalizeTitleFromBody();
     return true;
   }
+
+  function hasMeaningfulContent() {
+    for (const f of K.fields || []) {
+      const v = data[f.k];
+      if (typeof v === 'string' && v.trim()) return true;
+      if (Array.isArray(v) && v.length) return true;
+    }
+    return added.length > 0;
+  }
+
   let saving = false;
   async function doSave(m) {
     if (saving) return;
     if (!(await collect())) return;
+    if (!it && !hasMeaningfulContent()) {
+      m.close();
+      return;
+    }
     saving = true;
     try {
       const alarmAt = K.alarm ? K.alarm(data) : null;
@@ -271,16 +333,33 @@ function subtasksField(data, label, onDirty) {
   const draw = () => {
     list.innerHTML = '';
     data.subs.forEach((s, i) => {
-      const inp = h('input', { class: 'inp sub-inp voice-target', type: 'text', value: s.text });
-      inp.addEventListener('input', () => { s.text = inp.value; onDirty(); });
+      const inp = h('input', { class: 'inp sub-inp voice-target', type: 'text', value: s.text, autocapitalize: 'sentences' });
+      inp.addEventListener('input', () => {
+        const capped = autoCapFirst(inp.value);
+        if (capped !== inp.value) {
+          const pos = inp.selectionStart;
+          inp.value = capped;
+          try { inp.setSelectionRange(pos, pos); } catch {}
+        }
+        s.text = inp.value;
+        onDirty();
+      });
       list.append(h('div', { class: 'sub' + (s.done ? ' done' : '') },
         h('button', { class: 'circ sm' + (s.done ? ' on' : ''), type: 'button', onclick: () => { s.done = !s.done; onDirty(); draw(); } }, s.done ? '✓' : ''),
         inp,
         h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': t('delete'), onclick: async () => { if (await confirmDlg(t('confirmDeleteSub'))) { data.subs.splice(i, 1); onDirty(); draw(); } } }, '×')));
     });
   };
-  const add = h('input', { class: 'inp', type: 'text', placeholder: t('addSubtask'), enterkeyhint: 'done' });
-  const doAdd = () => { const v = add.value.trim(); if (!v) return; data.subs.push({ id: uid('s'), text: v, done: false }); add.value = ''; onDirty(); draw(); add.focus(); };
+  const add = h('input', { class: 'inp', type: 'text', placeholder: t('addSubtask'), enterkeyhint: 'done', autocapitalize: 'sentences' });
+  add.addEventListener('input', () => {
+    const capped = autoCapFirst(add.value);
+    if (capped !== add.value) {
+      const pos = add.selectionStart;
+      add.value = capped;
+      try { add.setSelectionRange(pos, pos); } catch {}
+    }
+  });
+  const doAdd = () => { const v = autoCapFirst(add.value.trim()); if (!v) return; data.subs.push({ id: uid('s'), text: v, done: false }); add.value = ''; onDirty(); draw(); add.focus(); };
   add.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
   draw();
   return h('div', { class: 'fld' }, h('span', {}, label), list, h('div', { class: 'row-inp' }, add, h('button', { class: 'btn sm', type: 'button', onclick: doAdd }, '+')));
