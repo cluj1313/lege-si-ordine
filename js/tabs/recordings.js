@@ -1,5 +1,5 @@
 // RECORDINGS 🔴: audio-ul se înregistrează MEREU, cu casetă live vizibilă și fereastră
-// de revizuire la final (Salvare, Reascultare, Share, Ștergere). Primul rând = Titlu.
+// de revizuire la final (Salvare, Reascultare, Share, Ștergere).
 import { h, act, fmtDur, fmtTs } from '../core/util.js';
 import { t } from '../core/i18n.js';
 import { getMedia, state, itemsOf, newItem, putMedia, ownerOf, dataOf, saveItem, saveUI, saveMeta, descendants, item as getItem, liveTabs, trash } from '../core/store.js';
@@ -28,22 +28,23 @@ const addText = txt => { txt = String(txt || '').trim(); if (txt) R.transcript +
 const liveText = () => [R.transcript, R.partial].filter(Boolean).join(' ');
 const liveBoxText = () => { const x = liveText(); return R.liveOff ? (x ? x + ' — ' : '') + t('recLiveOff') : (x || t('recListening')); };
 
-// Extrage automat primul rând (cât încape pe un rând pe ecranul telefonului) ca Titlu, iar restul ca corp
-export function splitFirstLineTitle(rawText, fallback = '') {
-  const clean = String(rawText || '').trim();
-  if (!clean) return { title: fallback, body: '' };
-  const lines = clean.split(/\n+/);
-  let first = lines[0].trim();
-  let rest = lines.slice(1).join('\n').trim();
-  const MAX_LINE = 42;
-  if (first.length > MAX_LINE) {
-    let cut = first.lastIndexOf(' ', MAX_LINE);
-    if (cut < 18) cut = MAX_LINE;
-    const overflow = first.slice(cut).trim();
-    first = first.slice(0, cut).trim();
-    rest = [overflow, rest].filter(Boolean).join('\n');
+function formatDefaultRecDateTime(ts) {
+  const d = new Date(ts || Date.now());
+  const dateStr = d.toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = d.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+  return `${dateStr} ${timeStr}`;
+}
+
+function personChipLabel(it) {
+  const d = dataOf(it);
+  if (!d) return '🔒';
+  if (d.client && String(d.client).trim()) return String(d.client).trim();
+  if (it.folder) {
+    const f = getItem(it.folder);
+    const fn = f ? folderNameOf(f) : '';
+    if (fn) return fn;
   }
-  return { title: first || fallback, body: rest };
+  return '';
 }
 
 function pickMime() {
@@ -100,7 +101,6 @@ function beginCommon(tabId) {
   showFloatingRecBox();
 }
 
-// Casetă plutitoare vizibilă în timp real în timpul înregistrării, indiferent de tabul activ
 function hideFloatingRecBox() {
   const el = document.getElementById('lso-rec-live-modal');
   if (el) el.remove();
@@ -141,27 +141,24 @@ function showFloatingRecBox() {
   document.body.append(box);
 }
 
-// Fereastră completă la oprirea înregistrării: Reascultă, Editează textul (primul rând = Titlu), Salvează, Share, Șterge
-async function openReviewRecordingModal({ savedItem, blob, mime, duration, initialTranscript }) {
-  const parsed = splitFirstLineTitle(initialTranscript, '');
+// Fereastră la oprirea înregistrării: dacă nu se dă Titlu, se aplică automat Data și ora înregistrării
+async function openReviewRecordingModal({ savedItem, blob, mime, duration, initialTranscript, defaultDateTimeTitle }) {
   const titleInp = h('input', {
     class: 'inp', type: 'text',
-    placeholder: 'Titlu (primul rând pe ecran)',
-    value: parsed.title
+    placeholder: defaultDateTimeTitle,
+    value: ''
+  });
+  const clientF = pickField({
+    value: (savedItem && dataOf(savedItem)?.client) || '',
+    list: 'clients',
+    label: t('fClientOrFirm'),
+    test: 'rec-review-client'
   });
   const bodyTa = h('textarea', {
-    class: 'inp', rows: 6,
-    placeholder: 'Textul înregistrării (se poate dicta sau edita)...',
+    class: 'inp', rows: 5,
+    placeholder: 'Textul înregistrării (se poate edita)...',
     value: initialTranscript || ''
   });
-
-  bodyTa.addEventListener('input', () => {
-    if (!titleInp.dataset.manual) {
-      const sp = splitFirstLineTitle(bodyTa.value, '');
-      titleInp.value = sp.title;
-    }
-  });
-  titleInp.addEventListener('input', () => { titleInp.dataset.manual = '1'; });
 
   let audioUrl = '';
   let audioEl = null;
@@ -177,17 +174,19 @@ async function openReviewRecordingModal({ savedItem, blob, mime, duration, initi
   const body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
     h('div', { class: 'r2-meta' }, `Durată: ${fmtDur(duration || 0)}`),
     audioEl,
-    h('label', { class: 'fld' }, h('span', {}, 'Titlu (rândul 1)'), titleInp),
+    h('label', { class: 'fld' }, h('span', {}, 'Titlu (opțional — implicit data și ora)'), titleInp),
+    clientF.el,
     h('label', { class: 'fld' }, h('span', {}, 'Conținut / Transcriere'), bodyTa),
     h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' } },
       h('button', {
         type: 'button', class: 'btn sm ghost',
         onclick: async () => {
-          const fullTxt = [titleInp.value.trim(), bodyTa.value.trim()].filter(Boolean).join('\n');
+          const tName = titleInp.value.trim() || defaultDateTimeTitle;
+          const fullTxt = [tName, bodyTa.value.trim()].filter(Boolean).join('\n');
           if (blob && blob.size > 0) {
-            await shareFile(blob, (titleInp.value.trim() || 'inregistrare') + extOf(mime || 'audio/webm'), fullTxt || 'Înregistrare');
+            await shareFile(blob, tName + extOf(mime || 'audio/webm'), fullTxt);
           } else if (navigator.share) {
-            await navigator.share({ title: titleInp.value.trim() || 'Înregistrare', text: fullTxt });
+            await navigator.share({ title: tName, text: fullTxt });
           }
         }
       }, '📤 Share'),
@@ -215,15 +214,15 @@ async function openReviewRecordingModal({ savedItem, blob, mime, duration, initi
         label: '✓ Salvează',
         cls: 'primary',
         onClick: async mm => {
-          const rawCombined = bodyTa.value.trim();
-          const sp = splitFirstLineTitle(rawCombined, '');
-          const finalTitle = titleInp.value.trim() || sp.title || 'Înregistrare';
-          const finalBody = rawCombined;
+          const finalTitle = titleInp.value.trim() || defaultDateTimeTitle;
+          const finalBody = bodyTa.value.trim();
+          const finalClient = clientF.get();
           if (savedItem) {
             const cur = dataOf(savedItem) || {};
             await saveItem(savedItem, {
               ...cur,
               name: finalTitle,
+              client: finalClient,
               transcript: finalBody
             });
           }
@@ -356,14 +355,17 @@ export async function stopRecording() {
   let createdItem = null;
   const fullTranscript = [R.transcript, R.partial].filter(Boolean).join(' ').trim();
   R.partial = '';
-  const parsed = splitFirstLineTitle(fullTranscript, '');
+  const defaultDateTimeTitle = formatDefaultRecDateTime(R.start);
 
   try {
     if (mid || pendingFile) {
       const folder = R.folder || null;
+      const folderObj = folder ? getItem(folder) : null;
+      const autoClient = folderObj ? folderNameOf(folderObj) : '';
       const status = folder ? recArchivedStatus() : (recStatuses()[0] || '');
       const data = {
-        name: parsed.title || 'Înregistrare',
+        name: defaultDateTimeTitle,
+        client: autoClient,
         duration,
         mid,
         mime,
@@ -378,7 +380,7 @@ export async function stopRecording() {
           const { updateTemporary } = await import('../features/temporary.js');
           updateTemporary(window._lsoTempRecId, {
             text: fullTranscript,
-            title: parsed.title || 'Înregistrare',
+            title: defaultDateTimeTitle,
             duration: data.duration,
             mid: data.mid,
             mime: data.mime,
@@ -388,7 +390,7 @@ export async function stopRecording() {
         } catch (e) { console.error(e); }
       }
       createdItem = await newItem(R.tabId, 'rec', data, { folder });
-      for (const x of extra) await newItem(R.tabId, 'rec', { name: t('recPart2'), duration: x.duration || 0, mid: x.mid, mime: x.mime, transcript: '', at: R.start + 1, status }, { folder });
+      for (const x of extra) await newItem(R.tabId, 'rec', { name: t('recPart2'), client: autoClient, duration: x.duration || 0, mid: x.mid, mime: x.mime, transcript: '', at: R.start + 1, status }, { folder });
     }
   } catch (e) { console.error(e); toast(t('recSaveFail'), 4000); }
 
@@ -399,7 +401,8 @@ export async function stopRecording() {
     blob: mainBlob,
     mime,
     duration,
-    initialTranscript: fullTranscript
+    initialTranscript: fullTranscript,
+    defaultDateTimeTitle
   });
 }
 
@@ -422,7 +425,7 @@ export async function recoverOrphans(tab) {
       } else {
         const temp = { tab: tab.id, kind: 'rec', folder: null };
         const mid = await putMedia(blob, t('recDefaultName', { d: fmtTs(f.at) }) + extOf(f.mime), f.mime, ownerOf(temp));
-        await newItem(tab.id, 'rec', { name: t('recRecoveredName'), duration: f.duration || 0, mid, mime: f.mime, transcript: '', at: f.at || Date.now(), status: recStatuses()[0] || '' });
+        await newItem(tab.id, 'rec', { name: formatDefaultRecDateTime(f.at || Date.now()), duration: f.duration || 0, mid, mime: f.mime, transcript: '', at: f.at || Date.now(), status: recStatuses()[0] || '' });
       }
       await nativeStt.recDelete(f.path);
       n++;
@@ -459,8 +462,7 @@ export async function transcribeRec(it) {
       { label: t('recTrStop'), cls: 'ghost', onClick: async mm => { if (running) { await nativeStt.fileTranscribeStop(); return; } mm.close(); } },
       { label: t('save'), cls: 'primary', onClick: async mm => {
         const cur = dataOf(it) || d;
-        const sp = splitFirstLineTitle(ta.value.trim(), cur.name || '');
-        await saveItem(it, { ...cur, name: cur.name || sp.title, transcript: sp.body || ta.value.trim() });
+        await saveItem(it, { ...cur, transcript: ta.value.trim() });
         toast(t('savedOk')); mm.close(); app.render();
       } },
     ],
@@ -531,6 +533,10 @@ export function renderRecordings(view, tab) {
     items = items.filter(i => ids.has(i.folder));
   }
   const at = it => { const d = dataOf(it); return (d && d.at) || it.created; };
+  const buildSummary = arr => {
+    const names = [...new Set(arr.slice().sort((a, b) => at(a) - at(b)).map(personChipLabel).filter(Boolean))];
+    return names.length ? h('span', { class: 'day-chips' }, names.map(n => h('span', { class: 'chip' }, n))) : h('span', { class: 'day-chips' });
+  };
   if (filt !== 'all') {
     const qWrap = h('div', { class: 'rec-folder-search' });
     const q = h('input', { class: 'inp', type: 'search', placeholder: t('archiveSearchPh'), 'data-test': 'archive-search', value: state.ui.recSearch || '' });
@@ -548,7 +554,7 @@ export function renderRecordings(view, tab) {
       renderDayGroups(list, shown, {
         key: tab.id, empty: needle ? t('noRecHits') : t('recEmpty'),
         dateOf: it => isoFromDate(new Date(at(it))),
-        summary: arr => h('span', { class: 'day-chips' }, arr.slice().sort((a, b) => at(a) - at(b)).map(it => h('span', { class: 'chip' }, dataOf(it) ? recTitle(dataOf(it)) : '🔒'))),
+        summary: buildSummary,
         renderItem: it => card(it), order: arr => sortByTab(arr, tab.id),
       });
     };
@@ -560,7 +566,7 @@ export function renderRecordings(view, tab) {
   renderDayGroups(list, items, {
     key: tab.id, empty: t('recEmpty'),
     dateOf: it => isoFromDate(new Date(at(it))),
-    summary: arr => h('span', { class: 'day-chips' }, arr.slice().sort((a, b) => at(a) - at(b)).map(it => h('span', { class: 'chip' }, dataOf(it) ? recTitle(dataOf(it)) : '🔒'))),
+    summary: buildSummary,
     renderItem: it => card(it), order: arr => sortByTab(arr, tab.id),
   });
 }
@@ -596,7 +602,7 @@ export async function renameRec(it) {
       title: t('rename'), body,
       actions: [
         { label: t('no'), cls: 'ghost', onClick: m => finish(null, m) },
-        { label: t('yes'), cls: 'primary', onClick: m => finish({ name: nameInp.value.trim(), client: clientF.get(), caseNumber: caseF.get() }, m) },
+        { label: t('yes'), cls: 'primary', onClick: m => finish({ name: nameInp.value.trim() || d.name || formatDefaultRecDateTime(d.at || it.created), client: clientF.get(), caseNumber: caseF.get() }, m) },
       ],
       onClose: () => { if (!done) res(null); },
     });
@@ -613,7 +619,7 @@ export async function archiveRec(it) {
   const folder = await pickFolder({ title: t('archiveIn'), confirmLabel: t('archiveHere'), tab: recTab });
   if (!folder) return;
   it.folder = folder.id;
-  await saveItem(it, { ...d, status: recArchivedStatus() });
+  await saveItem(it, { ...d, client: d.client || folderNameOf(folder), status: recArchivedStatus() });
   toast(t('archiveOk', { n: folderNameOf(folder) }));
   app.render();
 }
