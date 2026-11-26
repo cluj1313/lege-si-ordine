@@ -3,19 +3,16 @@ package ro.legesiordine.app;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Typeface;
 import android.widget.RemoteViews;
 
 import org.json.JSONObject;
 
 import java.io.File;
-import java.text.DateFormatSymbols;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Calendar;
 import java.util.Locale;
 
@@ -29,6 +26,25 @@ public class LsoClockWidget extends AppWidgetProvider {
             "ianuarie", "februarie", "martie", "aprilie", "mai", "iunie",
             "iulie", "august", "septembrie", "octombrie", "noiembrie", "decembrie"
     };
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        super.onReceive(context, intent);
+        String action = intent != null ? intent.getAction() : null;
+        if (Intent.ACTION_TIME_TICK.equals(action)
+                || Intent.ACTION_TIME_CHANGED.equals(action)
+                || Intent.ACTION_DATE_CHANGED.equals(action)
+                || Intent.ACTION_TIMEZONE_CHANGED.equals(action)) {
+            AppWidgetManager mgr = AppWidgetManager.getInstance(context);
+            ComponentName cn = new ComponentName(context, LsoClockWidget.class);
+            int[] ids = mgr.getAppWidgetIds(cn);
+            if (ids != null) {
+                for (int id : ids) {
+                    updateOneWidget(context, mgr, id);
+                }
+            }
+        }
+    }
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -63,9 +79,7 @@ public class LsoClockWidget extends AppWidgetProvider {
         } catch (Exception ignored) {
         }
 
-        Typeface oswaldLight = loadOswaldLight(context);
-        Bitmap timeBmp = renderTimeBitmap(timeText, oswaldLight, 152f, Color.WHITE);
-        views.setImageViewBitmap(R.id.widget_time, timeBmp);
+        views.setTextViewText(R.id.widget_time, timeText);
         views.setTextViewText(R.id.widget_date, dateText);
 
         int ringRes = "green".equals(ringColor) ? R.drawable.widget_ring_green : R.drawable.widget_ring_red;
@@ -86,53 +100,12 @@ public class LsoClockWidget extends AppWidgetProvider {
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }
 
-    private static Typeface loadOswaldLight(Context context) {
-        String[] candidatePaths = new String[]{
-                "public/fonts/Oswald-Light.ttf",
-                "public/fonts/Oswald[wght].ttf",
-                "fonts/Oswald-Light.ttf",
-                "fonts/Oswald[wght].ttf"
-        };
-        for (String assetPath : candidatePaths) {
-            try {
-                Typeface tf = Typeface.createFromAsset(context.getAssets(), assetPath);
-                if (tf != null) {
-                    return Typeface.create(tf, 300, false);
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return Typeface.create("sans-serif-light", Typeface.NORMAL);
-    }
-
-    private static Bitmap renderTimeBitmap(String text, Typeface typeface, float textSizePx, int color) {
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        paint.setTypeface(typeface);
-        paint.setTextSize(textSizePx);
-        paint.setColor(color);
-        paint.setLetterSpacing(0.02f);
-
-        Paint.FontMetrics fm = paint.getFontMetrics();
-        float width = Math.max(1f, paint.measureText(text) + 12f);
-        float height = Math.max(1f, fm.descent - fm.ascent + 8f);
-
-        Bitmap bmp = Bitmap.createBitmap(
-                Math.max(1, Math.round(width)),
-                Math.max(1, Math.round(height)),
-                Bitmap.Config.ARGB_8888
-        );
-        Canvas canvas = new Canvas(bmp);
-        canvas.drawColor(Color.TRANSPARENT);
-        canvas.drawText(text, 4f, -fm.ascent + 2f, paint);
-        return bmp;
-    }
-
     private static String readWidgetStateJson(Context context) {
         try {
             File f = new File(context.getFilesDir(), "lso_widget_state.json");
             if (f.exists()) {
-                byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
-                return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                byte[] bytes = Files.readAllBytes(f.toPath());
+                return new String(bytes, StandardCharsets.UTF_8);
             }
         } catch (Exception ignored) {
         }
