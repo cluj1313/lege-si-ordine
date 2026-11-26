@@ -1,10 +1,16 @@
 package ro.legesiordine.app;
 
+import android.appwidget.AppWidgetManager;
+import android.content.ComponentName;
 import android.os.Bundle;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import ro.legesiordine.app.system.LsoSystemPlugin;
 import ro.legesiordine.app.voice.LsoVoicePlugin;
 
@@ -39,6 +45,33 @@ public class MainActivity extends BridgeActivity {
         web.evaluateJavascript(FLUSH_STALE_SW, null);
     }
 
+    private void refreshWidgetsNow() {
+        try {
+            AppWidgetManager mgr = AppWidgetManager.getInstance(getApplicationContext());
+            ComponentName cn = new ComponentName(getApplicationContext(), LsoClockWidget.class);
+            int[] ids = mgr.getAppWidgetIds(cn);
+            if (ids != null && ids.length > 0) {
+                for (int id : ids) {
+                    LsoClockWidget.updateOneWidget(getApplicationContext(), mgr, id);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    public class LsoWidgetBridge {
+        @JavascriptInterface
+        public void updateWidget(String jsonPayload) {
+            if (jsonPayload == null) return;
+            try {
+                File out = new File(getApplicationContext().getFilesDir(), "lso_widget_state.json");
+                Files.write(out.toPath(), jsonPayload.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception ignored) {
+            }
+            runOnUiThread(() -> refreshWidgetsNow());
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(LsoVoicePlugin.class);
@@ -47,11 +80,16 @@ public class MainActivity extends BridgeActivity {
         WebView web = getBridge() != null ? getBridge().getWebView() : null;
         if (web != null) {
             web.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
+            try {
+                web.addJavascriptInterface(new LsoWidgetBridge(), "LsoWidgetBridge");
+            } catch (Exception ignored) {
+            }
             // Rulează după ce pagina (posibil servită din SW vechi) e în memorie, ca JS-ul să poată dezinstala SW-ul.
             web.post(this::flushStaleServiceWorker);
             web.postDelayed(this::flushStaleServiceWorker, 400);
             web.postDelayed(this::flushStaleServiceWorker, 1600);
         }
+        refreshWidgetsNow();
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
