@@ -214,10 +214,88 @@ async function setClockOn(on) {
   await saveSettings();
 }
 
+function todayIsoLocal() {
+  const d = new Date();
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0')
+  ].join('-');
+}
+
+function formatAlarmDateRo(isoDate) {
+  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return '';
+  const [y, m, d] = isoDate.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+function formatRepeatLabel(a) {
+  const every = Math.max(1, parseInt(a.repeatEvery, 10) || 1);
+  if (a.repeatType === 'hours') return every === 1 ? 'La fiecare oră' : `La ${every} ore`;
+  if (a.repeatType === 'days') return every === 1 ? 'Zilnic' : `La ${every} zile`;
+  return '';
+}
+
+function alarmTimestamp(a) {
+  const dateStr = (a && /^\d{4}-\d{2}-\d{2}$/.test(a.date || '')) ? a.date : todayIsoLocal();
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [hh, mm] = String(a.time || '00:00').split(':').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0).getTime();
+}
+
+function advanceRecurringAlarm(a, nowMs) {
+  const every = Math.max(1, parseInt(a.repeatEvery, 10) || 1);
+  const stepMs = a.repeatType === 'hours' ? every * 3600000 : every * 86400000;
+  let nextMs = alarmTimestamp(a);
+  if (isNaN(nextMs)) nextMs = nowMs;
+  while (nextMs <= nowMs) nextMs += stepMs;
+  const dt = new Date(nextMs);
+  a.date = [
+    dt.getFullYear(),
+    String(dt.getMonth() + 1).padStart(2, '0'),
+    String(dt.getDate()).padStart(2, '0')
+  ].join('-');
+  a.time = String(dt.getHours()).padStart(2, '0') + ':' + String(dt.getMinutes()).padStart(2, '0');
+  a.fired = false;
+}
+
+function syncWidgetAlarmState(list) {
+  const alarms = Array.isArray(list) ? list : loadQuickAlarms();
+  const activeAlarms = alarms
+    .filter(a => a && a.time && !a.fired)
+    .sort((a, b) => alarmTimestamp(a) - alarmTimestamp(b));
+  const inactiveCount = alarms.filter(a => a && a.fired).length;
+  const activeCount = activeAlarms.length;
+  const next = activeAlarms[0] || null;
+  const payload = {
+    activeCount,
+    inactiveCount,
+    ringColor: activeCount > 0 ? 'green' : 'red',
+    nextTime: next ? next.time : '',
+    nextDate: next ? (next.date || todayIsoLocal()) : '',
+    nextPerson: next ? (next.person || '') : '',
+    updatedAt: Date.now()
+  };
+  try { localStorage.setItem('lso_widget_state', JSON.stringify(payload)); } catch {}
+  try {
+    if (window.LsoWidgetBridge && typeof window.LsoWidgetBridge.updateWidget === 'function') {
+      window.LsoWidgetBridge.updateWidget(JSON.stringify(payload));
+    }
+  } catch {}
+  return payload;
+}
+
 function loadQuickAlarms() {
   try {
     const list = JSON.parse(localStorage.getItem('lso_alarms') || '[]');
-    return Array.isArray(list) ? list : [];
+    if (!Array.isArray(list)) return [];
+    const fallbackDate = todayIsoLocal();
+    return list.map(a => ({
+      ...a,
+      date: (a && /^\d{4}-\d{2}-\d{2}$/.test(a.date || '')) ? a.date : fallbackDate,
+      repeatType: (a && (a.repeatType === 'hours' || a.repeatType === 'days')) ? a.repeatType : 'none',
+      repeatEvery: (a && a.repeatEvery) ? Math.max(1, parseInt(a.repeatEvery, 10) || 1) : 1
+    }));
   } catch {
     return [];
   }
@@ -225,11 +303,15 @@ function loadQuickAlarms() {
 
 function saveQuickAlarms(list) {
   try { localStorage.setItem('lso_alarms', JSON.stringify(list)); } catch {}
+  syncWidgetAlarmState(list);
 }
 
 function showAlarmBanner(a) {
   const old = document.getElementById('lso-alarm-ringing');
   if (old) old.remove();
+  const dateTxt = formatAlarmDateRo(a.date);
+  const repTxt = formatRepeatLabel(a);
+  const metaParts = [a.person || 'Alarmă', dateTxt, repTxt].filter(Boolean);
   const banner = h('div', {
     id: 'lso-alarm-ringing',
     style: {
@@ -247,9 +329,7 @@ function showAlarmBanner(a) {
         onclick: () => banner.remove()
       }, 'OK')
     ),
-    h('div', { style: { fontSize: '1rem', fontWeight: '700' } },
-      [a.person || 'Alarmă', a.room ? `Sala ${a.room}` : ''].filter(Boolean).join(' · ')
-    ),
+    h('div', { style: { fontSize: '1rem', fontWeight: '700' } }, metaParts.join(' · ')),
     a.note ? h('div', { style: { fontSize: '0.92rem', opacity: '0.9', background: 'rgba(255,255,255,0.08)', padding: '8px 10px', borderRadius: '8px' } }, a.note) : null
   );
   document.body.append(banner);
@@ -261,6 +341,11 @@ function openQuickAlarmDialog(tab) {
 
   const now = new Date();
   now.setMinutes(now.getMinutes() + 15);
+  const defDate = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0')
+  ].join('-');
   const defTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
 
   const overlay = h('div', { id: 'lso-qa-overlay', style: {
@@ -313,17 +398,39 @@ function openQuickAlarmDialog(tab) {
   iName.addEventListener('click', () => { noteWrap.style.display = 'block'; });
   iName.addEventListener('focus', () => { noteWrap.style.display = 'block'; });
 
-  const iRoom = h('input', { type: 'text', inputMode: 'numeric', placeholder: 'Sala (nr.)', autocomplete: 'off', style: {
+  const iDate = h('input', { type: 'date', value: defDate, 'aria-label': 'Data alarmei', style: {
     width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: '10px',
     border: '1.5px solid #d4c6a3', background: '#fff', color: '#1f1b13', fontSize: '0.95rem'
   } });
 
-  const iTime = h('input', { type: 'time', value: defTime, style: {
+  const iTime = h('input', { type: 'time', value: defTime, 'aria-label': 'Ora alarmei', style: {
     width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: '10px',
     border: '1.5px solid #d4c6a3', background: '#fff', color: '#1f1b13', fontSize: '0.95rem'
   } });
 
-  const grid = h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } }, iRoom, iTime);
+  const gridDateTime = h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } }, iDate, iTime);
+
+  const iRepeatType = h('select', { 'aria-label': 'Repetiție alarmă', style: {
+    width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: '10px',
+    border: '1.5px solid #d4c6a3', background: '#fff', color: '#1f1b13', fontSize: '0.93rem'
+  } },
+    h('option', { value: 'none' }, 'Fără repetiție'),
+    h('option', { value: 'hours' }, 'Repetă la (ore)'),
+    h('option', { value: 'days' }, 'Repetă la (zile)')
+  );
+
+  const iRepeatEvery = h('input', { type: 'number', min: '1', max: '365', value: '1', inputMode: 'numeric', placeholder: 'Nr.', style: {
+    width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: '10px',
+    border: '1.5px solid #d4c6a3', background: '#fff', color: '#1f1b13', fontSize: '0.95rem',
+    display: 'none'
+  } });
+
+  const gridRepeat = h('div', { style: { display: 'grid', gridTemplateColumns: '1fr', gap: '8px' } }, iRepeatType, iRepeatEvery);
+  iRepeatType.addEventListener('change', () => {
+    const hasRep = iRepeatType.value !== 'none';
+    iRepeatEvery.style.display = hasRep ? 'block' : 'none';
+    gridRepeat.style.gridTemplateColumns = hasRep ? '2fr 1fr' : '1fr';
+  });
 
   const saveBtn = h('button', { type: 'button', style: {
     padding: '10px 14px', borderRadius: '12px', border: 'none', background: '#c9a243',
@@ -334,15 +441,22 @@ function openQuickAlarmDialog(tab) {
 
   function drawAlarmsList() {
     listWrap.innerHTML = '';
-    const alarms = loadQuickAlarms().sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+    const alarms = loadQuickAlarms().sort((a, b) => {
+      if (!!a.fired !== !!b.fired) return a.fired ? 1 : -1;
+      return alarmTimestamp(a) - alarmTimestamp(b);
+    });
     if (!alarms.length) {
       listWrap.append(h('div', { style: { fontSize: '0.84rem', color: '#665d4c', padding: '4px 2px' } }, 'Nicio alarmă salvată.'));
       return;
     }
     alarms.forEach(item => {
+      const isInactive = !!item.fired;
       const row = h('div', { style: {
         display: 'flex', flexDirection: 'column', borderRadius: '10px',
-        background: '#fff', border: '1px solid #e5dcc9', overflow: 'hidden'
+        background: isInactive ? '#f4efe3' : '#fff',
+        border: isInactive ? '1px solid #dfd3bc' : '1px solid #e5dcc9',
+        opacity: isInactive ? '0.78' : '1',
+        overflow: 'hidden'
       } });
 
       const line = h('div', { style: {
@@ -350,22 +464,47 @@ function openQuickAlarmDialog(tab) {
         gap: '8px', minHeight: '38px', padding: '6px 8px 6px 10px'
       } });
 
+      const dateStr = formatAlarmDateRo(item.date);
+      const repStr = formatRepeatLabel(item);
+      const badgeText = [dateStr, repStr].filter(Boolean).join(' · ');
+
       const trigger = h('button', { type: 'button', 'aria-expanded': 'false', style: {
         flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '8px',
         padding: 0, border: 'none', background: 'transparent', color: '#1f1b13',
         textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden'
       } },
-        h('span', { style: { fontWeight: 700, fontSize: '0.9rem', color: '#171512', flexShrink: 0 } }, item.time || '--:--'),
+        h('span', { style: { fontWeight: 700, fontSize: '0.9rem', color: isInactive ? '#8b3a3a' : '#171512', flexShrink: 0 } }, item.time || '--:--'),
         h('span', { style: { fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.person || 'Alarmă'),
-        item.room ? h('span', { style: { fontSize: '0.8rem', color: '#665d4c', flexShrink: 0, marginLeft: 'auto' } }, 'Sala ' + item.room) : null
+        badgeText ? h('span', { style: { fontSize: '0.76rem', color: '#665d4c', flexShrink: 0, marginLeft: 'auto' } }, badgeText) : null
       );
 
       const drawer = h('div', { style: { display: 'none', padding: '0 10px 8px 10px' } },
         h('div', { style: {
           fontSize: '0.82rem', color: '#4a4232', background: '#f8f3e6',
           padding: '6px 8px', borderRadius: '8px', borderLeft: '2.5px solid #c9a243',
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word'
-        } }, item.note || 'Nicio notă adăugată.')
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px'
+        } },
+          h('span', {}, item.note || 'Nicio notă adăugată.'),
+          isInactive ? h('button', {
+            type: 'button',
+            style: {
+              padding: '4px 8px', borderRadius: '8px', border: '1px solid #c9a243',
+              background: '#fff', color: '#171512', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0
+            },
+            onclick: () => {
+              const all = loadQuickAlarms();
+              const found = all.find(x => x.id === item.id);
+              if (found) {
+                found.fired = false;
+                if (alarmTimestamp(found) <= Date.now()) found.date = todayIsoLocal();
+                saveQuickAlarms(all);
+                drawAlarmsList();
+                renderUrgentClock(tab);
+              }
+            }
+          }, 'Reactivează') : null
+        )
       );
 
       trigger.addEventListener('click', () => {
@@ -392,32 +531,39 @@ function openQuickAlarmDialog(tab) {
 
   saveBtn.addEventListener('click', () => {
     const person = toTitleCaseRo(iName.value.trim());
-    const room = iRoom.value.trim();
+    const date = iDate.value || todayIsoLocal();
     const rawTime = iTime.value.trim();
     const time = normalizeAlarm(rawTime) || rawTime;
+    const repeatType = iRepeatType.value || 'none';
+    const repeatEvery = repeatType === 'none' ? 1 : Math.max(1, parseInt(iRepeatEvery.value, 10) || 1);
     const note = autoCapFirst(iNote.value.trim());
     if (!time) { toast('Alege ora alarmei'); return; }
     const alarms = loadQuickAlarms();
     alarms.push({
       id: Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       person: person || 'Alarmă',
-      room,
+      date,
       time,
+      repeatType,
+      repeatEvery,
       note,
       fired: false
     });
     saveQuickAlarms(alarms);
     iName.value = '';
-    iRoom.value = '';
     iNote.value = '';
+    iRepeatType.value = 'none';
+    iRepeatEvery.value = '1';
+    iRepeatEvery.style.display = 'none';
+    gridRepeat.style.gridTemplateColumns = '1fr';
     noteWrap.style.display = 'none';
-    toast('Alarmă salvată pentru ' + time);
+    toast(`Alarmă salvată: ${formatAlarmDateRo(date)}, ${time}`);
     drawAlarmsList();
     renderUrgentClock(tab);
   });
 
   drawAlarmsList();
-  box.append(head, iName, noteWrap, grid, saveBtn, listWrap);
+  box.append(head, iName, noteWrap, gridDateTime, gridRepeat, saveBtn, listWrap);
   overlay.append(box);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   document.body.append(overlay);
@@ -428,15 +574,20 @@ function renderUrgentClock(tab) {
   const old = document.getElementById('urgent-clock');
   if (old) old.remove();
   if (clockTimer) { clearTimeout(clockTimer); clockTimer = 0; }
+  const allAlarms = loadQuickAlarms();
+  syncWidgetAlarmState(allAlarms);
   if (!isClockOn()) return;
   const now = new Date();
   const timeStr = now.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
   let nextLabel = 'fără alarmă';
   try {
-    const alarms = loadQuickAlarms().filter(a => a && a.time && !a.fired).sort((a, b) => a.time.localeCompare(b.time));
+    const alarms = allAlarms
+      .filter(a => a && a.time && !a.fired)
+      .sort((a, b) => alarmTimestamp(a) - alarmTimestamp(b));
     if (alarms.length) {
       const a = alarms[0];
-      nextLabel = '⏰ ' + a.time + (a.room ? ' · S.' + a.room : '');
+      const shortDate = a.date ? a.date.slice(8, 10) + '.' + a.date.slice(5, 7) : '';
+      nextLabel = '⏰ ' + a.time + (shortDate ? ' · ' + shortDate : '');
     }
   } catch {}
   const clk = h('div', { id: 'urgent-clock', style: {
@@ -482,28 +633,40 @@ function normalizeAlarm(raw) {
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 
-// Checker de alarmă – afișează notificare vizuală clară cu ora, numele, sala și nota + sunet și vibrație
+// Checker de alarmă – verifică data și ora, aplică repetiția la X ore/zile sau trece în inactivă
 setInterval(() => {
   try {
     const now = new Date();
+    const nowMs = now.getTime();
+    const today = todayIsoLocal();
     const hh = String(now.getHours()).padStart(2, '0');
     const mm = String(now.getMinutes()).padStart(2, '0');
     const cur = hh + ':' + mm;
     const alarms = loadQuickAlarms();
     let changed = false;
     for (const a of alarms) {
-      if (a && a.time === cur && !a.fired) {
-        a.fired = true;
+      if (!a || a.fired) continue;
+      const dueDate = a.date || today;
+      const isDueNow = dueDate === today && a.time === cur;
+      const isOverdue = alarmTimestamp(a) < nowMs - 60000;
+      if (isDueNow || isOverdue) {
         changed = true;
-        showAlarmBanner(a);
-        try { if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 400]); } catch {}
-        try {
-          const ctx = new (window.AudioContext || window.webkitAudioContext)();
-          const o = ctx.createOscillator(); const g = ctx.createGain();
-          o.connect(g); g.connect(ctx.destination);
-          o.frequency.value = 880; g.gain.value = 0.35;
-          o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 750);
-        } catch {}
+        if (isDueNow) {
+          showAlarmBanner({ ...a });
+          try { if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 400]); } catch {}
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const o = ctx.createOscillator(); const g = ctx.createGain();
+            o.connect(g); g.connect(ctx.destination);
+            o.frequency.value = 880; g.gain.value = 0.35;
+            o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 750);
+          } catch {}
+        }
+        if (a.repeatType === 'hours' || a.repeatType === 'days') {
+          advanceRecurringAlarm(a, nowMs);
+        } else {
+          a.fired = true;
+        }
       }
     }
     if (changed) {
@@ -513,7 +676,6 @@ setInterval(() => {
     }
   } catch {}
 }, 5000);
-
 // ---- FAB-uri Overlay: „+” și Microfonul peste toate paginile și dosarele ----
 function renderFab(tab) {
   const fabs = $('#fabs');
