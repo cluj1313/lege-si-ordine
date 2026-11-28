@@ -1,7 +1,5 @@
 package ro.legesiordine.app;
 
-import android.appwidget.AppWidgetManager;
-import android.content.ComponentName;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -9,12 +7,15 @@ import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import ro.legesiordine.app.system.LsoSystemPlugin;
 import ro.legesiordine.app.voice.LsoVoicePlugin;
 
 public class MainActivity extends BridgeActivity {
+    private static final String STATE_FILE_NAME = "lso_widget_state.json";
+
     // Dezinstalează un service worker rămas pe https://localhost (cache-first din 1.2.2)
     // care ar putea servi CSS/JS vechi peste APK-ul nou. Nu atinge IndexedDB.
     private static final String FLUSH_STALE_SW =
@@ -47,14 +48,17 @@ public class MainActivity extends BridgeActivity {
 
     private void refreshWidgetsNow() {
         try {
-            AppWidgetManager mgr = AppWidgetManager.getInstance(getApplicationContext());
-            ComponentName cn = new ComponentName(getApplicationContext(), LsoClockWidget.class);
-            int[] ids = mgr.getAppWidgetIds(cn);
-            if (ids != null && ids.length > 0) {
-                for (int id : ids) {
-                    LsoClockWidget.updateOneWidget(getApplicationContext(), mgr, id);
-                }
-            }
+            LsoClockWidget.refreshAllWidgets(getApplicationContext());
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void writeWidgetStateJson(String jsonPayload) {
+        File out = new File(getApplicationContext().getFilesDir(), STATE_FILE_NAME);
+        try (FileOutputStream fos = new FileOutputStream(out, false);
+             OutputStreamWriter osw = new OutputStreamWriter(fos, StandardCharsets.UTF_8)) {
+            osw.write(jsonPayload);
+            osw.flush();
         } catch (Exception ignored) {
         }
     }
@@ -63,11 +67,7 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public void updateWidget(String jsonPayload) {
             if (jsonPayload == null) return;
-            try {
-                File out = new File(getApplicationContext().getFilesDir(), "lso_widget_state.json");
-                Files.write(out.toPath(), jsonPayload.getBytes(StandardCharsets.UTF_8));
-            } catch (Exception ignored) {
-            }
+            writeWidgetStateJson(jsonPayload);
             runOnUiThread(() -> refreshWidgetsNow());
         }
     }
