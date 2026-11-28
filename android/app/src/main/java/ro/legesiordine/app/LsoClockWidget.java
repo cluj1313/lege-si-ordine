@@ -10,13 +10,17 @@ import android.widget.RemoteViews;
 
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.Calendar;
 import java.util.Locale;
 
 public class LsoClockWidget extends AppWidgetProvider {
+
+    private static final String STATE_FILE_NAME = "lso_widget_state.json";
 
     private static final String[] DAYS_RO = {
             "", "duminică", "luni", "marți", "miercuri", "joi", "vineri", "sâmbătă"
@@ -35,21 +39,27 @@ public class LsoClockWidget extends AppWidgetProvider {
                 || Intent.ACTION_TIME_CHANGED.equals(action)
                 || Intent.ACTION_DATE_CHANGED.equals(action)
                 || Intent.ACTION_TIMEZONE_CHANGED.equals(action)) {
-            AppWidgetManager mgr = AppWidgetManager.getInstance(context);
-            ComponentName cn = new ComponentName(context, LsoClockWidget.class);
-            int[] ids = mgr.getAppWidgetIds(cn);
-            if (ids != null) {
-                for (int id : ids) {
-                    updateOneWidget(context, mgr, id);
-                }
-            }
+            refreshAllWidgets(context);
         }
     }
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
+        if (appWidgetIds == null) return;
         for (int appWidgetId : appWidgetIds) {
             updateOneWidget(context, appWidgetManager, appWidgetId);
+        }
+    }
+
+    static void refreshAllWidgets(Context context) {
+        AppWidgetManager mgr = AppWidgetManager.getInstance(context);
+        if (mgr == null) return;
+        ComponentName cn = new ComponentName(context, LsoClockWidget.class);
+        int[] ids = mgr.getAppWidgetIds(cn);
+        if (ids != null) {
+            for (int id : ids) {
+                updateOneWidget(context, mgr, id);
+            }
         }
     }
 
@@ -61,11 +71,15 @@ public class LsoClockWidget extends AppWidgetProvider {
         String mm = String.format(Locale.getDefault(), "%02d", cal.get(Calendar.MINUTE));
         String timeText = hh + ":" + mm;
 
-        String dayName = DAYS_RO[cal.get(Calendar.DAY_OF_WEEK)];
+        int dayOfWeek = cal.get(Calendar.DAY_OF_WEEK);
+        String dayName = (dayOfWeek >= 1 && dayOfWeek < DAYS_RO.length) ? DAYS_RO[dayOfWeek] : "";
         int dayNum = cal.get(Calendar.DAY_OF_MONTH);
-        String monthName = MONTHS_RO[cal.get(Calendar.MONTH)];
+        int monthIndex = cal.get(Calendar.MONTH);
+        String monthName = (monthIndex >= 0 && monthIndex < MONTHS_RO.length) ? MONTHS_RO[monthIndex] : "";
         int year = cal.get(Calendar.YEAR);
-        String dateText = dayName + ", " + dayNum + " " + monthName + " " + year;
+        String dateText = dayName.isEmpty()
+                ? (dayNum + " " + monthName + " " + year)
+                : (dayName + ", " + dayNum + " " + monthName + " " + year);
 
         int activeCount = 0;
         String ringColor = "red";
@@ -73,7 +87,7 @@ public class LsoClockWidget extends AppWidgetProvider {
             String jsonStr = readWidgetStateJson(context);
             if (jsonStr != null && !jsonStr.isEmpty()) {
                 JSONObject obj = new JSONObject(jsonStr);
-                activeCount = obj.optInt("activeCount", 0);
+                activeCount = Math.max(0, obj.optInt("activeCount", 0));
                 ringColor = obj.optString("ringColor", activeCount > 0 ? "green" : "red");
             }
         } catch (Exception ignored) {
@@ -82,7 +96,7 @@ public class LsoClockWidget extends AppWidgetProvider {
         views.setTextViewText(R.id.widget_time, timeText);
         views.setTextViewText(R.id.widget_date, dateText);
 
-        int ringRes = "green".equals(ringColor) ? R.drawable.widget_ring_green : R.drawable.widget_ring_red;
+        int ringRes = "green".equalsIgnoreCase(ringColor) ? R.drawable.widget_ring_green : R.drawable.widget_ring_red;
         views.setInt(R.id.widget_ring, "setBackgroundResource", ringRes);
         views.setTextViewText(R.id.widget_ring, String.valueOf(activeCount));
 
@@ -101,14 +115,21 @@ public class LsoClockWidget extends AppWidgetProvider {
     }
 
     private static String readWidgetStateJson(Context context) {
-        try {
-            File f = new File(context.getFilesDir(), "lso_widget_state.json");
-            if (f.exists()) {
-                byte[] bytes = Files.readAllBytes(f.toPath());
-                return new String(bytes, StandardCharsets.UTF_8);
-            }
-        } catch (Exception ignored) {
+        File f = new File(context.getFilesDir(), STATE_FILE_NAME);
+        if (!f.exists() || !f.isFile()) {
+            return null;
         }
-        return null;
+        StringBuilder sb = new StringBuilder();
+        try (FileInputStream fis = new FileInputStream(f);
+             InputStreamReader isr = new InputStreamReader(fis, StandardCharsets.UTF_8);
+             BufferedReader br = new BufferedReader(isr)) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                sb.append(line);
+            }
+            return sb.toString();
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 }
